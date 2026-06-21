@@ -1,0 +1,93 @@
+{
+  "name": "Hendrik",
+  "location": {
+    "name": "Ludwigsfelde",
+    "lat": 52.30,
+    "lon": 13.25
+  },
+  "weight_kg": 84,
+  "ftp_watt": 286,
+  "run_threshold_pace": "5:20",
+  "css_per_100m": "2:20",
+  "threshold_hr_bike": 145,
+  "threshold_hr_run": 150,
+  "swim_outdoor_min_celsius": 15,
+  "races": [
+    {
+      "name": "Altmark-Triathlon",
+      "date": "2026-07-12",
+      "priority": "B",
+      "distance": "Olympisch"
+    },
+    {
+      "name": "GEWOBA Bremen",
+      "date": "2026-08-09",
+      "priority": "B",
+      "distance": "70.3"
+    },
+    {
+      "name": "Castle Triathlon Malbork",
+      "date": "2026-09-06",
+      "priority": "A",
+      "distance": "Langdistanz",
+      "goal_total": "10:50",
+      "goal_swim": "1:20",
+      "goal_bike": "5:20",
+      "goal_run": "4:01"
+    }
+  ],
+  "zones_bike_hr": {
+    "z1_max": 117,
+    "z2_min": 117,
+    "z2_max": 130,
+    "z3_min": 131,
+    "z3_max": 137,
+    "z4_min": 138,
+    "z4_max": 145,
+    "z5_min": 146
+  },
+  "zones_run_pace": {
+    "z1_slower_than": "6:30",
+    "z2": "6:00-6:30",
+    "z3": "5:45-6:00",
+    "z4": "5:10-5:30"
+  },
+  "nutrition": {
+    "mix": "Maltodextrin 19 + Fruchtzucker 2:1",
+    "carbs_per_hour_g": 90,
+    "fluid_per_hour_ml": 600,
+    "fluid_heat_per_hour_ml": 750,
+    "salt_per_hour": 1,
+    "salt_heat_per_hour": 2,
+    "heat_threshold_celsius": 25,
+    "rules": [
+      {
+        "duration_max_min": 60,
+        "before": "Nüchtern oder kleines Frühstück",
+        "during": "Wasser reicht",
+        "after": "Normale Mahlzeit binnen 1h"
+      },
+      {
+        "duration_min_min": 60,
+        "duration_max_min": 90,
+        "before": "Leichtes Frühstück 2h vorher",
+        "during": "Wasser reicht",
+        "after": "Mahlzeit binnen 1h"
+      },
+      {
+        "duration_min_min": 90,
+        "duration_max_min": 180,
+        "before": "KH-reiches Frühstück 2h vorher",
+        "during": "90g Carbs/h (Maltodextrin 19 + Fruchtzucker 2:1) + 1 Saltstick/h",
+        "after": "25g Protein + Carbs binnen 30 min"
+      },
+      {
+        "duration_min_min": 180,
+        "before": "Renntag-Protokoll: 100g Carbs (wenig Ballaststoffe) 2h vorher",
+        "during": "90g Carbs/h + 1-2 Saltstick/h",
+        "after": "Recovery-Mahlzeit binnen 30 min"
+      }
+    ]
+  },
+  "updated": "2026-06-20"
+}

@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>KI Coach</title>
+<style>
+:root {
+  --bg: #0f0f13;
+  --card: #1a1a24;
+  --card2: #21212f;
+  --border: #2a2a3a;
+  --green: #1D9E75;
+  --orange: #EF9F27;
+  --red: #E24B4A;
+  --text: #e8e8e8;
+  --muted: #888;
+  --muted2: #555;
+  --radius: 12px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bot: env(safe-area-inset-bottom, 0px);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html { background: var(--bg); }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+  font-size: 15px;
+  max-width: 430px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  padding-bottom: calc(24px + var(--safe-bot));
+}
+
+/* ── header ──────────────────────────────────────────────────────────────── */
+.header {
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  padding: calc(14px + var(--safe-top)) 18px 14px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.app-title { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
+.countdown-chip {
+  background: rgba(29,158,117,.15);
+  color: var(--green);
+  border: 1px solid rgba(29,158,117,.3);
+  border-radius: 20px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.race-strip {
+  margin-top: 8px;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+.race-strip::-webkit-scrollbar { display: none; }
+.race-chip {
+  flex-shrink: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.race-chip.a-race { border-color: rgba(239,159,39,.4); color: var(--orange); }
+
+/* ── tabs ─────────────────────────────────────────────────────────────────── */
+.tabs {
+  display: flex;
+  padding: 12px 16px 0;
+  gap: 8px;
+}
+.tab-btn {
+  flex: 1;
+  padding: 11px 0;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.tab-btn.active { background: var(--card2); border-bottom-color: var(--card2); color: var(--text); }
+
+/* ── forms ───────────────────────────────────────────────────────────────── */
+.tab-panel { display: none; padding: 0 16px; }
+.tab-panel.active { display: block; }
+.form-card {
+  background: var(--card2);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius);
+  padding: 20px 16px;
+  margin-bottom: 16px;
+}
+.section-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--muted);
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.form-section { margin-bottom: 20px; }
+.field-row { margin-bottom: 14px; }
+.field-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.slider-val {
+  font-size: 15px;
+  font-weight: 700;
+  min-width: 28px;
+  text-align: right;
+}
+.slider-val.ok   { color: var(--green); }
+.slider-val.warn { color: var(--orange); }
+.slider-val.bad  { color: var(--red); }
+input[type=range] {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 5px;
+  background: var(--border);
+  border-radius: 3px;
+  outline: none;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--green);
+  cursor: pointer;
+  border: 3px solid var(--bg);
+  transition: background .15s;
+}
+input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
+.scale-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--muted2);
+  margin-top: 3px;
+}
+
+/* Müdigkeit buttons */
+.muedigkeit-group {
+  display: flex;
+  gap: 8px;
+}
+.mud-btn {
+  flex: 1;
+  padding: 12px 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all .15s;
+  text-align: center;
+}
+.mud-btn.active { background: rgba(29,158,117,.18); border-color: var(--green); color: var(--green); }
+.mud-btn[data-value="4"].active,
+.mud-btn[data-value="5"].active { background: rgba(239,159,39,.15); border-color: var(--orange); color: var(--orange); }
+
+/* pill groups */
+.pill-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.pill {
+  padding: 8px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all .15s;
+  user-select: none;
+}
+.pill.active {
+  background: rgba(29,158,117,.18);
+  border-color: var(--green);
+  color: var(--green);
+}
+.pill.active.pill-sport-schwimmen { background: rgba(29,158,117,.18); border-color: var(--green); color: var(--green); }
+.pill-radio .pill.active { background: rgba(239,159,39,.12); border-color: var(--orange); color: var(--orange); }
+.pill-radio .pill[data-value="keine"].active,
+.pill-radio .pill[data-value="besser"].active { background: rgba(29,158,117,.18); border-color: var(--green); color: var(--green); }
+.pill-radio .pill[data-value="neu schwer (Fieber/Körperschmerzen)"].active { background: rgba(226,75,74,.15); border-color: var(--red); color: var(--red); }
+
+/* file upload */
+.upload-area {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .2s;
+}
+.upload-area:hover, .upload-area.has-file { border-color: var(--green); }
+.upload-area input { display: none; }
+.upload-icon { font-size: 28px; margin-bottom: 6px; }
+.upload-label { font-size: 13px; color: var(--muted); }
+.upload-label strong { color: var(--text); }
+.upload-filename { color: var(--green); font-size: 13px; margin-top: 6px; }
+
+/* wasser temp */
+.wasser-row { display: none; }
+.text-input {
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 15px;
+  outline: none;
+  transition: border-color .15s;
+}
+.text-input:focus { border-color: var(--green); }
+
+/* submit button */
+.btn-submit {
+  width: 100%;
+  padding: 16px;
+  background: var(--green);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-top: 4px;
+  transition: opacity .15s;
+  letter-spacing: 0.2px;
+}
+.btn-submit:active { opacity: 0.85; }
+
+/* ── loading ──────────────────────────────────────────────────────────────── */
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15,15,19,.85);
+  backdrop-filter: blur(4px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  gap: 16px;
+}
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border);
+  border-top-color: var(--green);
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { color: var(--muted); font-size: 14px; }
+
+/* ── error banner ─────────────────────────────────────────────────────────── */
+.error-banner {
+  margin: 12px 16px;
+  padding: 12px 16px;
+  background: rgba(226,75,74,.15);
+  border: 1px solid rgba(226,75,74,.35);
+  border-radius: var(--radius);
+  color: var(--red);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* ── result card ──────────────────────────────────────────────────────────── */
+.result-wrap { padding: 0 16px; }
+.dark-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.status-green { background: rgba(29,158,117,.2); color: var(--green); border: 1px solid rgba(29,158,117,.3); }
+.status-orange { background: rgba(239,159,39,.15); color: var(--orange); border: 1px solid rgba(239,159,39,.3); }
+.status-red { background: rgba(226,75,74,.15); color: var(--red); border: 1px solid rgba(226,75,74,.3); }
+.countdown-sm { font-size: 12px; color: var(--muted); }
+
+.card-section {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.card-section:last-child { border-bottom: none; }
+.section-lbl { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted2); margin-bottom: 10px; }
+
+.metrics-row { display: flex; gap: 12px; margin-bottom: 8px; }
+.metric { display: flex; flex-direction: column; }
+.metric-v { font-size: 15px; font-weight: 700; }
+.metric-l { font-size: 10px; color: var(--muted); margin-top: 1px; }
+
+.flag-line { font-size: 13px; color: var(--orange); margin-bottom: 3px; }
+.flag-ok { font-size: 13px; color: var(--green); }
+
+.weather-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 6px; }
+.weather-temp { font-size: 16px; font-weight: 700; }
+.weather-desc { font-size: 13px; color: var(--muted); }
+.weather-rain { font-size: 12px; color: var(--orange); background: rgba(239,159,39,.1); padding: 2px 8px; border-radius: 10px; }
+.weather-thunder { font-size: 12px; color: var(--red); background: rgba(226,75,74,.1); padding: 2px 8px; border-radius: 10px; }
+.card-hint { font-size: 13px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+
+.metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.mc {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 6px;
+  text-align: center;
+}
+.mc.warn { border-color: rgba(239,159,39,.4); }
+.mc.bad  { border-color: rgba(226,75,74,.4); }
+.mc-v { font-size: 14px; font-weight: 700; display: block; }
+.mc-l { font-size: 10px; color: var(--muted); display: block; margin-top: 2px; }
+.mc.warn .mc-v { color: var(--orange); }
+.mc.bad  .mc-v { color: var(--red); }
+
+.sport-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+}
+.sport-card:last-child { margin-bottom: 0; }
+.sport-header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+.badge-go   { background: rgba(29,158,117,.2);  color: var(--green);  }
+.badge-mod  { background: rgba(239,159,39,.18); color: var(--orange); }
+.badge-skip { background: rgba(226,75,74,.18);  color: var(--red);    }
+.sport-name { font-size: 15px; font-weight: 600; }
+.sport-details { font-size: 13px; color: var(--muted); line-height: 1.5; margin-bottom: 4px; }
+.sport-ernaehrung { font-size: 12px; color: var(--muted2); line-height: 1.4; }
+
+.prep-section { background: rgba(29,158,117,.05); }
+.prep-text { font-size: 14px; color: var(--text); line-height: 1.6; font-style: italic; }
+
+.btn-back {
+  width: 100%;
+  padding: 14px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: 14px;
+  cursor: pointer;
+  margin-bottom: 8px;
+  transition: border-color .15s, color .15s;
+}
+.btn-back:active { border-color: var(--green); color: var(--green); }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header class="header">
+  <div class="header-row">
+    <span class="app-title">KI Coach</span>
+    <span class="countdown-chip" id="countdown-chip">Laden…</span>
+  </div>
+  <div class="race-strip" id="race-strip"></div>
+</header>
+
+<!-- Tabs -->
+<div class="tabs">
+  <button class="tab-btn active" data-tab="abend">Abend-Check</button>
+  <button class="tab-btn" data-tab="morgen">Morgen-Check</button>
+</div>
+
+<!-- Error banner -->
+<div class="error-banner" id="error-banner" style="display:none"></div>
+
+<!-- Form section -->
+<div id="form-section">
+
+  <!-- Abend Form -->
+  <div class="tab-panel active" data-panel="abend">
+    <form class="form-card" id="form-abend" novalidate>
+      <p class="section-title">Körperzustand heute Abend</p>
+
+      <div class="form-section">
+        <!-- Knie -->
+        <div class="field-row">
+          <div class="field-label">
+            <span>Knie</span>
+            <span class="slider-val ok" id="knie-abend-val">0</span>
+          </div>
+          <input type="range" id="knie-abend" min="0" max="10" step="0.5" value="0">
+          <div class="scale-labels"><span>0 — kein Schmerz</span><span>10 — max</span></div>
+        </div>
+
+        <!-- Achilles L -->
+        <div class="field-row">
+          <div class="field-label">
+            <span>Achillessehne L</span>
+            <span class="slider-val ok" id="achilles-l-abend-val">0</span>
+          </div>
+          <input type="range" id="achilles-l-abend" min="0" max="10" step="0.5" value="0">
+        </div>
+
+        <!-- Achilles R -->
+        <div class="field-row">
+          <div class="field-label">
+            <span>Achillessehne R</span>
+            <span class="slider-val ok" id="achilles-r-abend-val">0</span>
+          </div>
+          <input type="range" id="achilles-r-abend" min="0" max="10" step="0.5" value="0">
+        </div>
+      </div>
+
+      <!-- Müdigkeit -->
+      <div class="form-section">
+        <div class="field-label" style="margin-bottom:12px">
+          <span>Müdigkeit</span>
+          <span style="font-size:12px;color:var(--muted)">1 = frisch · 5 = erschöpft</span>
+        </div>
+        <div class="muedigkeit-group" id="muedigkeit-group">
+          <button type="button" class="mud-btn active" data-value="1">1</button>
+          <button type="button" class="mud-btn" data-value="2">2</button>
+          <button type="button" class="mud-btn" data-value="3">3</button>
+          <button type="button" class="mud-btn" data-value="4">4</button>
+          <button type="button" class="mud-btn" data-value="5">5</button>
+        </div>
+      </div>
+
+      <!-- Muskelkater -->
+      <div class="form-section">
+        <div class="field-label" style="margin-bottom:12px"><span>Muskelkater</span></div>
+        <div class="pill-group" id="muskelkater-group">
+          <button type="button" class="pill active" data-group="muskelkater" data-value="keine">keine</button>
+          <button type="button" class="pill" data-group="muskelkater" data-value="Waden">Waden</button>
+          <button type="button" class="pill" data-group="muskelkater" data-value="Oberschenkel">Oberschenkel</button>
+          <button type="button" class="pill" data-group="muskelkater" data-value="Beine allgemein">Beine</button>
+          <button type="button" class="pill" data-group="muskelkater" data-value="Oberkörper">Oberkörper</button>
+          <button type="button" class="pill" data-group="muskelkater" data-value="Ganzkörper">Ganzkörper</button>
+        </div>
+      </div>
+
+      <!-- Symptome -->
+      <div class="form-section">
+        <div class="field-label" style="margin-bottom:12px"><span>Symptome</span></div>
+        <div class="pill-group pill-radio" id="symptome-abend-group">
+          <button type="button" class="pill active" data-group="symptome-abend" data-value="keine">keine</button>
+          <button type="button" class="pill" data-group="symptome-abend" data-value="besser">besser</button>
+          <button type="button" class="pill" data-group="symptome-abend" data-value="gleich leicht (Schnupfen/Kopfdruck)">gleich leicht</button>
+          <button type="button" class="pill" data-group="symptome-abend" data-value="schlechter">schlechter</button>
+          <button type="button" class="pill" data-group="symptome-abend" data-value="neu leicht">neu leicht</button>
+          <button type="button" class="pill" data-group="symptome-abend" data-value="neu mittel (Halsschmerzen/Husten)">neu mittel</button>
+          <button type="button" class="pill" data-group="symptome-abend" data-value="neu schwer (Fieber/Körperschmerzen)">neu schwer</button>
+        </div>
+      </div>
+
+      <!-- Geplante Einheiten -->
+      <div class="form-section">
+        <div class="field-label" style="margin-bottom:12px"><span>Geplante Einheiten morgen</span></div>
+        <div class="pill-group" id="einheiten-abend-group">
+          <button type="button" class="pill" data-group="einheiten-abend" data-value="Schwimmen">Schwimmen</button>
+          <button type="button" class="pill" data-group="einheiten-abend" data-value="Rad">Rad</button>
+          <button type="button" class="pill" data-group="einheiten-abend" data-value="Lauf">Lauf</button>
+          <button type="button" class="pill" data-group="einheiten-abend" data-value="STABI">STABI</button>
+        </div>
+      </div>
+
+      <!-- Wassertemperatur (hidden unless Schwimmen selected) -->
+      <div class="form-section wasser-row" id="wasser-row">
+        <div class="field-label" style="margin-bottom:10px">
+          <span>Wassertemperatur Freibad</span>
+          <span style="font-size:12px;color:var(--muted)">optional</span>
+        </div>
+        <input type="number" id="wasser-temp" class="text-input" placeholder="z.B. 22" min="10" max="35" step="0.5">
+      </div>
+
+      <button type="submit" class="btn-submit">Abend-Check starten</button>
+    </form>
+  </div>
+
+  <!-- Morgen Form -->
+  <div class="tab-panel" data-panel="morgen">
+    <form class="form-card" id="form-morgen" enctype="multipart/form-data" novalidate>
+      <p class="section-title">Körperzustand heute Morgen</p>
+
+      <div class="form-section">
+        <!-- Waden -->
+        <div class="field-row">
+          <div class="field-label">
+            <span>Waden</span>
+            <span class="slider-val ok" id="waden-morgen-val">0</span>
+          </div>
+          <input type="range" id="waden-morgen" min="0" max="10" step="0.5" value="0">
+          <div class="scale-labels"><span>0 — kein Schmerz</span><span>10 — max</span></div>
+        </div>
+
+        <!-- Knie -->
+        <div class="field-row">
+          <div class="field-label">
+            <span>Knie</span>
+            <span class="slider-val ok" id="knie-morgen-val">0</span>
+          </div>
+          <input type="range" id="knie-morgen" min="0" max="10" step="0.5" value="0">
+        </div>
+
+        <!-- Achilles L -->
+        <div class="field-row">
+          <div class="field-label">
+            <span>Achillessehne L</span>
+            <span class="slider-val ok" id="achilles-l-morgen-val">0</span>
+          </div>
+          <input type="range" id="achilles-l-morgen" min="0" max="10" step="0.5" value="0">
+        </div>
+
+        <!-- Achilles R -->
+        <div class="field-row">
+          <div class="field-label">
+            <span>Achillessehne R</span>
+            <span class="slider-val ok" id="achilles-r-morgen-val">0</span>
+          </div>
+          <input type="range" id="achilles-r-morgen" min="0" max="10" step="0.5" value="0">
+        </div>
+      </div>
+
+      <!-- Symptome -->
+      <div class="form-section">
+        <div class="field-label" style="margin-bottom:12px"><span>Symptome</span></div>
+        <div class="pill-group pill-radio" id="symptome-morgen-group">
+          <button type="button" class="pill active" data-group="symptome-morgen" data-value="keine">keine</button>
+          <button type="button" class="pill" data-group="symptome-morgen" data-value="besser">besser</button>
+          <button type="button" class="pill" data-group="symptome-morgen" data-value="gleich leicht (Schnupfen/Kopfdruck)">gleich leicht</button>
+          <button type="button" class="pill" data-group="symptome-morgen" data-value="schlechter">schlechter</button>
+          <button type="button" class="pill" data-group="symptome-morgen" data-value="neu leicht">neu leicht</button>
+          <button type="button" class="pill" data-group="symptome-morgen" data-value="neu mittel (Halsschmerzen/Husten)">neu mittel</button>
+          <button type="button" class="pill" data-group="symptome-morgen" data-value="neu schwer (Fieber/Körperschmerzen)">neu schwer</button>
+        </div>
+      </div>
+
+      <!-- Geplante Einheiten -->
+      <div class="form-section">
+        <div class="field-label" style="margin-bottom:12px"><span>Geplante Einheiten heute</span></div>
+        <div class="pill-group" id="einheiten-morgen-group">
+          <button type="button" class="pill" data-group="einheiten-morgen" data-value="Schwimmen">Schwimmen</button>
+          <button type="button" class="pill" data-group="einheiten-morgen" data-value="Rad">Rad</button>
+          <button type="button" class="pill" data-group="einheiten-morgen" data-value="Lauf">Lauf</button>
+          <button type="button" class="pill" data-group="einheiten-morgen" data-value="STABI">STABI</button>
+        </div>
+      </div>
+
+      <!-- AutoSleep CSV -->
+      <div class="form-section">
+        <div class="field-label" style="margin-bottom:12px">
+          <span>AutoSleep CSV</span>
+          <span style="font-size:12px;color:var(--muted)">optional</span>
+        </div>
+        <label class="upload-area" id="upload-area" for="csv-upload">
+          <input type="file" id="csv-upload" accept=".csv">
+          <div class="upload-icon">📊</div>
+          <div class="upload-label"><strong>CSV hochladen</strong> oder tippen</div>
+          <div class="upload-filename" id="upload-filename" style="display:none"></div>
+        </label>
+      </div>
+
+      <button type="submit" class="btn-submit">Morgen-Check starten</button>
+    </form>
+  </div>
+
+</div><!-- #form-section -->
+
+<!-- Result section -->
+<div id="result-section" style="display:none" class="result-wrap"></div>
+
+<!-- Loading overlay -->
+<div class="loading-overlay" id="loading-overlay" style="display:none">
+  <div class="spinner"></div>
+  <div class="loading-text">Claude analysiert…</div>
+</div>
+
+<script>
+'use strict';
+
+let athlete = null;
+
+// ── init ─────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', async () => {
+  try {
+    const r = await fetch('/api/athlete');
+    athlete = await r.json();
+    renderHeader();
+  } catch(e) {
+    showError('Athleten-Profil konnte nicht geladen werden.');
+  }
+  initSliders();
+  initTabs();
+  initPills();
+  initForms();
+  initUpload();
+});
+
+// ── header ───────────────────────────────────────────────────────────────────
+function renderHeader() {
+  if (!athlete) return;
+  const a = nextARace();
+  if (a) {
+    const days = Math.ceil((new Date(a.date + 'T12:00:00') - new Date()) / 86400000);
+    document.getElementById('countdown-chip').textContent = `${days}d → ${a.name}`;
+  } else {
+    document.getElementById('countdown-chip').textContent = 'kein A-Rennen';
+  }
+  const strip = document.getElementById('race-strip');
+  strip.innerHTML = (athlete.races || []).map(r => {
+    const cls = r.priority === 'A' ? 'race-chip a-race' : 'race-chip';
+    const d = new Date(r.date + 'T12:00:00').toLocaleDateString('de-DE', {day:'2-digit',month:'2-digit'});
+    return `<span class="${cls}">${r.name} · ${d}</span>`;
+  }).join('');
+}
+
+function nextARace() {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const candidates = (athlete?.races || []).filter(r => {
+    if (r.priority !== 'A') return false;
+    const d = new Date(r.date + 'T00:00:00');
+    return d >= today;
+  });
+  return candidates.sort((a,b) => a.date < b.date ? -1 : 1)[0] || null;
+}
+
+// ── tabs ──────────────────────────────────────────────────────────────────────
+function initTabs() {
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tab = btn.dataset.tab;
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.dataset.panel === tab));
+    });
+  });
+}
+
+// ── sliders ───────────────────────────────────────────────────────────────────
+function initSliders() {
+  document.querySelectorAll('input[type=range]').forEach(slider => {
+    const valEl = document.getElementById(slider.id + '-val');
+    if (!valEl) return;
+    const update = () => {
+      const v = parseFloat(slider.value);
+      valEl.textContent = v % 1 === 0 ? v : v.toFixed(1);
+      valEl.className = 'slider-val ' + (v >= 6 ? 'bad' : v >= 3 ? 'warn' : 'ok');
+    };
+    slider.addEventListener('input', update);
+    update();
+  });
+}
+
+// ── pills ─────────────────────────────────────────────────────────────────────
+function initPills() {
+  // Multi-select: Muskelkater
+  document.querySelectorAll('[data-group="muskelkater"]').forEach(pill => {
+    pill.addEventListener('click', () => {
+      if (pill.dataset.value === 'keine') {
+        document.querySelectorAll('[data-group="muskelkater"]').forEach(p => p.classList.remove('active'));
+        pill.classList.add('active');
+      } else {
+        document.querySelector('[data-group="muskelkater"][data-value="keine"]')?.classList.remove('active');
+        pill.classList.toggle('active');
+        const anyActive = document.querySelectorAll('[data-group="muskelkater"].active').length;
+        if (!anyActive) document.querySelector('[data-group="muskelkater"][data-value="keine"]')?.classList.add('active');
+      }
+    });
+  });
+
+  // Multi-select: Geplante Einheiten (both tabs)
+  ['einheiten-abend', 'einheiten-morgen'].forEach(group => {
+    document.querySelectorAll(`[data-group="${group}"]`).forEach(pill => {
+      pill.addEventListener('click', () => {
+        pill.classList.toggle('active');
+        // Show wasser-row when Schwimmen selected in Abend
+        if (group === 'einheiten-abend') {
+          const schwimmen = document.querySelector('[data-group="einheiten-abend"][data-value="Schwimmen"]');
+          const wasserRow = document.getElementById('wasser-row');
+          if (wasserRow) wasserRow.style.display = schwimmen?.classList.contains('active') ? 'block' : 'none';
+        }
+      });
+    });
+  });
+
+  // Radio: Symptome
+  ['symptome-abend', 'symptome-morgen'].forEach(group => {
+    document.querySelectorAll(`[data-group="${group}"]`).forEach(pill => {
+      pill.addEventListener('click', () => {
+        document.querySelectorAll(`[data-group="${group}"]`).forEach(p => p.classList.remove('active'));
+        pill.classList.add('active');
+      });
+    });
+  });
+
+  // Müdigkeit
+  document.querySelectorAll('.mud-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.mud-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+}
+
+// ── file upload ───────────────────────────────────────────────────────────────
+function initUpload() {
+  const input = document.getElementById('csv-upload');
+  const area = document.getElementById('upload-area');
+  const fname = document.getElementById('upload-filename');
+  input?.addEventListener('change', () => {
+    if (input.files[0]) {
+      fname.textContent = input.files[0].name;
+      fname.style.display = 'block';
+      area.classList.add('has-file');
+    }
+  });
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+function getMulti(group) {
+  return Array.from(document.querySelectorAll(`[data-group="${group}"].active`)).map(p => p.dataset.value);
+}
+function getRadio(group) {
+  return document.querySelector(`[data-group="${group}"].active`)?.dataset.value || 'keine';
+}
+function getMuedigkeit() {
+  return document.querySelector('.mud-btn.active')?.dataset.value || '1';
+}
+
+// ── forms ─────────────────────────────────────────────────────────────────────
+function initForms() {
+  document.getElementById('form-abend').addEventListener('submit', submitAbend);
+  document.getElementById('form-morgen').addEventListener('submit', submitMorgen);
+}
+
+async function submitAbend(e) {
+  e.preventDefault();
+  setLoading(true);
+  const body = {
+    knie:               parseFloat(document.getElementById('knie-abend').value),
+    achilles_l:         parseFloat(document.getElementById('achilles-l-abend').value),
+    achilles_r:         parseFloat(document.getElementById('achilles-r-abend').value),
+    muedigkeit:         parseInt(getMuedigkeit(), 10),
+    muskelkater:        getMulti('muskelkater'),
+    symptome:           getRadio('symptome-abend'),
+    geplante_einheiten: getMulti('einheiten-abend'),
+    wasser_temp:        document.getElementById('wasser-temp')?.value || null,
+  };
+  try {
+    const r = await fetch('/api/check-abend', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) { const t = await r.text(); throw new Error(t); }
+    showResult(await r.json(), body, 'abend');
+  } catch(err) {
+    showError(err.message || String(err));
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function submitMorgen(e) {
+  e.preventDefault();
+  setLoading(true);
+  const formData = new FormData();
+  formData.append('waden',               document.getElementById('waden-morgen').value);
+  formData.append('knie',                document.getElementById('knie-morgen').value);
+  formData.append('achilles_l',          document.getElementById('achilles-l-morgen').value);
+  formData.append('achilles_r',          document.getElementById('achilles-r-morgen').value);
+  formData.append('symptome',            getRadio('symptome-morgen'));
+  formData.append('geplante_einheiten',  getMulti('einheiten-morgen').join(','));
+  const csvFile = document.getElementById('csv-upload')?.files[0];
+  if (csvFile) formData.append('csv_file', csvFile);
+  try {
+    const r = await fetch('/api/check-morgen', { method: 'POST', body: formData });
+    if (!r.ok) { const t = await r.text(); throw new Error(t); }
+    const formSnapshot = {
+      waden:      parseFloat(document.getElementById('waden-morgen').value),
+      knie:       parseFloat(document.getElementById('knie-morgen').value),
+      achilles_l: parseFloat(document.getElementById('achilles-l-morgen').value),
+      achilles_r: parseFloat(document.getElementById('achilles-r-morgen').value),
+    };
+    showResult(await r.json(), formSnapshot, 'morgen');
+  } catch(err) {
+    showError(err.message || String(err));
+  } finally {
+    setLoading(false);
+  }
+}
+
+// ── result rendering ──────────────────────────────────────────────────────────
+function showResult(data, formData, type) {
+  const section = document.getElementById('result-section');
+  section.innerHTML = buildResult(data, formData, type);
+  section.style.display = 'block';
+  document.getElementById('form-section').style.display = 'none';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function buildResult(data, fd, type) {
+  const a = nextARace();
+  const days = a ? Math.ceil((new Date(a.date + 'T12:00:00') - new Date()) / 86400000) : null;
+  const sc = data.status === 'green' ? 'status-green' : data.status === 'orange' ? 'status-orange' : 'status-red';
+  const si = data.status === 'green' ? '✓' : data.status === 'orange' ? '!' : '✗';
+
+  let h = `<div class="dark-card">`;
+
+  // Status + countdown
+  h += `<div class="card-header">
+    <span class="status-pill ${sc}">${si} ${esc(data.status_text)}</span>
+    ${days !== null ? `<span class="countdown-sm">${days}d → ${esc(a.name)}</span>` : ''}
+  </div>`;
+
+  // Sleep flags (Morgen)
+  const sf = data.sleep_flags;
+  if (sf) {
+    const d = sf.data;
+    h += `<div class="card-section">
+      <div class="section-lbl">Schlaf letzte Nacht</div>
+      <div class="metrics-row">
+        ${d.hrv     != null ? `<div class="metric"><span class="metric-v">${d.hrv.toFixed(0)}ms</span><span class="metric-l">HRV</span></div>` : ''}
+        ${d.wach_bpm!= null ? `<div class="metric"><span class="metric-v">${d.wach_bpm.toFixed(0)}</span><span class="metric-l">WachBPM</span></div>` : ''}
+        ${d.schlaf_bpm!=null? `<div class="metric"><span class="metric-v">${d.schlaf_bpm.toFixed(0)}</span><span class="metric-l">SchlafBPM</span></div>` : ''}
+        ${d.effizienz!=null ? `<div class="metric"><span class="metric-v">${d.effizienz.toFixed(0)}%</span><span class="metric-l">Effizienz</span></div>` : ''}
+      </div>`;
+    if (sf.flags && sf.flags.length) {
+      sf.flags.forEach(f => { h += `<div class="flag-line">⚠ ${esc(f)}</div>`; });
+    } else {
+      h += `<div class="flag-ok">✓ Alle Marker im grünen Bereich</div>`;
+    }
+    h += `</div>`;
+  } else if (data.autosleep_summary) {
+    h += `<div class="card-section"><div class="section-lbl">Schlaf</div><p class="card-hint">${esc(data.autosleep_summary)}</p></div>`;
+  }
+
+  // Weather (Abend)
+  const w = data.weather;
+  if (w) {
+    h += `<div class="card-section">
+      <div class="section-lbl">Wetter morgen — ${esc(athlete?.location?.name || '')}</div>
+      <div class="weather-row">
+        <span class="weather-temp">${w.temp_min ?? '?'}–${w.temp_max ?? '?'}°C</span>
+        <span class="weather-desc">${esc(w.description || '')}</span>
+        ${w.rain_prob > 0 ? `<span class="weather-rain">${w.rain_prob}% Regen</span>` : ''}
+        ${w.is_thunderstorm ? `<span class="weather-thunder">⚡ Gewitter</span>` : ''}
+        ${w.is_hot ? `<span class="weather-rain" style="color:var(--red)">Hitze</span>` : ''}
+      </div>
+      ${data.wetter_hinweis ? `<p class="card-hint">${esc(data.wetter_hinweis)}</p>` : ''}
+    </div>`;
+  } else if (data.wetter_hinweis) {
+    h += `<div class="card-section"><div class="section-lbl">Wetter</div><p class="card-hint">${esc(data.wetter_hinweis)}</p></div>`;
+  }
+
+  // Metrics grid
+  const metrics = [];
+  if (fd.muedigkeit !== undefined) metrics.push({ label: 'Müdigkeit', val: `${fd.muedigkeit}/5`, cls: fd.muedigkeit >= 4 ? 'warn' : '' });
+  if (fd.knie       !== undefined) metrics.push({ label: 'Knie',       val: `${fd.knie}/10`,       cls: fd.knie >= 3 ? 'bad' : fd.knie >= 1 ? 'warn' : '' });
+  if (fd.achilles_l !== undefined) metrics.push({ label: 'Ach. L',     val: `${fd.achilles_l}/10`, cls: fd.achilles_l > 2 ? 'bad' : fd.achilles_l >= 1 ? 'warn' : '' });
+  if (fd.achilles_r !== undefined) metrics.push({ label: 'Ach. R',     val: `${fd.achilles_r}/10`, cls: fd.achilles_r > 2 ? 'bad' : fd.achilles_r >= 1 ? 'warn' : '' });
+  if (fd.waden      !== undefined) metrics.push({ label: 'Waden',      val: `${fd.waden}/10`,      cls: fd.waden >= 4 ? 'warn' : '' });
+  if (metrics.length) {
+    h += `<div class="card-section"><div class="metrics-grid">`;
+    metrics.forEach(m => {
+      h += `<div class="mc ${m.cls}"><span class="mc-v">${esc(m.val)}</span><span class="mc-l">${esc(m.label)}</span></div>`;
+    });
+    h += `</div></div>`;
+  }
+
+  // Sports
+  if (data.sportarten?.length) {
+    h += `<div class="card-section">`;
+    data.sportarten.forEach(s => {
+      const bc = s.badge === 'GO' ? 'badge-go' : s.badge === 'MOD' ? 'badge-mod' : 'badge-skip';
+      h += `<div class="sport-card">
+        <div class="sport-header">
+          <span class="badge ${bc}">${esc(s.badge)}</span>
+          <span class="sport-name">${esc(s.sport)}</span>
+        </div>
+        ${s.details ? `<p class="sport-details">${esc(s.details)}</p>` : ''}
+        ${s.ernaehrung ? `<p class="sport-ernaehrung">🍎 ${esc(s.ernaehrung)}</p>` : ''}
+      </div>`;
+    });
+    h += `</div>`;
+  }
+
+  // Prep
+  if (data.prep) {
+    h += `<div class="card-section prep-section"><p class="prep-text">"${esc(data.prep)}"</p></div>`;
+  }
+
+  h += `</div>`; // .dark-card
+  h += `<button class="btn-back" onclick="backToForm()">← Zurück zum Formular</button>`;
+  return h;
+}
+
+function backToForm() {
+  document.getElementById('result-section').style.display = 'none';
+  document.getElementById('form-section').style.display = 'block';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ── utils ─────────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function setLoading(v) {
+  document.getElementById('loading-overlay').style.display = v ? 'flex' : 'none';
+}
+function showError(msg) {
+  const el = document.getElementById('error-banner');
+  el.textContent = msg;
+  el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 8000);
+  setLoading(false);
+}
+</script>
+</body>
+</html>

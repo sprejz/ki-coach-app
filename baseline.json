@@ -1,0 +1,9 @@
+{
+  "SchlafBPM":  {"median": 64.5, "flag_high": 69},
+  "WachBPM":    {"median": 55.0, "flag_high": 60},
+  "SchlafHRV":  {"median": 35.0, "flag_low":  29},
+  "Atmung":     {"median": 15.8, "flag_high": 17.5},
+  "Effizienz":  {"median": 92.0, "flag_low":  82},
+  "nights":     153,
+  "updated":    "2026-06-15"
+}
