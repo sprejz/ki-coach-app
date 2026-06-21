@@ -1,3 +1,4 @@
+import asyncio
 import os
 import json
 import csv
@@ -14,12 +15,22 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import anthropic
 
-APP_VERSION = "2.3.3"
+APP_VERSION = "2.3.4"
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 app = FastAPI()
 BASE_DIR = Path(__file__).parent
+
+# ── shared HTTP clients (connection pooling) ──────────────────────────────────
+_weather_http = httpx.AsyncClient(
+    timeout=httpx.Timeout(10.0),
+    limits=httpx.Limits(max_connections=5, max_keepalive_connections=3),
+)
+_tp_http = httpx.Client(
+    timeout=httpx.Timeout(15.0),
+    limits=httpx.Limits(max_connections=5, max_keepalive_connections=3),
+)
 ATHLETE_FILE = BASE_DIR / "athlete.json"
 BASELINE_FILE = BASE_DIR / "baseline.json"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -124,10 +135,9 @@ async def fetch_weather(athlete: dict, day: int = 1) -> dict:
         f"&timezone=Europe/Berlin&forecast_days=2"
     )
     logger.info("fetch_weather: day=%s lat=%s lon=%s", day, lat, lon)
-    async with httpx.AsyncClient(timeout=10) as client:
-        r = await client.get(url)
-        r.raise_for_status()
-        raw = r.json()
+    r = await _weather_http.get(url)
+    r.raise_for_status()
+    raw = r.json()
     daily_dates = raw.get("daily", {}).get("time", [])
     logger.info("fetch_weather ok: daily_dates=%s", daily_dates)
     result = parse_weather(raw, day=day)
@@ -290,7 +300,7 @@ def call_claude_tp_mcp(user_content: str) -> str:
     key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not key:
         raise HTTPException(500, "ANTHROPIC_API_KEY nicht gesetzt")
-    c = anthropic.Anthropic(api_key=key)
+    c = anthropic.Anthropic(api_key=key, http_client=_tp_http)
     try:
         msg = c.beta.messages.create(
             model="claude-sonnet-4-6",
@@ -337,6 +347,37 @@ async def index(request: Request):
 @app.get("/api/version")
 async def api_version():
     return {"version": APP_VERSION}
+
+
+@app.get("/api/startup")
+async def startup_data():
+    athlete = load_athlete()
+
+    async def safe_weather(day_offset: int):
+        try:
+            return await fetch_weather(athlete, day=day_offset)
+        except Exception as e:
+            logger.error("startup weather day=%d: %s", day_offset, e)
+            return None
+
+    results = await asyncio.gather(
+        safe_weather(0),                                      # weather today
+        safe_weather(1),                                      # weather tomorrow
+        asyncio.to_thread(_tp_call_sync, athlete, 0),        # TP today
+        asyncio.to_thread(_tp_call_sync, athlete, 1),        # TP tomorrow
+        return_exceptions=True,
+    )
+
+    def unwrap(r):
+        return None if isinstance(r, Exception) else r
+
+    w_today, w_tomorrow, tp_today, tp_tomorrow = [unwrap(r) for r in results]
+    return JSONResponse({
+        "weather_today":   w_today,
+        "weather_tomorrow": w_tomorrow,
+        "tp_today":    tp_today    or {"available": False, "workouts": []},
+        "tp_tomorrow": tp_tomorrow or {"available": False, "workouts": []},
+    }, headers=_NO_CACHE)
 
 
 @app.get("/manifest.json")
@@ -423,6 +464,36 @@ async def get_weather(day: str = "tomorrow"):
     except Exception as e:
         logger.error("Wetterfehler: %s", e)
         raise HTTPException(500, str(e))
+
+
+def _tp_call_sync(athlete: dict, day_offset: int) -> dict:
+    """Synchronous TP fetch — runs in asyncio.to_thread for parallel startup."""
+    tp_url = os.environ.get("TP_MCP_URL", "")
+    if not tp_url:
+        return {"available": False, "workouts": [], "date": None}
+    target = (date.today() + timedelta(days=day_offset)).isoformat()
+    prompt = (
+        f"List all planned workouts for {athlete.get('name', 'the athlete')} on {target} from TrainingPeaks. "
+        f"Respond ONLY with a valid JSON array. Example: "
+        f'[{{"id":"123","sport":"Rad","title":"Z2 Ausdauer","duration_min":90,"tss":65,"description":"60-70% FTP"}}]'
+    )
+    try:
+        raw = call_claude_tp_mcp(prompt)
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+        workouts = json.loads(raw)
+        logger.info("_tp_call_sync ok: %d workouts day_offset=%d", len(workouts), day_offset)
+        return {"available": True, "workouts": workouts, "date": target}
+    except json.JSONDecodeError:
+        logger.error("_tp_call_sync JSON error raw=%s", raw[:200])
+        return {"available": True, "workouts": [], "date": target}
+    except HTTPException as e:
+        logger.error("_tp_call_sync HTTPException: %s", e.detail)
+        return {"available": False, "workouts": [], "date": target, "error": e.detail}
+    except Exception as e:
+        logger.error("_tp_call_sync error: %s", e)
+        return {"available": False, "workouts": [], "date": target, "error": str(e)[:200]}
 
 
 _NO_CACHE = {

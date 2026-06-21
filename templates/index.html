@@ -1008,7 +1008,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const el = document.getElementById('splash-version');
     if (el) el.textContent = 'v' + d.version;
   }).catch(() => {});
-  setSplashStatus('Wetter wird geladen…');
+  setSplashStatus('Daten werden geladen…');
   try {
     const r = await apiFetch('/api/athlete');
     athlete = await r.json();
@@ -1022,18 +1022,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   initForms();
   initUpload();
   initSettings();
-  // Phase 1: Wetter (parallel)
-  await Promise.allSettled([
-    autoLoadAbendWeather(),
-    autoLoadMorgenWeather(),
-  ]);
-  // Phase 2: Workouts (parallel)
-  setSplashStatus('Workouts werden geladen…');
-  await Promise.allSettled([
-    autoLoadAbendTP(),
-    autoLoadMorgenTP(),
-  ]);
-  hideSplash(); // zeigt "Bereit!"
+  // Alle Startup-Daten parallel via /api/startup (1 Request statt 4)
+  try {
+    await loadStartupData();
+  } catch(_) {
+    // Fallback: individuelle Requests parallel
+    await Promise.allSettled([
+      autoLoadAbendWeather(),
+      autoLoadMorgenWeather(),
+      autoLoadAbendTP(),
+      autoLoadMorgenTP(),
+    ]);
+  }
+  hideSplash();
 });
 
 // ── header ───────────────────────────────────────────────────────────────────
@@ -1563,136 +1564,141 @@ async function refreshAll() {
   if (morgenTPEl)   morgenTPEl.innerHTML = '';
 
   showSplash('Daten werden aktualisiert…');
-  await Promise.allSettled([
-    autoLoadAbendWeather(),
-    autoLoadMorgenWeather(),
-    autoLoadAbendTP(),
-    autoLoadMorgenTP(),
-  ]);
+  try {
+    await loadStartupData();
+  } catch(_) {
+    await Promise.allSettled([
+      autoLoadAbendWeather(),
+      autoLoadMorgenWeather(),
+      autoLoadAbendTP(),
+      autoLoadMorgenTP(),
+    ]);
+  }
   hideSplash();
   if (btn) btn.classList.remove('spinning');
 }
 
-// ── TrainingPeaks ─────────────────────────────────────────────────────────────
-async function autoLoadAbendTP() {
-  abendTPLoaded = true;
+// ── render helpers ────────────────────────────────────────────────────────────
+function _weatherHtml(w) {
+  return `<div class="weather-row">
+    <span class="weather-temp">${w.temp_min ?? '?'}–${w.temp_max ?? '?'}°C</span>
+    <span class="weather-desc">${esc(w.description || '')}</span>
+    ${w.rain_prob > 0 ? `<span class="weather-rain">${w.rain_prob}% Regen</span>` : ''}
+    ${w.is_thunderstorm ? `<span class="weather-thunder">⚡ Gewitter</span>` : ''}
+    ${w.is_hot ? `<span class="weather-rain" style="color:var(--red)">Hitze</span>` : ''}
+  </div>
+  ${w.hourly?.length ? buildRainTimeline(w.hourly) : ''}`;
+}
+function _tpItemHtml(w) {
+  return `<div class="tp-workout-item">
+    <span class="tp-sport-badge">${esc(w.sport || '?')}</span>
+    <span style="font-size:13px">${esc(w.title || w.sport || '?')}${w.duration_min ? ` · ${w.duration_min}min` : ''}${w.tss ? ` · ${w.tss} TSS` : ''}</span>
+  </div>`;
+}
+
+function renderAbendWeather(w) {
+  const ctx = document.getElementById('abend-context');
+  const el  = document.getElementById('abend-weather-content');
+  if (el) el.innerHTML = w ? _weatherHtml(w) : '<p style="color:var(--muted);font-size:12px">Wetter nicht verfügbar</p>';
+  if (ctx) ctx.style.display = 'block';
+}
+
+function renderMorgenWeather(w) {
+  const ctx = document.getElementById('morgen-context');
+  const el  = document.getElementById('morgen-weather-content');
+  if (el) el.innerHTML = w ? _weatherHtml(w) : '<p style="color:var(--muted);font-size:12px">Wetter nicht verfügbar</p>';
+  if (ctx) ctx.style.display = 'block';
+}
+
+function renderAbendTP(data) {
   const section = document.getElementById('abend-tp-section');
   const content = document.getElementById('abend-tp-content');
   const dateEl  = document.getElementById('abend-tp-date');
+  if (!data?.available) return;
+  if (section) section.style.display = 'block';
+  if (dateEl && data.date) dateEl.textContent = fmtDate(data.date);
+  if (!data.workouts?.length) {
+    if (content) content.innerHTML = '<p style="color:var(--muted);font-size:12px">Keine Workouts in TP für morgen</p>';
+    return;
+  }
+  preloadedTPWorkouts = data.workouts;
+  if (content) content.innerHTML = data.workouts.map(_tpItemHtml).join('');
+  preloadedTPWorkouts.forEach(w => {
+    const pill = document.querySelector(`[data-group="einheiten-abend"][data-value="${w.sport}"]`);
+    if (pill && !pill.classList.contains('active')) pill.click();
+  });
+}
+
+function renderMorgenTP(data) {
+  const loading = document.getElementById('morgen-tp-loading');
+  const tpEl    = document.getElementById('morgen-tp-content');
+  if (loading) loading.style.display = 'none';
+  if (!data?.available) {
+    if (tpEl) tpEl.innerHTML = '<p style="color:var(--muted2);font-size:12px">TP nicht konfiguriert</p>';
+    return;
+  }
+  if (!data.workouts?.length) {
+    if (tpEl) tpEl.innerHTML = '<p style="color:var(--muted);font-size:12px">Keine Workouts in TP für heute</p>';
+    return;
+  }
+  morgenTPWorkouts = data.workouts;
+  if (tpEl) tpEl.innerHTML = data.workouts.map(_tpItemHtml).join('');
+}
+
+// ── startup: single request, asyncio.gather on backend ───────────────────────
+async function loadStartupData() {
+  const r = await apiFetch('/api/startup?t=' + Date.now());
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const d = await r.json();
+  renderAbendWeather(d.weather_tomorrow);  abendWeatherLoaded = true;
+  renderMorgenWeather(d.weather_today);    morgenWeatherLoaded = true;
+  renderAbendTP(d.tp_tomorrow);            abendTPLoaded = true;
+  renderMorgenTP(d.tp_today);              morgenTPLoaded = true;
+}
+
+// ── TrainingPeaks (fallback / tab-switch retry) ───────────────────────────────
+async function autoLoadAbendTP() {
+  if (abendTPLoaded) return;
+  abendTPLoaded = true;
   try {
     const r = await apiFetch('/api/tp/workouts?day=tomorrow&t=' + Date.now());
-    const data = await r.json();
-    if (!data.available) return; // TP not configured — hide section silently
-    if (section) section.style.display = 'block';
-    if (dateEl && data.date) dateEl.textContent = fmtDate(data.date);
-    if (!data.workouts?.length) {
-      if (content) content.innerHTML = '<p style="color:var(--muted);font-size:12px">Keine Workouts in TP für morgen</p>';
-      return;
-    }
-    preloadedTPWorkouts = data.workouts;
-    if (content) {
-      content.innerHTML = data.workouts.map(w =>
-        `<div class="tp-workout-item">
-          <span class="tp-sport-badge">${esc(w.sport || '?')}</span>
-          <span style="font-size:13px">${esc(w.title || w.sport || '?')}${w.duration_min ? ` · ${w.duration_min}min` : ''}${w.tss ? ` · ${w.tss} TSS` : ''}</span>
-        </div>`
-      ).join('');
-    }
-    preloadedTPWorkouts.forEach(w => {
-      const pill = document.querySelector(`[data-group="einheiten-abend"][data-value="${w.sport}"]`);
-      if (pill && !pill.classList.contains('active')) pill.click();
-    });
-  } catch(err) {
-    abendTPLoaded = false; // allow retry on next tab switch
-  }
+    renderAbendTP(await r.json());
+  } catch(_) { abendTPLoaded = false; }
 }
 
 async function autoLoadAbendWeather() {
+  if (abendWeatherLoaded) return;
   abendWeatherLoaded = true;
-  const ctx = document.getElementById('abend-context');
-  const weatherEl = document.getElementById('abend-weather-content');
   try {
     const r = await apiFetch('/api/weather?day=tomorrow&t=' + Date.now());
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    const w = await r.json();
-    if (weatherEl) {
-      weatherEl.innerHTML =
-        `<div class="weather-row">
-          <span class="weather-temp">${w.temp_min ?? '?'}–${w.temp_max ?? '?'}°C</span>
-          <span class="weather-desc">${esc(w.description || '')}</span>
-          ${w.rain_prob > 0 ? `<span class="weather-rain">${w.rain_prob}% Regen</span>` : ''}
-          ${w.is_thunderstorm ? `<span class="weather-thunder">⚡ Gewitter</span>` : ''}
-          ${w.is_hot ? `<span class="weather-rain" style="color:var(--red)">Hitze</span>` : ''}
-        </div>
-        ${w.hourly?.length ? buildRainTimeline(w.hourly) : ''}`;
-    }
-    if (ctx) ctx.style.display = 'block';
-  } catch(_) {
-    abendWeatherLoaded = false;
-    if (weatherEl) weatherEl.innerHTML = '<p style="color:var(--muted);font-size:12px">Wetter nicht verfügbar</p>';
-    if (ctx) ctx.style.display = 'block';
-  }
+    renderAbendWeather(await r.json());
+  } catch(_) { abendWeatherLoaded = false; renderAbendWeather(null); }
 }
 
 async function autoLoadMorgenWeather() {
   if (morgenWeatherLoaded) return;
   morgenWeatherLoaded = true;
-  const ctx = document.getElementById('morgen-context');
-  const weatherEl = document.getElementById('morgen-weather-content');
   try {
     const r = await apiFetch('/api/weather?day=today');
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    const w = await r.json();
-    if (weatherEl) {
-      weatherEl.innerHTML =
-        `<div class="weather-row">
-          <span class="weather-temp">${w.temp_min ?? '?'}–${w.temp_max ?? '?'}°C</span>
-          <span class="weather-desc">${esc(w.description || '')}</span>
-          ${w.rain_prob > 0 ? `<span class="weather-rain">${w.rain_prob}% Regen</span>` : ''}
-          ${w.is_thunderstorm ? `<span class="weather-thunder">⚡ Gewitter</span>` : ''}
-          ${w.is_hot ? `<span class="weather-rain" style="color:var(--red)">Hitze</span>` : ''}
-        </div>
-        ${w.hourly?.length ? buildRainTimeline(w.hourly) : ''}`;
-    }
-    if (ctx) ctx.style.display = 'block';
-  } catch(_) {
-    morgenWeatherLoaded = false; // allow retry on tab switch
-    if (weatherEl) weatherEl.innerHTML = '<p style="color:var(--muted);font-size:12px">Wetter nicht verfügbar</p>';
-    if (ctx) ctx.style.display = 'block';
-  }
+    renderMorgenWeather(await r.json());
+  } catch(_) { morgenWeatherLoaded = false; renderMorgenWeather(null); }
 }
 
 async function autoLoadMorgenTP() {
   if (morgenTPLoading || morgenTPLoaded) return;
   morgenTPLoading = true;
-  const loading = document.getElementById('morgen-tp-loading');
-  const tpEl    = document.getElementById('morgen-tp-content');
   try {
     const r = await apiFetch('/api/tp/workouts?day=today&t=' + Date.now());
-    const tpData = await r.json();
-    if (loading) loading.style.display = 'none';
-    if (!tpData.available) {
-      if (tpEl) tpEl.innerHTML = '<p style="color:var(--muted2);font-size:12px">TP nicht konfiguriert</p>';
-    } else if (!tpData.workouts?.length) {
-      if (tpEl) tpEl.innerHTML = '<p style="color:var(--muted);font-size:12px">Keine Workouts in TP für heute</p>';
-    } else {
-      morgenTPWorkouts = tpData.workouts;
-      if (tpEl) {
-        tpEl.innerHTML = tpData.workouts.map(w =>
-          `<div class="tp-workout-item">
-            <span class="tp-sport-badge">${esc(w.sport || '?')}</span>
-            <span style="font-size:13px">${esc(w.title || w.sport || '?')}${w.duration_min ? ` · ${w.duration_min}min` : ''}${w.tss ? ` · ${w.tss} TSS` : ''}</span>
-          </div>`
-        ).join('');
-      }
-    }
+    renderMorgenTP(await r.json());
     morgenTPLoaded = true;
   } catch(_) {
+    const loading = document.getElementById('morgen-tp-loading');
+    const tpEl    = document.getElementById('morgen-tp-content');
     if (loading) loading.style.display = 'none';
     if (tpEl) tpEl.innerHTML = '<p style="color:var(--muted2);font-size:12px">TP nicht erreichbar</p>';
-  } finally {
-    morgenTPLoading = false;
-  }
+  } finally { morgenTPLoading = false; }
 }
 
 async function loadTPWorkouts() {
