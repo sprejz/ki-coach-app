@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import anthropic
 
-APP_VERSION = "2.3.2"
+APP_VERSION = "2.3.3"
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -491,23 +491,32 @@ async def tp_apply(request: Request):
         f"Muskelkater: {muskelkater} | Symptome: {symptome} | TSB: - | CTL: -"
     )
 
-    # Build structured operation list
+    # Build structured operation list — only for workouts that actually exist in TP
     ops: list = []
     for s in recommendation.get("sportarten", []):
         sport  = s.get("sport", "?")
         badge  = s.get("badge", "GO")
         details= s.get("details", "")
-        tp_w   = next((w for w in workouts if w.get("sport", "").lower() == sport.lower()), None)
-        orig_title    = tp_w.get("title", sport) if tp_w else sport
-        orig_duration = tp_w.get("duration_min", 60) if tp_w else 60
+
+        # Only act on sports with an actual planned workout in TP
+        tp_w = next((w for w in workouts if w.get("sport", "").lower() == sport.lower()), None)
+        if tp_w is None:
+            continue  # Not planned in TP — no rename, no note, no new workout
+
+        orig_title    = tp_w.get("title", sport)
+        orig_duration = tp_w.get("duration_min", 60)
+        workout_id    = tp_w.get("id")  # use actual ID from API response
 
         if badge == "MOD":
-            ops.append({
+            rename_op = {
                 "action": "rename_workout",
                 "sport": sport, "date": target_date,
                 "old_title": orig_title,
                 "new_title": f"↩️ {orig_title} (KI)",
-            })
+            }
+            if workout_id:
+                rename_op["workout_id"] = workout_id
+            ops.append(rename_op)
             ops.append({
                 "action": "create_workout",
                 "sport": sport, "date": target_date,
@@ -516,12 +525,15 @@ async def tp_apply(request: Request):
                 "note": details,
             })
         elif badge == "SKIP":
-            ops.append({
+            rename_op = {
                 "action": "rename_workout",
                 "sport": sport, "date": target_date,
                 "old_title": orig_title,
                 "new_title": f"❌ {orig_title} (KI)",
-            })
+            }
+            if workout_id:
+                rename_op["workout_id"] = workout_id
+            ops.append(rename_op)
             ops.append({
                 "action": "create_calendar_note",
                 "date": target_date,
@@ -536,22 +548,27 @@ async def tp_apply(request: Request):
             "text": "🤧 Krank – Training gestrichen (KI)",
         })
 
-    ops.append({
-        "action": "add_private_note",
-        "date": target_date,
-        "note": athlete_note,
-        "apply_to": "all_workouts",
-    })
+    # Private note: one per existing TP workout, using actual workout IDs
+    for w in workouts:
+        note_op: dict = {
+            "action": "add_private_note",
+            "date": target_date,
+            "note": athlete_note,
+            "title": w.get("title"),
+        }
+        if w.get("id"):
+            note_op["workout_id"] = w["id"]
+        ops.append(note_op)
 
     prompt = (
         f"Apply the following changes to TrainingPeaks for '{athlete.get('name', '')}' on {target_date}.\n\n"
         f"Execute each operation in order:\n"
         f"{json.dumps(ops, ensure_ascii=False, indent=2)}\n\n"
         f"Operation semantics:\n"
-        f"- rename_workout: Find workout with old_title on that date and update its title to new_title\n"
+        f"- rename_workout: Use workout_id (if provided) to find and rename the workout; fallback to old_title match\n"
         f"- create_workout: Create a new planned workout with the given title, sport, duration_min and note\n"
         f"- create_calendar_note: Add a calendar note/annotation with the given text on that date\n"
-        f"- add_private_note: Append the note text as a private description to all workouts on that date\n\n"
+        f"- add_private_note: Use workout_id (if provided) to find the workout and append note to its private description\n\n"
         f"After completing all operations respond ONLY with a JSON array (no markdown):\n"
         f'[{{"action":"rename_workout","sport":"Rad","status":"ok","detail":"Titel geändert zu ↩️ Z2 Ausdauer (KI)"}}]\n'
         f"Use status 'ok' or 'error'. detail is a short German confirmation or error message."
