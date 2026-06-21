@@ -17,7 +17,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.4.2"
+APP_VERSION = "2.4.3"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -345,23 +345,13 @@ async def startup_data():
             logger.error("startup weather day=%d: %s", day_offset, e)
             return None
 
-    results = await asyncio.gather(
-        safe_weather(0),                                      # weather today
-        safe_weather(1),                                      # weather tomorrow
-        asyncio.to_thread(_tp_call_sync, athlete, 0),        # TP today
-        asyncio.to_thread(_tp_call_sync, athlete, 1),        # TP tomorrow
-        return_exceptions=True,
+    w_today, w_tomorrow = await asyncio.gather(
+        safe_weather(0),
+        safe_weather(1),
     )
-
-    def unwrap(r):
-        return None if isinstance(r, Exception) else r
-
-    w_today, w_tomorrow, tp_today, tp_tomorrow = [unwrap(r) for r in results]
     return JSONResponse({
-        "weather_today":   w_today,
+        "weather_today":    w_today,
         "weather_tomorrow": w_tomorrow,
-        "tp_today":    tp_today    or {"available": False, "workouts": []},
-        "tp_tomorrow": tp_tomorrow or {"available": False, "workouts": []},
     }, headers=_NO_CACHE)
 
 

@@ -1023,19 +1023,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   initForms();
   initUpload();
   initSettings();
-  // Alle Startup-Daten parallel via /api/startup (1 Request statt 4)
+  // Wetter via /api/startup, TP danach separat (cache:'no-store')
   try {
     await loadStartupData();
   } catch(_) {
-    // Fallback: individuelle Requests parallel
-    await Promise.allSettled([
-      autoLoadAbendWeather(),
-      autoLoadMorgenWeather(),
-      autoLoadAbendTP(),
-      autoLoadMorgenTP(),
-    ]);
+    await Promise.allSettled([autoLoadAbendWeather(), autoLoadMorgenWeather()]);
   }
   hideSplash();
+  // TP immer frisch laden — nicht blockend
+  autoLoadAbendTP();
+  autoLoadMorgenTP();
 });
 
 // ── header ───────────────────────────────────────────────────────────────────
@@ -1652,8 +1649,6 @@ async function loadStartupData() {
   const d = await r.json();
   renderAbendWeather(d.weather_tomorrow);  abendWeatherLoaded = true;
   renderMorgenWeather(d.weather_today);    morgenWeatherLoaded = true;
-  renderAbendTP(d.tp_tomorrow);            abendTPLoaded = true;
-  renderMorgenTP(d.tp_today);              morgenTPLoaded = true;
 }
 
 // ── TrainingPeaks (fallback / tab-switch retry) ───────────────────────────────
