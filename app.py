@@ -17,7 +17,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.4.9"
+APP_VERSION = "2.4.10"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -328,11 +328,22 @@ async def call_tp_mcp(tool_name: str, arguments: dict) -> dict:
     }
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(url, json=payload, headers=headers)
-        result = response.json()
-        logger.info("call_tp_mcp %s args=%s status=%s response=%s",
+        text = response.text
+        logger.info("call_tp_mcp %s args=%s status=%s raw=%r",
                     tool_name, json.dumps(arguments)[:200],
-                    response.status_code, json.dumps(result)[:500])
-        return result
+                    response.status_code, text[:500])
+        if not text.strip():
+            raise ValueError(f"call_tp_mcp: empty response (HTTP {response.status_code})")
+        if text.lstrip().startswith("data:"):
+            # SSE stream — pick first non-empty data line
+            for line in text.splitlines():
+                line = line.strip()
+                if line.startswith("data:"):
+                    payload_str = line[5:].strip()
+                    if payload_str:
+                        return json.loads(payload_str)
+            raise ValueError("call_tp_mcp: SSE stream contained no data line")
+        return json.loads(text)
 
 
 # ── routes ────────────────────────────────────────────────────────────────────
