@@ -664,11 +664,10 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
   <div class="tab-panel" data-panel="morgen">
     <form class="form-card" id="form-morgen" enctype="multipart/form-data" novalidate>
 
-      <!-- Kontext: Wetter + TP heute (auto-geladen) -->
+      <!-- Kontext: Wetter heute (auto-geladen) -->
       <div id="morgen-context" style="display:none;margin-bottom:20px">
         <p class="section-title">Heute</p>
-        <div id="morgen-weather-content" style="margin-bottom:10px"></div>
-        <div id="morgen-tp-content"></div>
+        <div id="morgen-weather-content"></div>
       </div>
 
       <p class="section-title">Körperzustand heute Morgen</p>
@@ -726,17 +725,6 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
         </div>
       </div>
 
-      <!-- Geplante Einheiten -->
-      <div class="form-section">
-        <div class="field-label" style="margin-bottom:12px"><span>Geplante Einheiten heute</span></div>
-        <div class="pill-group" id="einheiten-morgen-group">
-          <button type="button" class="pill" data-group="einheiten-morgen" data-value="Schwimmen">Schwimmen</button>
-          <button type="button" class="pill" data-group="einheiten-morgen" data-value="Rad">Rad</button>
-          <button type="button" class="pill" data-group="einheiten-morgen" data-value="Lauf">Lauf</button>
-          <button type="button" class="pill" data-group="einheiten-morgen" data-value="STABI">STABI</button>
-        </div>
-      </div>
-
       <!-- AutoSleep CSV -->
       <div class="form-section">
         <div class="field-label" style="margin-bottom:12px">
@@ -749,6 +737,18 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
           <div class="upload-label"><strong>CSV hochladen</strong> oder tippen</div>
           <div class="upload-filename" id="upload-filename" style="display:none"></div>
         </label>
+      </div>
+
+      <!-- TP Workouts heute (auto-geladen) -->
+      <div class="form-section" id="morgen-tp-section">
+        <div class="field-label" style="margin-bottom:8px">
+          <span>TP Workouts heute</span>
+          <span id="morgen-tp-loading" style="display:flex;align-items:center;gap:5px">
+            <div class="spinner" style="width:14px;height:14px;border-width:2px"></div>
+            <span style="color:var(--muted);font-size:12px">wird geladen…</span>
+          </span>
+        </div>
+        <div id="morgen-tp-content"></div>
       </div>
 
       <button type="submit" class="btn-submit">Morgen-Check starten</button>
@@ -835,6 +835,7 @@ let tpWorkouts = [];
 let preloadedTPWorkouts = [];
 let abendTPLoaded = false;
 let morgenContextLoaded = false;
+let morgenTPWorkouts = [];
 
 // ── init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
@@ -928,18 +929,13 @@ function initPills() {
     });
   });
 
-  // Multi-select: Geplante Einheiten (both tabs)
-  ['einheiten-abend', 'einheiten-morgen'].forEach(group => {
-    document.querySelectorAll(`[data-group="${group}"]`).forEach(pill => {
-      pill.addEventListener('click', () => {
-        pill.classList.toggle('active');
-        // Show wasser-row when Schwimmen selected in Abend
-        if (group === 'einheiten-abend') {
-          const schwimmen = document.querySelector('[data-group="einheiten-abend"][data-value="Schwimmen"]');
-          const wasserRow = document.getElementById('wasser-row');
-          if (wasserRow) wasserRow.style.display = schwimmen?.classList.contains('active') ? 'block' : 'none';
-        }
-      });
+  // Multi-select: Geplante Einheiten (Abend only; Morgen derives from TP)
+  document.querySelectorAll('[data-group="einheiten-abend"]').forEach(pill => {
+    pill.addEventListener('click', () => {
+      pill.classList.toggle('active');
+      const schwimmen = document.querySelector('[data-group="einheiten-abend"][data-value="Schwimmen"]');
+      const wasserRow = document.getElementById('wasser-row');
+      if (wasserRow) wasserRow.style.display = schwimmen?.classList.contains('active') ? 'block' : 'none';
     });
   });
 
@@ -1031,7 +1027,7 @@ async function submitMorgen(e) {
   formData.append('achilles_l',          document.getElementById('achilles-l-morgen').value);
   formData.append('achilles_r',          document.getElementById('achilles-r-morgen').value);
   formData.append('symptome',            getRadio('symptome-morgen'));
-  formData.append('geplante_einheiten',  getMulti('einheiten-morgen').join(','));
+  formData.append('geplante_einheiten',  morgenTPWorkouts.map(w => w.sport).join(','));
   const csvFile = document.getElementById('csv-upload')?.files[0];
   if (csvFile) formData.append('csv_file', csvFile);
   try {
@@ -1352,59 +1348,58 @@ async function autoLoadAbendTP() {
 
 async function autoLoadMorgenContext() {
   morgenContextLoaded = true;
-  const ctx        = document.getElementById('morgen-context');
-  const weatherEl  = document.getElementById('morgen-weather-content');
-  const tpEl       = document.getElementById('morgen-tp-content');
 
+  // Fetch weather and TP in parallel
   try {
     const [wRes, tpRes] = await Promise.all([
       fetch('/api/weather?day=today'),
       fetch('/api/tp/workouts?day=today'),
     ]);
 
-    let hasContent = false;
-
     // Weather
-    if (wRes.ok) {
+    const weatherEl = document.getElementById('morgen-weather-content');
+    const ctx       = document.getElementById('morgen-context');
+    if (wRes.ok && weatherEl) {
       const w = await wRes.json();
-      if (weatherEl) {
-        weatherEl.innerHTML =
-          `<div class="weather-row">
-            <span class="weather-temp">${w.temp_min ?? '?'}–${w.temp_max ?? '?'}°C</span>
-            <span class="weather-desc">${esc(w.description || '')}</span>
-            ${w.rain_prob > 0 ? `<span class="weather-rain">${w.rain_prob}% Regen</span>` : ''}
-            ${w.is_thunderstorm ? `<span class="weather-thunder">⚡ Gewitter</span>` : ''}
-            ${w.is_hot ? `<span class="weather-rain" style="color:var(--red)">Hitze</span>` : ''}
-          </div>
-          ${w.hourly?.length ? buildRainTimeline(w.hourly) : ''}`;
-        hasContent = true;
-      }
+      weatherEl.innerHTML =
+        `<div class="weather-row">
+          <span class="weather-temp">${w.temp_min ?? '?'}–${w.temp_max ?? '?'}°C</span>
+          <span class="weather-desc">${esc(w.description || '')}</span>
+          ${w.rain_prob > 0 ? `<span class="weather-rain">${w.rain_prob}% Regen</span>` : ''}
+          ${w.is_thunderstorm ? `<span class="weather-thunder">⚡ Gewitter</span>` : ''}
+          ${w.is_hot ? `<span class="weather-rain" style="color:var(--red)">Hitze</span>` : ''}
+        </div>
+        ${w.hourly?.length ? buildRainTimeline(w.hourly) : ''}`;
+      if (ctx) ctx.style.display = 'block';
     }
 
-    // TP heute
+    // TP heute — always hide spinner after fetch
+    const loading = document.getElementById('morgen-tp-loading');
+    const tpEl    = document.getElementById('morgen-tp-content');
+    if (loading) loading.style.display = 'none';
+
     const tpData = await tpRes.json();
-    if (tpData.available && tpData.workouts?.length) {
+    if (!tpData.available) {
+      if (tpEl) tpEl.innerHTML = '<p style="color:var(--muted2);font-size:12px">TP nicht konfiguriert</p>';
+    } else if (!tpData.workouts?.length) {
+      if (tpEl) tpEl.innerHTML = '<p style="color:var(--muted);font-size:12px">Keine Workouts in TP für heute</p>';
+    } else {
+      morgenTPWorkouts = tpData.workouts;
       if (tpEl) {
-        tpEl.innerHTML =
-          `<div class="section-lbl" style="margin:10px 0 6px">TP Workouts heute</div>` +
-          tpData.workouts.map(w =>
-            `<div class="tp-workout-item">
-              <span class="tp-sport-badge">${esc(w.sport || '?')}</span>
-              <span style="font-size:13px">${esc(w.title || w.sport || '?')}${w.duration_min ? ` · ${w.duration_min}min` : ''}</span>
-            </div>`
-          ).join('');
-        // Auto-select sport pills
-        tpData.workouts.forEach(w => {
-          const pill = document.querySelector(`[data-group="einheiten-morgen"][data-value="${w.sport}"]`);
-          if (pill && !pill.classList.contains('active')) pill.click();
-        });
-        hasContent = true;
+        tpEl.innerHTML = tpData.workouts.map(w =>
+          `<div class="tp-workout-item">
+            <span class="tp-sport-badge">${esc(w.sport || '?')}</span>
+            <span style="font-size:13px">${esc(w.title || w.sport || '?')}${w.duration_min ? ` · ${w.duration_min}min` : ''}${w.tss ? ` · ${w.tss} TSS` : ''}</span>
+          </div>`
+        ).join('');
       }
     }
-
-    if (hasContent && ctx) ctx.style.display = 'block';
   } catch(err) {
-    morgenContextLoaded = false; // allow retry
+    const loading = document.getElementById('morgen-tp-loading');
+    const tpEl   = document.getElementById('morgen-tp-content');
+    if (loading) loading.style.display = 'none';
+    if (tpEl) tpEl.innerHTML = `<p style="color:var(--muted2);font-size:12px">${esc(err.message)}</p>`;
+    morgenContextLoaded = false;
   }
 }
 
