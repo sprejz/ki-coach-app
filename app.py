@@ -17,7 +17,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.4.5"
+APP_VERSION = "2.4.6"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -314,6 +314,27 @@ def call_claude_tp_mcp(user_content: str) -> str:
     return ""
 
 
+async def call_tp_mcp(tool_name: str, arguments: dict) -> dict:
+    url = os.environ.get("TP_MCP_URL", "")
+    payload = {
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "params": {"name": tool_name, "arguments": arguments},
+        "id": 1,
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+    }
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(url, json=payload, headers=headers)
+        result = response.json()
+        logger.info("call_tp_mcp %s args=%s status=%s response=%s",
+                    tool_name, json.dumps(arguments)[:200],
+                    response.status_code, json.dumps(result)[:500])
+        return result
+
+
 # ── routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
@@ -503,75 +524,48 @@ async def tp_workouts(day: str = "tomorrow"):
 
 @app.post("/api/tp/apply")
 async def tp_apply(request: Request):
-    tp_url = os.environ.get("TP_MCP_URL", "")
-    if not tp_url:
+    if not os.environ.get("TP_MCP_URL"):
         raise HTTPException(400, T["err_tp_url_missing"])
     body           = await request.json()
     workouts       = body.get("workouts", [])
     recommendation = body.get("recommendation", {})
-    day            = body.get("day", "tomorrow")
-    athlete        = load_athlete()
-    day_offset     = 0 if day == "today" else 1
-    target_date    = (date.today() + timedelta(days=day_offset)).isoformat()
 
-    # Build ops — only for workouts that exist in TP, using their IDs
-    ops: list = []
+    actions = []
     for s in recommendation.get("sportarten", []):
-        sport   = s.get("sport", "?")
-        badge   = s.get("badge", "GO")
-        details = s.get("details", "")
+        sport = s.get("sport", "?")
+        badge = s.get("badge", "GO")
+
+        if badge == "GO":
+            continue
 
         tp_w = next((w for w in workouts if w.get("sport", "").lower() == sport.lower()), None)
         if tp_w is None:
-            continue  # not in TP — no phantom ops
+            logger.info("tp_apply: %s not in TP workouts — skipped", sport)
+            continue
 
-        workout_id    = tp_w.get("id")
-        orig_title    = tp_w.get("title", sport)
-        orig_duration = tp_w.get("duration_min", 60)
+        workout_id = tp_w.get("id")
+        orig_title = tp_w.get("title", sport)
 
-        if badge == "MOD":
-            rename_op = {"action": "rename_workout", "date": target_date,
-                         "old_title": orig_title,
-                         "new_title": T["tp_mod_renamed"].format(title=orig_title)}
-            if workout_id:
-                rename_op["workout_id"] = workout_id
-            ops.append(rename_op)
-            ops.append({"action": "create_workout", "sport": sport, "date": target_date,
-                        "title": T["tp_mod_new_title"].format(title=orig_title),
-                        "duration_min": round(orig_duration * 0.75),
-                        "note": details})
+        if not workout_id:
+            logger.warning("tp_apply: no workout_id for %s — skipped", sport)
+            actions.append({"sport": sport, "badge": badge, "status": "skipped", "detail": "no workout_id"})
+            continue
 
-        elif badge == "SKIP":
-            rename_op = {"action": "rename_workout", "date": target_date,
-                         "old_title": orig_title,
-                         "new_title": T["tp_skip_renamed"].format(title=orig_title)}
-            if workout_id:
-                rename_op["workout_id"] = workout_id
-            ops.append(rename_op)
+        if badge == "SKIP":
+            new_title = T["tp_skip_renamed"].format(title=orig_title)
+        else:  # MOD
+            new_title = T["tp_mod_renamed"].format(title=orig_title)
 
-        # GO → no change
-
-    logger.info("tp_apply: %d ops for %s", len(ops), target_date)
-    prompt = (
-        f"{T['tp_apply_prompt_intro'].format(name=athlete.get('name', ''), date=target_date)}\n\n"
-        f"Execute each operation in order:\n"
-        f"{json.dumps(ops, ensure_ascii=False, indent=2)}\n\n"
-        f"{T['tp_apply_prompt_sem']}"
-    )
-    try:
-        raw = call_claude_tp_mcp(prompt)
-        if raw.startswith("```"):
-            lines = raw.split("\n")
-            raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
         try:
-            actions = json.loads(raw)
-        except json.JSONDecodeError:
-            actions = [{"action": "apply", "status": "ok", "detail": raw[:500]}]
-        return {"ok": True, "actions": actions}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(500, str(e))
+            result = await call_tp_mcp("tp_update_workout", {"workout_id": workout_id, "title": new_title})
+            actions.append({"sport": sport, "badge": badge, "status": "ok",
+                            "title": new_title, "mcp_response": result})
+        except Exception as e:
+            logger.error("tp_apply: tp_update_workout failed for %s: %s", sport, e)
+            actions.append({"sport": sport, "badge": badge, "status": "error", "detail": str(e)})
+
+    logger.info("tp_apply done: %d actions", len(actions))
+    return {"ok": True, "actions": actions}
 
 
 @app.post("/api/check-abend")
