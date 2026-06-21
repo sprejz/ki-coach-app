@@ -17,7 +17,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.4.6"
+APP_VERSION = "2.4.7"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -526,43 +526,27 @@ async def tp_workouts(day: str = "tomorrow"):
 async def tp_apply(request: Request):
     if not os.environ.get("TP_MCP_URL"):
         raise HTTPException(400, T["err_tp_url_missing"])
-    body           = await request.json()
-    workouts       = body.get("workouts", [])
-    recommendation = body.get("recommendation", {})
+    body       = await request.json()
+    operations = body.get("operations", [])  # [{workout_id, orig_title, badge}]
 
+    logger.info("tp_apply: %d operations", len(operations))
     actions = []
-    for s in recommendation.get("sportarten", []):
-        sport = s.get("sport", "?")
-        badge = s.get("badge", "GO")
+    for op in operations:
+        workout_id = op.get("workout_id")
+        badge      = op.get("badge", "GO")
+        orig_title = op.get("orig_title", "")
 
-        if badge == "GO":
+        if badge == "GO" or not workout_id:
             continue
 
-        tp_w = next((w for w in workouts if w.get("sport", "").lower() == sport.lower()), None)
-        if tp_w is None:
-            logger.info("tp_apply: %s not in TP workouts — skipped", sport)
-            continue
-
-        workout_id = tp_w.get("id")
-        orig_title = tp_w.get("title", sport)
-
-        if not workout_id:
-            logger.warning("tp_apply: no workout_id for %s — skipped", sport)
-            actions.append({"sport": sport, "badge": badge, "status": "skipped", "detail": "no workout_id"})
-            continue
-
-        if badge == "SKIP":
-            new_title = T["tp_skip_renamed"].format(title=orig_title)
-        else:  # MOD
-            new_title = T["tp_mod_renamed"].format(title=orig_title)
-
+        new_title = (T["tp_skip_renamed"] if badge == "SKIP" else T["tp_mod_renamed"]).format(title=orig_title)
         try:
             result = await call_tp_mcp("tp_update_workout", {"workout_id": workout_id, "title": new_title})
-            actions.append({"sport": sport, "badge": badge, "status": "ok",
-                            "title": new_title, "mcp_response": result})
+            actions.append({"workout_id": workout_id, "badge": badge, "status": "ok",
+                            "detail": new_title, "mcp_response": result})
         except Exception as e:
-            logger.error("tp_apply: tp_update_workout failed for %s: %s", sport, e)
-            actions.append({"sport": sport, "badge": badge, "status": "error", "detail": str(e)})
+            logger.error("tp_apply: tp_update_workout failed for %s: %s", workout_id, e)
+            actions.append({"workout_id": workout_id, "badge": badge, "status": "error", "detail": str(e)})
 
     logger.info("tp_apply done: %d actions", len(actions))
     return {"ok": True, "actions": actions}

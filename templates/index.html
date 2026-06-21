@@ -1680,14 +1680,24 @@ async function applyToTP() {
   };
 
   try {
+    // Build operations: match TP workouts to Claude badges (frontend-side, fuzzy)
+    const sportarten = currentResult.sportarten || [];
+    const operations = tpWorkouts
+      .filter(w => w.id)
+      .map(w => {
+        const ws = (w.sport || '').toLowerCase();
+        const rec = sportarten.find(s => {
+          const ss = (s.sport || '').toLowerCase();
+          return ss === ws || ws.includes(ss) || ss.includes(ws);
+        });
+        return { workout_id: w.id, orig_title: w.title || w.sport || '', badge: rec ? rec.badge : 'GO' };
+      });
     const r = await fetch('/api/tp/apply', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
-        workouts: tpWorkouts,
-        recommendation: currentResult,
+        operations,
         day: currentResultType === 'morgen' ? 'today' : 'tomorrow',
-        form_data: formDataForTP,
       }),
     });
     if (!r.ok) {
