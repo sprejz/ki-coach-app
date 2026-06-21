@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import anthropic
 
-APP_VERSION = "2.3.1"
+APP_VERSION = "2.3.2"
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -123,12 +123,17 @@ async def fetch_weather(athlete: dict, day: int = 1) -> dict:
         f"&hourly=precipitation_probability,temperature_2m"
         f"&timezone=Europe/Berlin&forecast_days=2"
     )
+    logger.info("fetch_weather: day=%s lat=%s lon=%s", day, lat, lon)
     async with httpx.AsyncClient(timeout=10) as client:
         r = await client.get(url)
         r.raise_for_status()
         raw = r.json()
+    daily_dates = raw.get("daily", {}).get("time", [])
+    logger.info("fetch_weather ok: daily_dates=%s", daily_dates)
     result = parse_weather(raw, day=day)
     result["hourly"] = parse_hourly(raw, day=day)
+    logger.info("fetch_weather parsed: datum=%s temp=%s-%s hourly=%d",
+                result.get("datum"), result.get("temp_min"), result.get("temp_max"), len(result.get("hourly", [])))
     return result
 
 
@@ -420,14 +425,22 @@ async def get_weather(day: str = "tomorrow"):
         raise HTTPException(500, str(e))
 
 
+_NO_CACHE = {
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
+
+
 @app.get("/api/tp/workouts")
 async def tp_workouts(day: str = "tomorrow"):
     tp_url = os.environ.get("TP_MCP_URL", "")
     if not tp_url:
-        return {"available": False, "workouts": [], "date": None}
+        return JSONResponse({"available": False, "workouts": [], "date": None}, headers=_NO_CACHE)
     day_offset = 0 if day == "today" else 1
     target = (date.today() + timedelta(days=day_offset)).isoformat()
     athlete = load_athlete()
+    logger.info("tp_workouts: day=%s target=%s", day, target)
     prompt = (
         f"List all planned workouts for {athlete.get('name', 'the athlete')} on {target} from TrainingPeaks. "
         f"Respond ONLY with a valid JSON array. Example: "
@@ -439,9 +452,11 @@ async def tp_workouts(day: str = "tomorrow"):
             lines = raw.split("\n")
             raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
         workouts = json.loads(raw)
-        return {"available": True, "workouts": workouts, "date": target}
+        logger.info("tp_workouts ok: %d workouts for %s", len(workouts), target)
+        return JSONResponse({"available": True, "workouts": workouts, "date": target}, headers=_NO_CACHE)
     except json.JSONDecodeError:
-        return {"available": True, "workouts": [], "date": target, "raw": raw[:300]}
+        logger.error("tp_workouts JSON decode error, raw=%s", raw[:300])
+        return JSONResponse({"available": True, "workouts": [], "date": target, "raw": raw[:300]}, headers=_NO_CACHE)
     except HTTPException:
         raise
     except Exception as e:
