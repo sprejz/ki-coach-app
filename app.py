@@ -2,6 +2,7 @@ import os
 import json
 import csv
 import io
+import logging
 import statistics
 from datetime import date, timedelta
 from pathlib import Path
@@ -13,11 +14,25 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import anthropic
 
+APP_VERSION = "2.3.0"
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
 app = FastAPI()
 BASE_DIR = Path(__file__).parent
 ATHLETE_FILE = BASE_DIR / "athlete.json"
 BASELINE_FILE = BASE_DIR / "baseline.json"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+
+@app.middleware("http")
+async def no_cache_api(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
 
 
 # ── data helpers ──────────────────────────────────────────────────────────────
@@ -283,10 +298,13 @@ def call_claude_tp_mcp(user_content: str) -> str:
     except anthropic.APIStatusError as e:
         body = getattr(e, "body", None) or {}
         detail = (body.get("error", {}).get("message", "") if isinstance(body, dict) else "") or getattr(e, "message", "")
+        logger.error("TP MCP APIStatusError %s: body=%s", e.status_code, body)
         raise HTTPException(502, f"TrainingPeaks MCP {e.status_code}: {detail or str(e)}")
     except anthropic.APIConnectionError as e:
+        logger.error("TP MCP connection error: %s", e)
         raise HTTPException(502, f"TrainingPeaks MCP nicht erreichbar: {e}")
     except Exception as e:
+        logger.error("TP MCP unexpected error: %s %s", type(e).__name__, e)
         raise HTTPException(502, f"TrainingPeaks MCP Fehler: {e}")
 
     mcp_errors = []
@@ -309,6 +327,11 @@ def call_claude_tp_mcp(user_content: str) -> str:
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse(request=request, name="index.html")
+
+
+@app.get("/api/version")
+async def api_version():
+    return {"version": APP_VERSION}
 
 
 @app.get("/manifest.json")
@@ -386,7 +409,14 @@ async def get_weather(day: str = "tomorrow"):
     day_offset = 0 if day == "today" else 1
     try:
         return await fetch_weather(athlete, day=day_offset)
+    except httpx.HTTPStatusError as e:
+        logger.error("Open-Meteo HTTP %s: %s", e.response.status_code, e.response.text[:300])
+        raise HTTPException(503, f"Open-Meteo Fehler {e.response.status_code}")
+    except httpx.RequestError as e:
+        logger.error("Open-Meteo Verbindungsfehler: %s %s", type(e).__name__, e)
+        raise HTTPException(503, "Open-Meteo nicht erreichbar")
     except Exception as e:
+        logger.error("Wetterfehler: %s", e)
         raise HTTPException(500, str(e))
 
 

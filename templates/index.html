@@ -629,6 +629,7 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
     <div class="splash-center"></div>
   </div>
   <div class="splash-status" id="splash-status"></div>
+  <div id="splash-version" style="position:absolute;bottom:40px;font-size:11px;color:#303040;letter-spacing:0.5px"></div>
 </div>
 
 <!-- Header -->
@@ -938,6 +939,7 @@ let tpWorkouts = [];
 let preloadedTPWorkouts = [];
 let abendTPLoaded = false;
 let morgenContextLoaded = false;
+let morgenContextLoading = false;
 let morgenTPWorkouts = [];
 let currentResultType = null;
 let currentFormData = null;
@@ -962,6 +964,10 @@ function hideSplash() {
 
 // ── init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
+  fetch('/api/version').then(r => r.json()).then(d => {
+    const el = document.getElementById('splash-version');
+    if (el) el.textContent = 'v' + d.version;
+  }).catch(() => {});
   setSplashStatus('Wetter wird geladen…');
   try {
     const r = await fetch('/api/athlete');
@@ -1506,11 +1512,11 @@ async function autoLoadAbendTP() {
 }
 
 async function autoLoadMorgenContext() {
-  morgenContextLoaded = true;
-
-  // Fetch weather and TP in parallel
+  if (morgenContextLoading || morgenContextLoaded) return;
+  morgenContextLoading = true;
   try {
-    const [wRes, tpRes] = await Promise.all([
+    // allSettled: never throws — each result has {status, value/reason}
+    const [wSettled, tpSettled] = await Promise.allSettled([
       fetch('/api/weather?day=today'),
       fetch('/api/tp/workouts?day=today'),
     ]);
@@ -1518,47 +1524,61 @@ async function autoLoadMorgenContext() {
     // Weather
     const weatherEl = document.getElementById('morgen-weather-content');
     const ctx       = document.getElementById('morgen-context');
-    if (wRes.ok && weatherEl) {
-      const w = await wRes.json();
-      weatherEl.innerHTML =
-        `<div class="weather-row">
-          <span class="weather-temp">${w.temp_min ?? '?'}–${w.temp_max ?? '?'}°C</span>
-          <span class="weather-desc">${esc(w.description || '')}</span>
-          ${w.rain_prob > 0 ? `<span class="weather-rain">${w.rain_prob}% Regen</span>` : ''}
-          ${w.is_thunderstorm ? `<span class="weather-thunder">⚡ Gewitter</span>` : ''}
-          ${w.is_hot ? `<span class="weather-rain" style="color:var(--red)">Hitze</span>` : ''}
-        </div>
-        ${w.hourly?.length ? buildRainTimeline(w.hourly) : ''}`;
-      if (ctx) ctx.style.display = 'block';
+    if (wSettled.status === 'fulfilled' && wSettled.value.ok && weatherEl) {
+      try {
+        const w = await wSettled.value.json();
+        weatherEl.innerHTML =
+          `<div class="weather-row">
+            <span class="weather-temp">${w.temp_min ?? '?'}–${w.temp_max ?? '?'}°C</span>
+            <span class="weather-desc">${esc(w.description || '')}</span>
+            ${w.rain_prob > 0 ? `<span class="weather-rain">${w.rain_prob}% Regen</span>` : ''}
+            ${w.is_thunderstorm ? `<span class="weather-thunder">⚡ Gewitter</span>` : ''}
+            ${w.is_hot ? `<span class="weather-rain" style="color:var(--red)">Hitze</span>` : ''}
+          </div>
+          ${w.hourly?.length ? buildRainTimeline(w.hourly) : ''}`;
+      } catch(_) {
+        if (weatherEl) weatherEl.innerHTML = '<p style="color:var(--muted);font-size:12px">Wetter nicht verfügbar</p>';
+      }
+    } else if (weatherEl) {
+      weatherEl.innerHTML = '<p style="color:var(--muted);font-size:12px">Wetter nicht verfügbar</p>';
     }
+    if (ctx && weatherEl?.innerHTML) ctx.style.display = 'block';
 
-    // TP heute — always hide spinner after fetch
+    // TP heute — hide spinner regardless
     const loading = document.getElementById('morgen-tp-loading');
     const tpEl    = document.getElementById('morgen-tp-content');
     if (loading) loading.style.display = 'none';
 
-    const tpData = await tpRes.json();
-    if (!tpData.available) {
-      if (tpEl) tpEl.innerHTML = '<p style="color:var(--muted2);font-size:12px">TP nicht konfiguriert</p>';
-    } else if (!tpData.workouts?.length) {
-      if (tpEl) tpEl.innerHTML = '<p style="color:var(--muted);font-size:12px">Keine Workouts in TP für heute</p>';
-    } else {
-      morgenTPWorkouts = tpData.workouts;
-      if (tpEl) {
-        tpEl.innerHTML = tpData.workouts.map(w =>
-          `<div class="tp-workout-item">
-            <span class="tp-sport-badge">${esc(w.sport || '?')}</span>
-            <span style="font-size:13px">${esc(w.title || w.sport || '?')}${w.duration_min ? ` · ${w.duration_min}min` : ''}${w.tss ? ` · ${w.tss} TSS` : ''}</span>
-          </div>`
-        ).join('');
+    if (tpSettled.status === 'fulfilled') {
+      try {
+        const tpData = await tpSettled.value.json();
+        if (!tpData.available) {
+          if (tpEl) tpEl.innerHTML = '<p style="color:var(--muted2);font-size:12px">TP nicht konfiguriert</p>';
+        } else if (!tpData.workouts?.length) {
+          if (tpEl) tpEl.innerHTML = '<p style="color:var(--muted);font-size:12px">Keine Workouts in TP für heute</p>';
+        } else {
+          morgenTPWorkouts = tpData.workouts;
+          if (tpEl) {
+            tpEl.innerHTML = tpData.workouts.map(w =>
+              `<div class="tp-workout-item">
+                <span class="tp-sport-badge">${esc(w.sport || '?')}</span>
+                <span style="font-size:13px">${esc(w.title || w.sport || '?')}${w.duration_min ? ` · ${w.duration_min}min` : ''}${w.tss ? ` · ${w.tss} TSS` : ''}</span>
+              </div>`
+            ).join('');
+          }
+        }
+      } catch(_) {
+        if (tpEl) tpEl.innerHTML = '<p style="color:var(--muted2);font-size:12px">TP Ladefehler</p>';
       }
+    } else {
+      if (tpEl) tpEl.innerHTML = '<p style="color:var(--muted2);font-size:12px">TP nicht erreichbar</p>';
     }
-  } catch(err) {
-    const loading = document.getElementById('morgen-tp-loading');
-    const tpEl   = document.getElementById('morgen-tp-content');
-    if (loading) loading.style.display = 'none';
-    if (tpEl) tpEl.innerHTML = `<p style="color:var(--muted2);font-size:12px">${esc(err.message)}</p>`;
-    morgenContextLoaded = false;
+
+    morgenContextLoaded = true; // Set only after both fetches settled
+  } catch(_) {
+    // Unexpected error (shouldn't happen with allSettled) — allow retry
+  } finally {
+    morgenContextLoading = false;
   }
 }
 
