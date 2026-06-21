@@ -967,11 +967,6 @@ let athlete = null;
 let currentResult = null;
 let tpWorkouts = [];
 let preloadedTPWorkouts = [];
-let abendTPLoaded = false;
-let abendWeatherLoaded = false;
-let morgenWeatherLoaded = false;
-let morgenTPLoaded = false;
-let morgenTPLoading = false;
 let morgenTPWorkouts = [];
 let currentResultType = null;
 let currentFormData = null;
@@ -1023,16 +1018,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   initForms();
   initUpload();
   initSettings();
-  // Wetter via /api/startup, TP danach separat (cache:'no-store')
-  try {
-    await loadStartupData();
-  } catch(_) {
-    await Promise.allSettled([autoLoadAbendWeather(), autoLoadMorgenWeather()]);
-  }
+  // Alle 4 Calls parallel — Splash bleibt bis alle fertig
+  await loadStartupData();
   hideSplash();
-  // TP immer frisch laden — nicht blockend
-  autoLoadAbendTP();
-  autoLoadMorgenTP();
 });
 
 // ── header ───────────────────────────────────────────────────────────────────
@@ -1070,11 +1058,8 @@ function initTabs() {
       const tab = btn.dataset.tab;
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.dataset.panel === tab));
-      if (tab === 'abend' && !abendTPLoaded) autoLoadAbendTP();
-      if (tab === 'morgen') { autoLoadMorgenWeather(); autoLoadMorgenTP(); }
     });
   });
-  // autoLoadAbendTP() is called explicitly in DOMContentLoaded (awaited for splash)
 }
 
 // ── sliders ───────────────────────────────────────────────────────────────────
@@ -1522,12 +1507,6 @@ async function refreshAll() {
   const btn = document.getElementById('btn-refresh');
   if (btn) btn.classList.add('spinning');
 
-  // Reset loading flags + weather cache
-  abendTPLoaded = false;
-  abendWeatherLoaded = false;
-  morgenWeatherLoaded = false;
-  morgenTPLoaded = false;
-  morgenTPLoading = false;
   preloadedTPWorkouts = [];
   morgenTPWorkouts = [];
   weatherToday = null;
@@ -1556,16 +1535,7 @@ async function refreshAll() {
   if (morgenTPEl)   morgenTPEl.innerHTML = '';
 
   showSplash(T.refreshing);
-  try {
-    await loadStartupData();
-  } catch(_) {
-    await Promise.allSettled([
-      autoLoadAbendWeather(),
-      autoLoadMorgenWeather(),
-      autoLoadAbendTP(),
-      autoLoadMorgenTP(),
-    ]);
-  }
+  await loadStartupData();
   hideSplash();
   if (btn) btn.classList.remove('spinning');
 }
@@ -1642,58 +1612,20 @@ function renderMorgenTP(data) {
   if (wasserRow) wasserRow.style.display = hasSwim ? 'block' : 'none';
 }
 
-// ── startup: single request, asyncio.gather on backend ───────────────────────
+// ── startup: alle 4 parallel mit cache:'no-store' ────────────────────────────
 async function loadStartupData() {
-  const r = await apiFetch('/api/startup?t=' + Date.now());
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  const d = await r.json();
-  renderAbendWeather(d.weather_tomorrow);  abendWeatherLoaded = true;
-  renderMorgenWeather(d.weather_today);    morgenWeatherLoaded = true;
-}
-
-// ── TrainingPeaks (fallback / tab-switch retry) ───────────────────────────────
-async function autoLoadAbendTP() {
-  if (abendTPLoaded) return;
-  abendTPLoaded = true;
-  try {
-    const r = await apiFetch('/api/tp/workouts?day=tomorrow&t=' + Date.now());
-    renderAbendTP(await r.json());
-  } catch(_) { abendTPLoaded = false; }
-}
-
-async function autoLoadAbendWeather() {
-  if (abendWeatherLoaded) return;
-  abendWeatherLoaded = true;
-  try {
-    const r = await apiFetch('/api/weather?day=tomorrow&t=' + Date.now());
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    renderAbendWeather(await r.json());
-  } catch(_) { abendWeatherLoaded = false; renderAbendWeather(null); }
-}
-
-async function autoLoadMorgenWeather() {
-  if (morgenWeatherLoaded) return;
-  morgenWeatherLoaded = true;
-  try {
-    const r = await apiFetch('/api/weather?day=today');
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    renderMorgenWeather(await r.json());
-  } catch(_) { morgenWeatherLoaded = false; renderMorgenWeather(null); }
-}
-
-async function autoLoadMorgenTP() {
-  if (morgenTPLoading || morgenTPLoaded) return;
-  morgenTPLoading = true;
-  try {
-    const r = await apiFetch('/api/tp/workouts?day=today&t=' + Date.now());
-    renderMorgenTP(await r.json());
-    morgenTPLoaded = true;
-  } catch(_) {
-    const loading = document.getElementById('morgen-tp-loading');
-    const tpEl    = document.getElementById('morgen-tp-content');
-    if (loading) loading.style.display = 'none';
-    if (tpEl) tpEl.innerHTML = `<p style="color:var(--muted2);font-size:12px">${T.tp_unreachable}</p>`;
-  } finally { morgenTPLoading = false; }
+  const t = Date.now();
+  const results = await Promise.allSettled([
+    fetch('/api/weather?day=tomorrow&t='+t,          {cache:'no-store'}).then(r=>r.json()),
+    fetch('/api/weather?day=today&t='+t,             {cache:'no-store'}).then(r=>r.json()),
+    fetch('/api/tp/workouts?day=tomorrow&t='+t,      {cache:'no-store'}).then(r=>r.json()),
+    fetch('/api/tp/workouts?day=today&t='+t,         {cache:'no-store'}).then(r=>r.json()),
+  ]);
+  const val = r => r.status === 'fulfilled' ? r.value : null;
+  renderAbendWeather(val(results[0]));
+  renderMorgenWeather(val(results[1]));
+  renderAbendTP(val(results[2]));
+  renderMorgenTP(val(results[3]));
 }
 
 async function loadTPWorkouts() {
