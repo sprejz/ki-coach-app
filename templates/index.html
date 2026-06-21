@@ -525,6 +525,26 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
   display: none;
 }
 
+/* ── refresh button ──────────────────────────────────────────────────────────── */
+#btn-refresh {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color .15s, border-color .15s;
+}
+#btn-refresh:active { color: var(--green); border-color: rgba(29,158,117,.4); }
+#btn-refresh.spinning { animation: spin .8s linear infinite; }
+
 /* ── splash screen ──────────────────────────────────────────────────────────── */
 #splash {
   position: fixed;
@@ -538,6 +558,7 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
   transition: opacity 0.55s cubic-bezier(0.4,0,0.2,1);
 }
 #splash.fade-out { opacity: 0; pointer-events: none; }
+#splash.hidden { opacity: 0; pointer-events: none; visibility: hidden; }
 .splash-title {
   font-size: 38px;
   font-weight: 800;
@@ -636,7 +657,10 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 <header class="header">
   <div class="header-row">
     <span class="app-title">KI Coach</span>
-    <span class="countdown-chip" id="countdown-chip">Laden…</span>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span class="countdown-chip" id="countdown-chip">Laden…</span>
+      <button id="btn-refresh" onclick="refreshAll()" title="Neu laden" aria-label="Daten neu laden">↺</button>
+    </div>
   </div>
   <div class="race-strip" id="race-strip"></div>
 </header>
@@ -958,8 +982,15 @@ function hideSplash() {
     const el = document.getElementById('splash');
     if (!el) return;
     el.classList.add('fade-out');
-    setTimeout(() => el.remove(), 600);
+    setTimeout(() => { el.classList.remove('fade-out'); el.classList.add('hidden'); }, 600);
   }, 520);
+}
+
+function showSplash(statusText) {
+  const el = document.getElementById('splash');
+  if (!el) return;
+  el.classList.remove('hidden', 'fade-out');
+  if (statusText) setSplashStatus(statusText);
 }
 
 // ── init ─────────────────────────────────────────────────────────────────────
@@ -970,7 +1001,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }).catch(() => {});
   setSplashStatus('Wetter wird geladen…');
   try {
-    const r = await fetch('/api/athlete');
+    const r = await apiFetch('/api/athlete');
     athlete = await r.json();
     renderHeader();
   } catch(e) {
@@ -983,7 +1014,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   initUpload();
   initSettings();
   setSplashStatus('Workouts werden geladen…');
-  await autoLoadAbendTP();
+  await Promise.allSettled([
+    autoLoadAbendTP(),
+    autoLoadMorgenContext(),
+  ]);
   hideSplash();
 });
 
@@ -1414,7 +1448,7 @@ async function loadBaselineDisplay() {
   const el = document.getElementById('baseline-display');
   if (!el) return;
   try {
-    const r = await fetch('/api/baseline');
+    const r = await apiFetch('/api/baseline');
     if (r.status === 404) {
       el.innerHTML = '<p style="color:var(--muted);font-size:13px">Noch keine Baseline — CSVs hochladen und berechnen.</p>';
       return;
@@ -1477,6 +1511,43 @@ function buildRainTimeline(hourly) {
   return `<div class="rain-wrap">${bars}</div>`;
 }
 
+// ── refresh ───────────────────────────────────────────────────────────────────
+async function refreshAll() {
+  const btn = document.getElementById('btn-refresh');
+  if (btn) btn.classList.add('spinning');
+
+  // Reset loading flags
+  abendTPLoaded = false;
+  morgenContextLoaded = false;
+  morgenContextLoading = false;
+  preloadedTPWorkouts = [];
+  morgenTPWorkouts = [];
+
+  // Reset Abend TP UI
+  const abendSection = document.getElementById('abend-tp-section');
+  const abendContent = document.getElementById('abend-tp-content');
+  if (abendSection) abendSection.style.display = 'none';
+  if (abendContent) abendContent.innerHTML = '<p style="color:var(--muted);font-size:13px">Wird geladen…</p>';
+
+  // Reset Morgen UI
+  const morgenCtx    = document.getElementById('morgen-context');
+  const morgenWEl    = document.getElementById('morgen-weather-content');
+  const morgenTPLoad = document.getElementById('morgen-tp-loading');
+  const morgenTPEl   = document.getElementById('morgen-tp-content');
+  if (morgenCtx)    morgenCtx.style.display = 'none';
+  if (morgenWEl)    morgenWEl.innerHTML = '';
+  if (morgenTPLoad) morgenTPLoad.style.display = 'flex';
+  if (morgenTPEl)   morgenTPEl.innerHTML = '';
+
+  showSplash('Daten werden aktualisiert…');
+  await Promise.allSettled([
+    autoLoadAbendTP(),
+    autoLoadMorgenContext(),
+  ]);
+  hideSplash();
+  if (btn) btn.classList.remove('spinning');
+}
+
 // ── TrainingPeaks ─────────────────────────────────────────────────────────────
 async function autoLoadAbendTP() {
   abendTPLoaded = true;
@@ -1484,7 +1555,7 @@ async function autoLoadAbendTP() {
   const content = document.getElementById('abend-tp-content');
   const dateEl  = document.getElementById('abend-tp-date');
   try {
-    const r = await fetch('/api/tp/workouts?day=tomorrow');
+    const r = await apiFetch('/api/tp/workouts?day=tomorrow');
     const data = await r.json();
     if (!data.available) return; // TP not configured — hide section silently
     if (section) section.style.display = 'block';
@@ -1517,8 +1588,8 @@ async function autoLoadMorgenContext() {
   try {
     // allSettled: never throws — each result has {status, value/reason}
     const [wSettled, tpSettled] = await Promise.allSettled([
-      fetch('/api/weather?day=today'),
-      fetch('/api/tp/workouts?day=today'),
+      apiFetch('/api/weather?day=today'),
+      apiFetch('/api/tp/workouts?day=today'),
     ]);
 
     // Weather
@@ -1587,7 +1658,7 @@ async function loadTPWorkouts() {
   const list = document.getElementById('tp-result-list');
   if (btn) { btn.disabled = true; btn.textContent = 'Laden…'; }
   try {
-    const r = await fetch('/api/tp/workouts');
+    const r = await apiFetch('/api/tp/workouts');
     const data = await r.json();
     if (!data.available) {
       if (list) list.innerHTML = '<p style="color:var(--muted);font-size:13px">TP nicht konfiguriert</p>';
@@ -1664,7 +1735,7 @@ async function applyToTP() {
     const day = currentResultType === 'morgen' ? 'today' : 'tomorrow';
     let freshHtml = '';
     try {
-      const rNew = await fetch(`/api/tp/workouts?day=${day}`);
+      const rNew = await apiFetch(`/api/tp/workouts?day=${day}`);
       const fresh = await rNew.json();
       if (fresh.available && fresh.workouts?.length) {
         tpWorkouts = fresh.workouts;
@@ -1696,6 +1767,11 @@ async function applyToTP() {
       btn.textContent = '→ Empfehlung in TP anwenden';
     }
   }
+}
+
+// ── api fetch (cache bypass) ──────────────────────────────────────────────────
+function apiFetch(url, opts = {}) {
+  return fetch(url, { cache: 'no-store', ...opts });
 }
 
 // ── utils ─────────────────────────────────────────────────────────────────────
