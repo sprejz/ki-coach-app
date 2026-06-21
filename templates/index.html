@@ -836,6 +836,7 @@ let preloadedTPWorkouts = [];
 let abendTPLoaded = false;
 let morgenContextLoaded = false;
 let morgenTPWorkouts = [];
+let currentResultType = null;
 
 // ── init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
@@ -1050,7 +1051,8 @@ async function submitMorgen(e) {
 // ── result rendering ──────────────────────────────────────────────────────────
 function showResult(data, formData, type) {
   currentResult = data;
-  tpWorkouts = [];
+  currentResultType = type;
+  tpWorkouts = type === 'abend' ? [...preloadedTPWorkouts] : [...morgenTPWorkouts];
   const section = document.getElementById('result-section');
   section.innerHTML = buildResult(data, formData, type);
   section.style.display = 'block';
@@ -1150,8 +1152,23 @@ function buildResult(data, fd, type) {
     h += `<div class="card-section prep-section"><p class="prep-text">"${esc(data.prep)}"</p></div>`;
   }
 
-  // TrainingPeaks section (Abend-Check only — tomorrow's workouts)
-  if (type === 'abend') {
+  // TrainingPeaks section — show if workouts were pre-loaded (both tabs)
+  const _tpWorks = type === 'abend' ? preloadedTPWorkouts : morgenTPWorkouts;
+  if (_tpWorks.length > 0) {
+    h += `<div class="card-section">
+      <div class="section-lbl">TrainingPeaks</div>
+      <div id="tp-result-list">
+        ${_tpWorks.map(w =>
+          `<div class="tp-workout-item">
+            <span class="tp-sport-badge">${esc(w.sport || '?')}</span>
+            <span style="font-size:13px">${esc(w.title || w.sport || '?')}${w.duration_min ? ` · ${w.duration_min}min` : ''}${w.tss ? ` · ${w.tss} TSS` : ''}</span>
+          </div>`
+        ).join('')}
+      </div>
+      <button class="btn-tp" id="btn-tp-apply" onclick="applyToTP()">→ Empfehlung in TP anwenden</button>
+    </div>`;
+  } else if (type === 'abend') {
+    // Fallback: manual load when TP was not pre-loaded
     h += `<div class="card-section">
       <div class="section-lbl">TrainingPeaks</div>
       <div id="tp-result-list" style="display:none"></div>
@@ -1443,7 +1460,7 @@ async function applyToTP() {
     const r = await fetch('/api/tp/apply', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ workouts: tpWorkouts, recommendation: currentResult }),
+      body: JSON.stringify({ workouts: tpWorkouts, recommendation: currentResult, day: currentResultType === 'morgen' ? 'today' : 'tomorrow' }),
     });
     if (!r.ok) { const t = await r.text(); throw new Error(t); }
     const data = await r.json();

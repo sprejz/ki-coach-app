@@ -408,10 +408,12 @@ async def tp_apply(request: Request):
     workouts = body.get("workouts", [])
     recommendation = body.get("recommendation", {})
     athlete = load_athlete()
-    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    day = body.get("day", "tomorrow")
+    day_offset = 0 if day == "today" else 1
+    target_date = (date.today() + timedelta(days=day_offset)).isoformat()
     prompt = (
         f"Apply the KI Coach recommendation to TrainingPeaks workouts "
-        f"for {athlete.get('name', 'the athlete')} on {tomorrow}.\n\n"
+        f"for {athlete.get('name', 'the athlete')} on {target_date}.\n\n"
         f"Current TP workouts: {json.dumps(workouts, ensure_ascii=False)}\n\n"
         f"KI Recommendation: {json.dumps(recommendation, ensure_ascii=False)}\n\n"
         f"Rules: SKIP → add note 'KI: SKIP' and mark optional; "
