@@ -271,17 +271,36 @@ def call_claude_tp_mcp(user_content: str) -> str:
     if not key:
         raise HTTPException(500, "ANTHROPIC_API_KEY nicht gesetzt")
     c = anthropic.Anthropic(api_key=key)
-    msg = c.beta.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=2000,
-        betas=["mcp-client-2025-11-20"],
-        mcp_servers=[{"type": "url", "url": tp_url, "name": "trainingpeaks"}],
-        tools=[{"type": "mcp_toolset", "mcp_server_name": "trainingpeaks"}],
-        messages=[{"role": "user", "content": user_content}],
-    )
+    try:
+        msg = c.beta.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=2000,
+            betas=["mcp-client-2025-11-20"],
+            mcp_servers=[{"type": "url", "url": tp_url, "name": "trainingpeaks"}],
+            tools=[{"type": "mcp_toolset", "mcp_server_name": "trainingpeaks"}],
+            messages=[{"role": "user", "content": user_content}],
+        )
+    except anthropic.APIStatusError as e:
+        body = getattr(e, "body", None) or {}
+        detail = (body.get("error", {}).get("message", "") if isinstance(body, dict) else "") or getattr(e, "message", "")
+        raise HTTPException(502, f"TrainingPeaks MCP {e.status_code}: {detail or str(e)}")
+    except anthropic.APIConnectionError as e:
+        raise HTTPException(502, f"TrainingPeaks MCP nicht erreichbar: {e}")
+    except Exception as e:
+        raise HTTPException(502, f"TrainingPeaks MCP Fehler: {e}")
+
+    mcp_errors = []
     for block in msg.content:
         if hasattr(block, "text") and block.text:
             return block.text
+        if getattr(block, "is_error", False):
+            content = getattr(block, "content", "")
+            if isinstance(content, list):
+                content = " ".join(getattr(c, "text", str(c)) for c in content)
+            mcp_errors.append(str(content)[:300])
+
+    if mcp_errors:
+        raise HTTPException(502, f"TrainingPeaks Fehler: {'; '.join(mcp_errors)}")
     return ""
 
 

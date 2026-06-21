@@ -1598,7 +1598,14 @@ async function applyToTP() {
   if (!currentResult || !tpWorkouts.length) return;
   const btn  = document.getElementById('btn-tp-apply');
   const list = document.getElementById('tp-result-list');
-  if (btn) { btn.disabled = true; btn.textContent = 'Anwenden…'; }
+
+  // Loading state — spinner inside button
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span style="display:inline-flex;align-items:center;justify-content:center;gap:8px">` +
+      `<div class="spinner" style="width:14px;height:14px;border-width:2px;flex-shrink:0"></div>` +
+      `Wird in TrainingPeaks übernommen…</span>`;
+  }
 
   const formDataForTP = {
     ...(currentFormData || {}),
@@ -1616,19 +1623,43 @@ async function applyToTP() {
         form_data: formDataForTP,
       }),
     });
-    if (!r.ok) { const t = await r.text(); throw new Error(t); }
+    if (!r.ok) {
+      let errMsg;
+      try { const b = await r.json(); errMsg = b.detail || b.message || JSON.stringify(b); }
+      catch { errMsg = await r.text(); }
+      throw new Error(errMsg);
+    }
     const data = await r.json();
+
+    // Build success box
+    const rows = (data.actions || []).map(a => {
+      const ok = (a.status || 'ok') !== 'error';
+      return `<div style="font-size:12px;color:${ok ? 'var(--green)' : 'var(--red)'};line-height:1.8">${ok ? '✓' : '✗'} ${esc(a.detail || a.action || '')}</div>`;
+    }).join('');
+    const box = document.createElement('div');
+    box.style.cssText = 'margin-top:10px;padding:10px;background:rgba(29,158,117,.06);border-radius:8px;border:1px solid rgba(29,158,117,.2)';
+    box.innerHTML = rows;
+
+    // Auto-reload workouts to show updated TP titles
+    const day = currentResultType === 'morgen' ? 'today' : 'tomorrow';
+    let freshHtml = '';
+    try {
+      const rNew = await fetch(`/api/tp/workouts?day=${day}`);
+      const fresh = await rNew.json();
+      if (fresh.available && fresh.workouts?.length) {
+        tpWorkouts = fresh.workouts;
+        freshHtml = fresh.workouts.map(w =>
+          `<div class="tp-workout-item">` +
+          `<span class="tp-sport-badge">${esc(w.sport || '?')}</span>` +
+          `<span style="font-size:13px">${esc(w.title || w.sport || '?')}${w.duration_min ? ` · ${w.duration_min}min` : ''}${w.tss ? ` · ${w.tss} TSS` : ''}</span>` +
+          `</div>`
+        ).join('');
+      }
+    } catch(_) {}
 
     if (list) {
       list.style.display = 'block';
-      const rows = (data.actions || []).map(a => {
-        const ok  = (a.status || 'ok') !== 'error';
-        const col = ok ? 'var(--green)' : 'var(--red)';
-        return `<div style="font-size:12px;color:${col};line-height:1.8">${ok ? '✓' : '✗'} ${esc(a.detail || a.action || '')}</div>`;
-      }).join('');
-      const box = document.createElement('div');
-      box.style.cssText = 'margin-top:10px;padding:10px;background:rgba(29,158,117,.06);border-radius:8px;border:1px solid rgba(29,158,117,.2)';
-      box.innerHTML = rows;
+      if (freshHtml) list.innerHTML = freshHtml;
       list.appendChild(box);
     }
     if (btn) { btn.textContent = '✓ In TP angepasst'; }
@@ -1640,7 +1671,10 @@ async function applyToTP() {
       box.textContent = '✗ ' + (err.message || String(err));
       list.appendChild(box);
     }
-    if (btn) { btn.disabled = false; btn.textContent = '→ Empfehlung in TP anwenden'; }
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '→ Empfehlung in TP anwenden';
+    }
   }
 }
 
