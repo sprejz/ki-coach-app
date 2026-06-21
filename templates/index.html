@@ -681,6 +681,13 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
   <!-- Abend Form -->
   <div class="tab-panel active" data-panel="abend">
     <form class="form-card" id="form-abend" novalidate>
+
+      <!-- Wetter morgen (auto-geladen) -->
+      <div id="abend-context" style="display:none;margin-bottom:20px">
+        <p class="section-title">Morgen</p>
+        <div id="abend-weather-content"></div>
+      </div>
+
       <p class="section-title">Körperzustand heute Abend</p>
 
       <div class="form-section">
@@ -962,6 +969,7 @@ let currentResult = null;
 let tpWorkouts = [];
 let preloadedTPWorkouts = [];
 let abendTPLoaded = false;
+let abendWeatherLoaded = false;
 let morgenContextLoaded = false;
 let morgenContextLoading = false;
 let morgenTPWorkouts = [];
@@ -1016,6 +1024,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setSplashStatus('Workouts werden geladen…');
   await Promise.allSettled([
     autoLoadAbendTP(),
+    autoLoadAbendWeather(),
     autoLoadMorgenContext(),
   ]);
   hideSplash();
@@ -1518,6 +1527,7 @@ async function refreshAll() {
 
   // Reset loading flags
   abendTPLoaded = false;
+  abendWeatherLoaded = false;
   morgenContextLoaded = false;
   morgenContextLoading = false;
   preloadedTPWorkouts = [];
@@ -1528,6 +1538,12 @@ async function refreshAll() {
   const abendContent = document.getElementById('abend-tp-content');
   if (abendSection) abendSection.style.display = 'none';
   if (abendContent) abendContent.innerHTML = '<p style="color:var(--muted);font-size:13px">Wird geladen…</p>';
+
+  // Reset Abend weather UI
+  const abendCtx = document.getElementById('abend-context');
+  const abendWEl = document.getElementById('abend-weather-content');
+  if (abendCtx) abendCtx.style.display = 'none';
+  if (abendWEl) abendWEl.innerHTML = '';
 
   // Reset Morgen UI
   const morgenCtx    = document.getElementById('morgen-context');
@@ -1542,6 +1558,7 @@ async function refreshAll() {
   showSplash('Daten werden aktualisiert…');
   await Promise.allSettled([
     autoLoadAbendTP(),
+    autoLoadAbendWeather(),
     autoLoadMorgenContext(),
   ]);
   hideSplash();
@@ -1555,7 +1572,7 @@ async function autoLoadAbendTP() {
   const content = document.getElementById('abend-tp-content');
   const dateEl  = document.getElementById('abend-tp-date');
   try {
-    const r = await apiFetch('/api/tp/workouts?day=tomorrow');
+    const r = await apiFetch('/api/tp/workouts?day=tomorrow&t=' + Date.now());
     const data = await r.json();
     if (!data.available) return; // TP not configured — hide section silently
     if (section) section.style.display = 'block';
@@ -1582,6 +1599,33 @@ async function autoLoadAbendTP() {
   }
 }
 
+async function autoLoadAbendWeather() {
+  abendWeatherLoaded = true;
+  const ctx = document.getElementById('abend-context');
+  const weatherEl = document.getElementById('abend-weather-content');
+  try {
+    const r = await apiFetch('/api/weather?day=tomorrow&t=' + Date.now());
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const w = await r.json();
+    if (weatherEl) {
+      weatherEl.innerHTML =
+        `<div class="weather-row">
+          <span class="weather-temp">${w.temp_min ?? '?'}–${w.temp_max ?? '?'}°C</span>
+          <span class="weather-desc">${esc(w.description || '')}</span>
+          ${w.rain_prob > 0 ? `<span class="weather-rain">${w.rain_prob}% Regen</span>` : ''}
+          ${w.is_thunderstorm ? `<span class="weather-thunder">⚡ Gewitter</span>` : ''}
+          ${w.is_hot ? `<span class="weather-rain" style="color:var(--red)">Hitze</span>` : ''}
+        </div>
+        ${w.hourly?.length ? buildRainTimeline(w.hourly) : ''}`;
+    }
+    if (ctx) ctx.style.display = 'block';
+  } catch(_) {
+    abendWeatherLoaded = false;
+    if (weatherEl) weatherEl.innerHTML = '<p style="color:var(--muted);font-size:12px">Wetter nicht verfügbar</p>';
+    if (ctx) ctx.style.display = 'block';
+  }
+}
+
 async function autoLoadMorgenContext() {
   if (morgenContextLoading || morgenContextLoaded) return;
   morgenContextLoading = true;
@@ -1589,7 +1633,7 @@ async function autoLoadMorgenContext() {
     // allSettled: never throws — each result has {status, value/reason}
     const [wSettled, tpSettled] = await Promise.allSettled([
       apiFetch('/api/weather?day=today'),
-      apiFetch('/api/tp/workouts?day=today'),
+      apiFetch('/api/tp/workouts?day=today&t=' + Date.now()),
     ]);
 
     // Weather
@@ -1658,7 +1702,7 @@ async function loadTPWorkouts() {
   const list = document.getElementById('tp-result-list');
   if (btn) { btn.disabled = true; btn.textContent = 'Laden…'; }
   try {
-    const r = await apiFetch('/api/tp/workouts');
+    const r = await apiFetch('/api/tp/workouts?t=' + Date.now());
     const data = await r.json();
     if (!data.available) {
       if (list) list.innerHTML = '<p style="color:var(--muted);font-size:13px">TP nicht konfiguriert</p>';
@@ -1735,7 +1779,7 @@ async function applyToTP() {
     const day = currentResultType === 'morgen' ? 'today' : 'tomorrow';
     let freshHtml = '';
     try {
-      const rNew = await apiFetch(`/api/tp/workouts?day=${day}`);
+      const rNew = await apiFetch(`/api/tp/workouts?day=${day}&t=${Date.now()}`);
       const fresh = await rNew.json();
       if (fresh.available && fresh.workouts?.length) {
         tpWorkouts = fresh.workouts;

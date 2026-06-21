@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import anthropic
 
-APP_VERSION = "2.3.0"
+APP_VERSION = "2.3.1"
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
