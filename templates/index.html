@@ -486,6 +486,44 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
   flex-shrink: 0;
   white-space: nowrap;
 }
+
+/* ── Settings tab ─────────────────────────────────────────────────────────── */
+.baseline-grid { display: flex; flex-direction: column; }
+.baseline-row {
+  display: flex;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  gap: 8px;
+}
+.baseline-row:last-child { border-bottom: none; }
+.baseline-label { flex: 1; font-size: 13px; color: var(--muted); }
+.baseline-median { font-size: 15px; font-weight: 700; min-width: 64px; text-align: right; }
+.baseline-flag { font-size: 11px; color: var(--muted2); min-width: 52px; text-align: right; }
+.race-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.race-item:last-child { border-bottom: none; }
+.race-priority-badge {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.priority-a { background: rgba(239,159,39,.2); color: var(--orange); }
+.priority-b { background: rgba(136,136,136,.12); color: var(--muted); }
+.save-ok {
+  text-align: center;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--green);
+  display: none;
+}
 </style>
 </head>
 <body>
@@ -501,8 +539,9 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 
 <!-- Tabs -->
 <div class="tabs">
-  <button class="tab-btn active" data-tab="abend">Abend-Check</button>
-  <button class="tab-btn" data-tab="morgen">Morgen-Check</button>
+  <button class="tab-btn active" data-tab="abend">Abend</button>
+  <button class="tab-btn" data-tab="morgen">Morgen</button>
+  <button class="tab-btn" data-tab="einstellungen">Profil</button>
 </div>
 
 <!-- Error banner -->
@@ -599,14 +638,13 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
         </div>
       </div>
 
-      <!-- TP Workouts preload -->
-      <div class="form-section">
-        <div class="field-label" style="margin-bottom:10px">
-          <span>TrainingPeaks</span>
-          <span style="font-size:12px;color:var(--muted)">optional</span>
+      <!-- TP Workouts morgen (auto-geladen) -->
+      <div class="form-section" id="abend-tp-section" style="display:none">
+        <div class="field-label" style="margin-bottom:8px">
+          <span>TP Workouts morgen</span>
+          <span style="font-size:12px;color:var(--muted)" id="abend-tp-date"></span>
         </div>
-        <button type="button" class="btn-tp-pre" id="btn-tp-preload" onclick="preloadTPWorkouts()">→ Workouts für morgen laden</button>
-        <div id="tp-preload-result" style="display:none;margin-top:8px"></div>
+        <div id="abend-tp-content"><p style="color:var(--muted);font-size:13px">Wird geladen…</p></div>
       </div>
 
       <!-- Wassertemperatur (hidden unless Schwimmen selected) -->
@@ -625,6 +663,14 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
   <!-- Morgen Form -->
   <div class="tab-panel" data-panel="morgen">
     <form class="form-card" id="form-morgen" enctype="multipart/form-data" novalidate>
+
+      <!-- Kontext: Wetter + TP heute (auto-geladen) -->
+      <div id="morgen-context" style="display:none;margin-bottom:20px">
+        <p class="section-title">Heute</p>
+        <div id="morgen-weather-content" style="margin-bottom:10px"></div>
+        <div id="morgen-tp-content"></div>
+      </div>
+
       <p class="section-title">Körperzustand heute Morgen</p>
 
       <div class="form-section">
@@ -709,6 +755,66 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
     </form>
   </div>
 
+  <!-- Einstellungen / Profil -->
+  <div class="tab-panel" data-panel="einstellungen">
+
+    <!-- Athletenprofil -->
+    <div class="form-card">
+      <p class="section-title">Athletenprofil</p>
+      <div class="form-section">
+        <div class="field-row">
+          <div class="field-label"><span>FTP</span><span style="font-size:12px;color:var(--muted)">Watt</span></div>
+          <input type="number" id="s-ftp" class="text-input" placeholder="286">
+        </div>
+        <div class="field-row">
+          <div class="field-label"><span>Gewicht</span><span style="font-size:12px;color:var(--muted)">kg</span></div>
+          <input type="number" id="s-weight" class="text-input" placeholder="84" step="0.5">
+        </div>
+        <div class="field-row">
+          <div class="field-label"><span>Laufschwelle</span><span style="font-size:12px;color:var(--muted)">/km</span></div>
+          <input type="text" id="s-run-threshold" class="text-input" placeholder="5:20">
+        </div>
+        <div class="field-row">
+          <div class="field-label"><span>CSS Schwimmen</span><span style="font-size:12px;color:var(--muted)">/100m</span></div>
+          <input type="text" id="s-css" class="text-input" placeholder="2:20">
+        </div>
+        <div class="field-row">
+          <div class="field-label"><span>Outdoor-Schwimmen ab</span><span style="font-size:12px;color:var(--muted)">°C</span></div>
+          <input type="number" id="s-swim-min" class="text-input" placeholder="15">
+        </div>
+      </div>
+      <button type="button" class="btn-submit" onclick="saveProfile()">Speichern</button>
+      <p class="save-ok" id="save-ok">✓ Gespeichert</p>
+    </div>
+
+    <!-- Rennen -->
+    <div class="form-card" style="margin-top:0">
+      <p class="section-title">Rennen</p>
+      <div id="races-list"><p style="color:var(--muted);font-size:13px">Wird geladen…</p></div>
+    </div>
+
+    <!-- Baseline -->
+    <div class="form-card" style="margin-top:0">
+      <p class="section-title">Schlaf-Baseline</p>
+      <div id="baseline-display"><p style="color:var(--muted);font-size:13px">Wird geladen…</p></div>
+
+      <div class="form-section" style="margin-top:20px">
+        <div class="field-label" style="margin-bottom:10px">
+          <span>Baseline neu berechnen</span>
+          <span style="font-size:12px;color:var(--muted)">AutoSleep CSVs</span>
+        </div>
+        <label class="upload-area" id="baseline-upload-area" for="baseline-csv-input">
+          <input type="file" id="baseline-csv-input" accept=".csv" multiple>
+          <div class="upload-icon">📊</div>
+          <div class="upload-label"><strong>CSVs hochladen</strong> (mehrere möglich)</div>
+          <div id="baseline-file-status" style="display:none;color:var(--green);font-size:13px;margin-top:6px"></div>
+        </label>
+      </div>
+      <button type="button" class="btn-submit" onclick="recalcBaseline()">Baseline neu berechnen</button>
+    </div>
+
+  </div><!-- Einstellungen panel -->
+
 </div><!-- #form-section -->
 
 <!-- Result section -->
@@ -727,6 +833,8 @@ let athlete = null;
 let currentResult = null;
 let tpWorkouts = [];
 let preloadedTPWorkouts = [];
+let abendTPLoaded = false;
+let morgenContextLoaded = false;
 
 // ── init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
@@ -742,6 +850,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   initPills();
   initForms();
   initUpload();
+  initSettings();
 });
 
 // ── header ───────────────────────────────────────────────────────────────────
@@ -779,8 +888,12 @@ function initTabs() {
       const tab = btn.dataset.tab;
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.dataset.panel === tab));
+      if (tab === 'abend' && !abendTPLoaded) autoLoadAbendTP();
+      if (tab === 'morgen' && !morgenContextLoaded) autoLoadMorgenContext();
     });
   });
+  // Trigger for the default active tab (abend)
+  autoLoadAbendTP();
 }
 
 // ── sliders ───────────────────────────────────────────────────────────────────
@@ -1064,6 +1177,133 @@ function backToForm() {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+// ── Settings ──────────────────────────────────────────────────────────────────
+function initSettings() {
+  if (athlete) fillProfileForm(athlete);
+
+  // Baseline CSV upload label
+  const input = document.getElementById('baseline-csv-input');
+  const fileStatus = document.getElementById('baseline-file-status');
+  const area = document.getElementById('baseline-upload-area');
+  input?.addEventListener('change', () => {
+    if (input.files.length) {
+      fileStatus.textContent = `${input.files.length} Datei(en) ausgewählt`;
+      fileStatus.style.display = 'block';
+      area.classList.add('has-file');
+    }
+  });
+
+  loadBaselineDisplay();
+}
+
+function fillProfileForm(a) {
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val ?? ''; };
+  set('s-ftp', a.ftp_watt);
+  set('s-weight', a.weight_kg);
+  set('s-run-threshold', a.run_threshold_pace);
+  set('s-css', a.css_per_100m);
+  set('s-swim-min', a.swim_outdoor_min_celsius);
+
+  const list = document.getElementById('races-list');
+  if (list && a.races) {
+    list.innerHTML = a.races.map(r => {
+      const d = new Date(r.date + 'T12:00:00').toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      const cls = r.priority === 'A' ? 'priority-a' : 'priority-b';
+      const goal = r.goal_total ? ` · Ziel ${r.goal_total}h` : '';
+      return `<div class="race-item">
+        <span class="race-priority-badge ${cls}">${r.priority}</span>
+        <div>
+          <div style="font-size:14px;font-weight:600">${esc(r.name)}</div>
+          <div style="font-size:12px;color:var(--muted)">${d} · ${esc(r.distance || '')}${goal}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+}
+
+async function saveProfile() {
+  if (!athlete) return;
+  const get = id => document.getElementById(id)?.value.trim();
+  const updated = {
+    ...athlete,
+    ftp_watt: parseFloat(get('s-ftp')) || athlete.ftp_watt,
+    weight_kg: parseFloat(get('s-weight')) || athlete.weight_kg,
+    run_threshold_pace: get('s-run-threshold') || athlete.run_threshold_pace,
+    css_per_100m: get('s-css') || athlete.css_per_100m,
+    swim_outdoor_min_celsius: parseFloat(get('s-swim-min')) || athlete.swim_outdoor_min_celsius,
+    updated: new Date().toISOString().slice(0, 10),
+  };
+  try {
+    const r = await fetch('/api/athlete/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updated),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    athlete = updated;
+    renderHeader();
+    const ok = document.getElementById('save-ok');
+    if (ok) { ok.style.display = 'block'; setTimeout(() => ok.style.display = 'none', 2500); }
+  } catch(err) {
+    showError(err.message || String(err));
+  }
+}
+
+async function loadBaselineDisplay() {
+  const el = document.getElementById('baseline-display');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/baseline');
+    if (r.status === 404) {
+      el.innerHTML = '<p style="color:var(--muted);font-size:13px">Noch keine Baseline — CSVs hochladen und berechnen.</p>';
+      return;
+    }
+    if (!r.ok) throw new Error(await r.text());
+    const b = await r.json();
+    el.innerHTML = `
+      <div style="font-size:11px;color:var(--muted2);margin-bottom:12px">${b.nights || '?'} Nächte · Stand ${b.updated || '?'}</div>
+      <div class="baseline-grid">
+        ${bRow('SchlafHRV', b.SchlafHRV?.median, 'ms', '≤ ' + b.SchlafHRV?.flag_low + ' ms')}
+        ${bRow('WachBPM', b.WachBPM?.median, '', '≥ ' + b.WachBPM?.flag_high)}
+        ${bRow('SchlafBPM', b.SchlafBPM?.median, '', '≥ ' + b.SchlafBPM?.flag_high)}
+        ${bRow('Atmung', b.Atmung?.median, '/min', '≥ ' + b.Atmung?.flag_high)}
+        ${bRow('Effizienz', b.Effizienz?.median, '%', '< ' + b.Effizienz?.flag_low + '%')}
+      </div>`;
+  } catch(err) {
+    el.innerHTML = `<p style="color:var(--red);font-size:13px">${esc(err.message)}</p>`;
+  }
+}
+
+function bRow(label, median, unit, flag) {
+  const val = median != null ? median + unit : '—';
+  return `<div class="baseline-row">
+    <span class="baseline-label">${label}</span>
+    <span class="baseline-median">${val}</span>
+    <span class="baseline-flag">${flag}</span>
+  </div>`;
+}
+
+async function recalcBaseline() {
+  const input = document.getElementById('baseline-csv-input');
+  if (!input?.files?.length) { showError('Bitte zuerst AutoSleep CSVs auswählen.'); return; }
+  const fd = new FormData();
+  for (const f of input.files) fd.append('files', f);
+  setLoading(true);
+  try {
+    const r = await fetch('/api/baseline/calculate', { method: 'POST', body: fd });
+    if (!r.ok) throw new Error(await r.text());
+    await loadBaselineDisplay();
+    document.getElementById('baseline-upload-area')?.classList.remove('has-file');
+    const fs = document.getElementById('baseline-file-status');
+    if (fs) fs.textContent = '✓ Baseline aktualisiert';
+    input.value = '';
+  } catch(err) {
+    showError(err.message || String(err));
+  } finally {
+    setLoading(false);
+  }
+}
+
 // ── rain timeline ─────────────────────────────────────────────────────────────
 function buildRainTimeline(hourly) {
   if (!hourly || !hourly.length) return '';
@@ -1077,36 +1317,94 @@ function buildRainTimeline(hourly) {
 }
 
 // ── TrainingPeaks ─────────────────────────────────────────────────────────────
-async function preloadTPWorkouts() {
-  const btn = document.getElementById('btn-tp-preload');
-  const res = document.getElementById('tp-preload-result');
-  if (btn) { btn.disabled = true; btn.textContent = 'Laden…'; }
+async function autoLoadAbendTP() {
+  abendTPLoaded = true;
+  const section = document.getElementById('abend-tp-section');
+  const content = document.getElementById('abend-tp-content');
+  const dateEl  = document.getElementById('abend-tp-date');
   try {
-    const r = await fetch('/api/tp/workouts');
+    const r = await fetch('/api/tp/workouts?day=tomorrow');
     const data = await r.json();
-    if (!data.available) {
-      res.innerHTML = '<p style="color:var(--muted);font-size:12px">TP nicht konfiguriert (TP_MCP_URL fehlt)</p>';
-    } else if (!data.workouts?.length) {
-      res.innerHTML = '<p style="color:var(--muted);font-size:12px">Keine Workouts in TP für morgen</p>';
-    } else {
-      preloadedTPWorkouts = data.workouts;
-      res.innerHTML = data.workouts.map(w =>
+    if (!data.available) return; // TP not configured — hide section silently
+    if (section) section.style.display = 'block';
+    if (dateEl && data.date) dateEl.textContent = fmtDate(data.date);
+    if (!data.workouts?.length) {
+      if (content) content.innerHTML = '<p style="color:var(--muted);font-size:12px">Keine Workouts in TP für morgen</p>';
+      return;
+    }
+    preloadedTPWorkouts = data.workouts;
+    if (content) {
+      content.innerHTML = data.workouts.map(w =>
         `<div class="tp-workout-item">
           <span class="tp-sport-badge">${esc(w.sport || '?')}</span>
-          <span style="font-size:12px">${esc(w.title || w.sport || '?')}${w.duration_min ? ` · ${w.duration_min}min` : ''}</span>
+          <span style="font-size:13px">${esc(w.title || w.sport || '?')}${w.duration_min ? ` · ${w.duration_min}min` : ''}${w.tss ? ` · ${w.tss} TSS` : ''}</span>
         </div>`
       ).join('');
-      // Auto-select matching Einheiten pills
-      preloadedTPWorkouts.forEach(w => {
-        const pill = document.querySelector(`[data-group="einheiten-abend"][data-value="${w.sport}"]`);
-        if (pill && !pill.classList.contains('active')) pill.click();
-      });
     }
-    res.style.display = 'block';
-    if (btn) { btn.disabled = false; btn.textContent = '↺ Neu laden'; }
+    preloadedTPWorkouts.forEach(w => {
+      const pill = document.querySelector(`[data-group="einheiten-abend"][data-value="${w.sport}"]`);
+      if (pill && !pill.classList.contains('active')) pill.click();
+    });
   } catch(err) {
-    if (res) { res.innerHTML = `<p style="color:var(--red);font-size:12px">${esc(err.message)}</p>`; res.style.display = 'block'; }
-    if (btn) { btn.disabled = false; btn.textContent = '→ Workouts für morgen laden'; }
+    abendTPLoaded = false; // allow retry on next tab switch
+  }
+}
+
+async function autoLoadMorgenContext() {
+  morgenContextLoaded = true;
+  const ctx        = document.getElementById('morgen-context');
+  const weatherEl  = document.getElementById('morgen-weather-content');
+  const tpEl       = document.getElementById('morgen-tp-content');
+
+  try {
+    const [wRes, tpRes] = await Promise.all([
+      fetch('/api/weather?day=today'),
+      fetch('/api/tp/workouts?day=today'),
+    ]);
+
+    let hasContent = false;
+
+    // Weather
+    if (wRes.ok) {
+      const w = await wRes.json();
+      if (weatherEl) {
+        weatherEl.innerHTML =
+          `<div class="weather-row">
+            <span class="weather-temp">${w.temp_min ?? '?'}–${w.temp_max ?? '?'}°C</span>
+            <span class="weather-desc">${esc(w.description || '')}</span>
+            ${w.rain_prob > 0 ? `<span class="weather-rain">${w.rain_prob}% Regen</span>` : ''}
+            ${w.is_thunderstorm ? `<span class="weather-thunder">⚡ Gewitter</span>` : ''}
+            ${w.is_hot ? `<span class="weather-rain" style="color:var(--red)">Hitze</span>` : ''}
+          </div>
+          ${w.hourly?.length ? buildRainTimeline(w.hourly) : ''}`;
+        hasContent = true;
+      }
+    }
+
+    // TP heute
+    const tpData = await tpRes.json();
+    if (tpData.available && tpData.workouts?.length) {
+      if (tpEl) {
+        tpEl.innerHTML =
+          `<div class="section-lbl" style="margin:10px 0 6px">TP Workouts heute</div>` +
+          tpData.workouts.map(w =>
+            `<div class="tp-workout-item">
+              <span class="tp-sport-badge">${esc(w.sport || '?')}</span>
+              <span style="font-size:13px">${esc(w.title || w.sport || '?')}${w.duration_min ? ` · ${w.duration_min}min` : ''}</span>
+            </div>`
+          ).join('');
+        // Auto-select sport pills
+        tpData.workouts.forEach(w => {
+          const pill = document.querySelector(`[data-group="einheiten-morgen"][data-value="${w.sport}"]`);
+          if (pill && !pill.classList.contains('active')) pill.click();
+        });
+        hasContent = true;
+      }
+    }
+
+    if (hasContent && ctx) ctx.style.display = 'block';
+  } catch(err) {
+    morgenContextLoaded = false; // allow retry
   }
 }
 
@@ -1166,6 +1464,9 @@ async function applyToTP() {
 }
 
 // ── utils ─────────────────────────────────────────────────────────────────────
+function fmtDate(iso) {
+  return new Date(iso + 'T12:00:00').toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+}
 function esc(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }

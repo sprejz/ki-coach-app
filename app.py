@@ -56,9 +56,10 @@ WMO = {
 }
 
 
-def parse_weather(raw: dict) -> dict:
+def parse_weather(raw: dict, day: int = 1) -> dict:
     daily = raw.get("daily", {})
-    idx = 1 if len(daily.get("time", [])) > 1 else 0
+    available = len(daily.get("time", []))
+    idx = min(day, available - 1) if available > 0 else 0
     code = (daily.get("weathercode") or [0])[idx] if idx < len(daily.get("weathercode") or []) else 0
     temp_max = (daily.get("temperature_2m_max") or [None])[idx]
     temp_min = (daily.get("temperature_2m_min") or [None])[idx]
@@ -77,15 +78,15 @@ def parse_weather(raw: dict) -> dict:
     }
 
 
-def parse_hourly(raw: dict) -> list:
-    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+def parse_hourly(raw: dict, day: int = 1) -> list:
+    target = (date.today() + timedelta(days=day)).isoformat()
     hourly = raw.get("hourly", {})
     times = hourly.get("time", [])
     rain_probs = hourly.get("precipitation_probability", [])
     temps = hourly.get("temperature_2m", [])
     result = []
     for i, t in enumerate(times):
-        if not t.startswith(tomorrow):
+        if not t.startswith(target):
             continue
         hour = int(t[11:13])
         if 6 <= hour <= 20:
@@ -97,7 +98,7 @@ def parse_hourly(raw: dict) -> list:
     return result
 
 
-async def fetch_weather(athlete: dict) -> dict:
+async def fetch_weather(athlete: dict, day: int = 1) -> dict:
     lat = athlete["location"]["lat"]
     lon = athlete["location"]["lon"]
     url = (
@@ -111,8 +112,8 @@ async def fetch_weather(athlete: dict) -> dict:
         r = await client.get(url)
         r.raise_for_status()
         raw = r.json()
-    result = parse_weather(raw)
-    result["hourly"] = parse_hourly(raw)
+    result = parse_weather(raw, day=day)
+    result["hourly"] = parse_hourly(raw, day=day)
     return result
 
 
@@ -360,15 +361,26 @@ async def calc_baseline(files: List[UploadFile] = File(...)):
     return baseline
 
 
+@app.get("/api/weather")
+async def get_weather(day: str = "tomorrow"):
+    athlete = load_athlete()
+    day_offset = 0 if day == "today" else 1
+    try:
+        return await fetch_weather(athlete, day=day_offset)
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
 @app.get("/api/tp/workouts")
-async def tp_workouts():
+async def tp_workouts(day: str = "tomorrow"):
     tp_url = os.environ.get("TP_MCP_URL", "")
     if not tp_url:
         return {"available": False, "workouts": [], "date": None}
-    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    day_offset = 0 if day == "today" else 1
+    target = (date.today() + timedelta(days=day_offset)).isoformat()
     athlete = load_athlete()
     prompt = (
-        f"List all planned workouts for {athlete.get('name', 'the athlete')} on {tomorrow} from TrainingPeaks. "
+        f"List all planned workouts for {athlete.get('name', 'the athlete')} on {target} from TrainingPeaks. "
         f"Respond ONLY with a valid JSON array. Example: "
         f'[{{"id":"123","sport":"Rad","title":"Z2 Ausdauer","duration_min":90,"tss":65,"description":"60-70% FTP"}}]'
     )
@@ -378,9 +390,9 @@ async def tp_workouts():
             lines = raw.split("\n")
             raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
         workouts = json.loads(raw)
-        return {"available": True, "workouts": workouts, "date": tomorrow}
+        return {"available": True, "workouts": workouts, "date": target}
     except json.JSONDecodeError:
-        return {"available": True, "workouts": [], "date": tomorrow, "raw": raw[:300]}
+        return {"available": True, "workouts": [], "date": target, "raw": raw[:300]}
     except HTTPException:
         raise
     except Exception as e:

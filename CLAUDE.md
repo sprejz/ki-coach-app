@@ -1,4 +1,4 @@
-# KI Coach App — Schritt 2
+# KI Coach App — v2.1.0
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -165,35 +165,29 @@ text-secondary: #666;
 
 ---
 
-## Schritt 2 — implementiert
+## Changelog
 
-### TrainingPeaks MCP Integration
-- `GET /api/tp/workouts` — lädt morgen's Workouts via Claude MCP Connector (Beta: `mcp-client-2025-11-20`)
-- `POST /api/tp/apply` — wendet KI-Empfehlung auf TP-Workouts an (SKIP/MOD/GO + Zwift-Umbenennung)
-- Abend-Check: "→ Workouts für morgen laden" Button im Formular — auto-selektiert Einheiten + sendet TP-Kontext an Claude
-- Result-Card: "→ TP Workouts laden" + "→ Empfehlung in TP anwenden" Buttons
-- TP_MCP_URL als Railway ENV — niemals hardcoded; gibt `{"available": false}` zurück wenn nicht gesetzt
+### v2.0.0 — Schritt 2
+- **Stündliche Regenprognose:** Open-Meteo `hourly=precipitation_probability,temperature_2m`, gefiltert auf 6–20 Uhr morgen. Regenspitzen (≥30%) gehen als Kontext in Claude-Prompt. Result-Card: Balkendiagramm pro Stunde (grün/orange/rot).
+- **TrainingPeaks MCP Integration:** Claude MCP Connector (`betas=["mcp-client-2025-11-20"]`). `GET /api/tp/workouts` → morgen's Workouts; `POST /api/tp/apply` → SKIP/MOD/GO in TP anwenden (Titel, Notizen, Zwift-Umbenennung). TP_MCP_URL als Railway ENV; gibt `{"available":false}` wenn nicht gesetzt. Abend-Check: "Workouts für morgen laden" Button auto-selektiert Sportarten und schickt TP-Kontext an Claude.
+- **PWA Manifest:** `GET /manifest.json` (standalone, dark theme), `<link rel="manifest">`, `<meta name="theme-color">` in HTML.
+- **anthropic** auf `>=0.40.0` angehoben (MCP connector beta support).
 
-### Stündliche Regenprognose
-- Open-Meteo jetzt mit `&hourly=precipitation_probability,temperature_2m`
-- `parse_hourly()` filtert auf morgen 6:00–20:00 Uhr
-- Regenspitzen (≥30%) gehen als Kontext in Claude-Prompt
-- Result-Card: visuelles Balkendiagramm pro Stunde (grün/orange/rot nach Wahrscheinlichkeit)
-
-### PWA Manifest
-- `GET /manifest.json` Route (standalone display, dark theme)
-- `<link rel="manifest">` + `<meta name="theme-color">` in index.html
-- Apple-Meta-Tags waren bereits vorhanden (apple-mobile-web-app-capable)
+### v2.1.0 — Profil & Baseline UI
+- **Profil-Tab (3. Tab "Profil"):** FTP, Gewicht, Laufschwelle, CSS, Outdoor-Schwimmtemperatur direkt in der App bearbeitbar. Speichern → `POST /api/athlete/update` → Header-Countdown aktualisiert sich. Rennen-Liste (A/B, Datum, Zielzeit) wird angezeigt.
+- **Baseline-Manager (im Profil-Tab):** Aktuelle Baseline-Werte (HRV, WachBPM, SchlafBPM, Atmung, Effizienz) mit Median + Flag-Schwellen angezeigt. Mehrere AutoSleep CSVs hochladen → `POST /api/baseline/calculate` → Baseline wird sofort aktualisiert und neu angezeigt.
 
 ---
 
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md          ← diese Datei
+├── CLAUDE.md          ← diese Datei (v2.1.0)
 ├── app.py             ← FastAPI Backend
 ├── templates/
-│   └── index.html     ← Frontend (iPhone-optimiert)
+│   └── index.html     ← Frontend (iPhone-optimiert, 3 Tabs)
+├── athlete.json       ← Athletenprofil (editierbar über Profil-Tab)
+├── baseline.json      ← Schlaf-Baseline (berechenbar über Profil-Tab)
 ├── Dockerfile
 └── railway.toml
 ```
