@@ -15,7 +15,11 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import anthropic
 
-APP_VERSION = "2.4.0"
+from translations import TRANSLATIONS
+
+APP_VERSION = "2.4.1"
+APP_LANG = os.environ.get("APP_LANG", "de")
+T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -220,58 +224,33 @@ def build_system_prompt(athlete: dict, baseline: Optional[dict]) -> str:
 
     b_text = ""
     if baseline:
-        b_text = (
-            f"\nBaseline ({baseline.get('nights', '?')} Nächte, Stand {baseline.get('updated', '?')}):"
-            f"\n  SchlafHRV: Median {baseline.get('SchlafHRV', {}).get('median', '?')}ms, Flag ≤{baseline.get('SchlafHRV', {}).get('flag_low', 29)}ms"
-            f"\n  WachBPM:   Median {baseline.get('WachBPM', {}).get('median', '?')}, Flag ≥{baseline.get('WachBPM', {}).get('flag_high', 60)}"
-            f"\n  SchlafBPM: Median {baseline.get('SchlafBPM', {}).get('median', '?')}, Flag ≥{baseline.get('SchlafBPM', {}).get('flag_high', 69)}"
+        b_text = T["prompt_system_baseline"].format(
+            nights=baseline.get("nights", "?"),
+            updated=baseline.get("updated", "?"),
+            hrv_med=baseline.get("SchlafHRV", {}).get("median", "?"),
+            hrv_flag=baseline.get("SchlafHRV", {}).get("flag_low", 29),
+            wach_med=baseline.get("WachBPM", {}).get("median", "?"),
+            wach_flag=baseline.get("WachBPM", {}).get("flag_high", 60),
+            schlaf_med=baseline.get("SchlafBPM", {}).get("median", "?"),
+            schlaf_flag=baseline.get("SchlafBPM", {}).get("flag_high", 69),
         )
 
-    return f"""Du bist der KI Coach von {athlete.get('name', 'dem Athleten')}, einem Langdistanz-Triathleten.
-A-Rennen: {a_info}
-Athletenprofil: {athlete.get('weight_kg', '?')}kg · FTP {athlete.get('ftp_watt', '?')}W · Lauf-Schwelle {athlete.get('run_threshold_pace', '?')}/km · CSS {athlete.get('css_per_100m', '?')}/100m
-{b_text}
-Ernährung: {n.get('mix', '')} · {n.get('carbs_per_hour_g', 90)}g Carbs/h ab 90 min · {n.get('salt_per_hour', 1)} Saltstick/h · bei Hitze (>{heat_thr}°C): {n.get('fluid_heat_per_hour_ml', 750)}ml/h + {n.get('salt_heat_per_hour', 2)} Saltstick/h
-Schwimmen outdoor ab {swim_min}°C Wassertemp, sonst Hallenbad empfehlen.
-
-ENTSCHEIDUNGSLOGIK (Gesamtbewertung wie ein erfahrener Coach — keine sture Regelkette):
-
-HARTE GRENZEN:
-- Knie ≥ 3/10 → kein Laufen (Aqua oder Rad als Ersatz)
-- Achillessehne > 2/10 → kein Laufen
-- Symptome "neu schwer" (Fieber/Körperschmerzen) → komplette Ruhe
-- Gewitter → kein Outdoor-Rad
-
-WEICHE SIGNALE (Coach-Urteil):
-- gleich leicht / neu leicht: Schwimmen eher SKIP (Chlor), Rad Z2 meist ok, Lauf reduziert möglich
-- Muskelkater lokal → betroffene Sportart entlasten, andere normal
-- Müdigkeit ≥ 4 → Intensität raus, nicht automatisch streichen
-- HRV Einzelwert unter Baseline → Trend 3-5 Tage zählt, nicht überreagieren
-- mehrere schwache Signale kombiniert → konservativer entscheiden
-
-SPORTART:
-- Schwimmen: sensitiv bei Schnupfen (Chlor), bei Muskelkater Beine ok
-- Rad Z2: sehr tolerant — geht fast immer außer Fieber
-- Lauf: sensibelste Sportart — Knie, Achilles, Müdigkeit stärker gewichten
-
-WETTER:
-- Regen/Gewitter → Rad auf Zwift (75–80% Dauer), Titel "Zwift (KI)", Notiz "wegen Wetter indoor"
-- Hitze >{heat_thr}°C → Pace/Watt anpassen, mehr Saltstick + Wasser
-- Kälte < {swim_min}°C → Hallenbad
-
-WICHTIG: Schlafdauer NIEMALS als Entscheidungsfaktor — kurze Nächte sind für diesen Athleten normal. Primär: SchlafHRV-Trend + WachBPM.
-
-Antworte NUR als gültiges JSON ohne Markdown-Umrandung:
-{{
-  "status": "green",
-  "status_text": "Alles grün",
-  "sportarten": [
-    {{"sport": "Schwimmen", "badge": "GO", "details": "konkrete Empfehlung", "ernaehrung": "kurzer Hinweis"}}
-  ],
-  "autosleep_summary": null,
-  "wetter_hinweis": "Wetter-Empfehlung in 1 Satz",
-  "prep": "Coach-Kommentar in 1–2 Sätzen"
-}}"""
+    return T["prompt_system"].format(
+        name=athlete.get("name", "dem Athleten"),
+        a_info=a_info,
+        weight=athlete.get("weight_kg", "?"),
+        ftp=athlete.get("ftp_watt", "?"),
+        run_thr=athlete.get("run_threshold_pace", "?"),
+        css=athlete.get("css_per_100m", "?"),
+        b_text=b_text,
+        nutrition_mix=n.get("mix", ""),
+        carbs=n.get("carbs_per_hour_g", 90),
+        salt=n.get("salt_per_hour", 1),
+        heat_thr=heat_thr,
+        fluid_heat=n.get("fluid_heat_per_hour_ml", 750),
+        salt_heat=n.get("salt_heat_per_hour", 2),
+        swim_min=swim_min,
+    )
 
 
 # ── Claude call ───────────────────────────────────────────────────────────────
@@ -341,7 +320,15 @@ def call_claude_tp_mcp(user_content: str) -> str:
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse(request=request, name="index.html")
+    return templates.TemplateResponse(
+        request=request,
+        name="index.html",
+        context={
+            "T": T,
+            "T_json": json.dumps(T, ensure_ascii=False),
+            "LANG": APP_LANG,
+        },
+    )
 
 
 @app.get("/api/version")
@@ -472,11 +459,7 @@ def _tp_call_sync(athlete: dict, day_offset: int) -> dict:
     if not tp_url:
         return {"available": False, "workouts": [], "date": None}
     target = (date.today() + timedelta(days=day_offset)).isoformat()
-    prompt = (
-        f"List all planned workouts for {athlete.get('name', 'the athlete')} on {target} from TrainingPeaks. "
-        f"Respond ONLY with a valid JSON array. Example: "
-        f'[{{"id":"123","sport":"Rad","title":"Z2 Ausdauer","duration_min":90,"tss":65,"description":"60-70% FTP"}}]'
-    )
+    prompt = T["tp_workouts_prompt"].format(name=athlete.get("name", "the athlete"), date=target)
     try:
         raw = call_claude_tp_mcp(prompt)
         if raw.startswith("```"):
@@ -512,11 +495,7 @@ async def tp_workouts(day: str = "tomorrow"):
     target = (date.today() + timedelta(days=day_offset)).isoformat()
     athlete = load_athlete()
     logger.info("tp_workouts: day=%s target=%s", day, target)
-    prompt = (
-        f"List all planned workouts for {athlete.get('name', 'the athlete')} on {target} from TrainingPeaks. "
-        f"Respond ONLY with a valid JSON array. Example: "
-        f'[{{"id":"123","sport":"Rad","title":"Z2 Ausdauer","duration_min":90,"tss":65,"description":"60-70% FTP"}}]'
-    )
+    prompt = T["tp_workouts_prompt"].format(name=athlete.get("name", "the athlete"), date=target)
     try:
         raw = call_claude_tp_mcp(prompt)
         if raw.startswith("```"):
@@ -549,25 +528,28 @@ async def tp_apply(request: Request):
     target_date     = (date.today() + timedelta(days=day_offset)).isoformat()
 
     # Form snapshot
-    knie         = form_data.get("knie", "-")
-    ach_l        = form_data.get("achilles_l", "-")
-    ach_r        = form_data.get("achilles_r", "-")
-    muedigkeit   = form_data.get("muedigkeit", "-")
-    muskelkater  = form_data.get("muskelkater", "-")
-    symptome     = form_data.get("symptome", "-")
-    wetter_temp  = form_data.get("wetter_temp", "-")
-    wetter_regen = bool(form_data.get("wetter_regen", False))
-    wetter_desc  = form_data.get("wetter_beschreibung", "")
-    wasser_temp  = form_data.get("wasser_temp") or ""
+    knie        = form_data.get("knie", "-")
+    ach_l       = form_data.get("achilles_l", "-")
+    ach_r       = form_data.get("achilles_r", "-")
+    muedigkeit  = form_data.get("muedigkeit", "-")
+    muskelkater = form_data.get("muskelkater", "-")
+    symptome    = form_data.get("symptome", "-")
+    wetter_temp = form_data.get("wetter_temp", "-")
 
-    # Build private note
-    wetter_str  = f"{wetter_temp}°C" + (f", {wetter_desc}" if wetter_desc else "")
-    has_swim    = any(w.get("sport", "").lower() in ["schwimmen", "swim", "swimming"] for w in workouts)
-    wasser_str  = f" | Wasser: {wasser_temp}°C" if (has_swim and wasser_temp) else ""
-    athlete_note = (
-        f"Wetter: {wetter_str} | Gefühl: {muedigkeit}/5 | "
-        f"Knie: {knie}/10 | Achillessehne: L{ach_l}/R{ach_r}/10 | "
-        f"Muskelkater: {muskelkater} | Symptome: {symptome}{wasser_str} | TSB: - | CTL: -"
+    # Achilles: max of L/R
+    try:
+        max_ach = max(float(ach_l), float(ach_r))
+        ach_str = str(int(max_ach) if max_ach == int(max_ach) else max_ach)
+    except (ValueError, TypeError):
+        ach_str = f"L{ach_l}/R{ach_r}"
+
+    athlete_note = T["tp_note_fmt"].format(
+        wetter_temp=wetter_temp,
+        muedigkeit=muedigkeit,
+        knie=knie,
+        achilles=ach_str,
+        muskelkater=muskelkater,
+        symptome=symptome,
     )
 
     # Build structured operation list — only for workouts that actually exist in TP
@@ -584,46 +566,31 @@ async def tp_apply(request: Request):
         orig_title    = tp_w.get("title", sport)
         orig_duration = tp_w.get("duration_min", 60)
         workout_id    = tp_w.get("id")
-        is_zwift      = sport.lower() in ["rad", "cycling"] and wetter_regen
 
-        def _rename(new_title: str) -> dict:
-            op = {"action": "rename_workout", "sport": sport, "date": target_date,
-                  "old_title": orig_title, "new_title": new_title}
-            if workout_id:
-                op["workout_id"] = workout_id
-            return op
+        rename_op = {"action": "rename_workout", "sport": sport, "date": target_date,
+                     "old_title": orig_title}
+        if workout_id:
+            rename_op["workout_id"] = workout_id
 
-        if badge == "GO":
-            if is_zwift:
-                t = f"{orig_title} Zwift (KI)"
-                ops.append(_rename(t))
-                ops.append({"action": "create_workout", "sport": sport, "date": target_date,
-                            "title": t, "duration_min": round(orig_duration * 0.80),
-                            "note": "Indoor wegen Wetter"})
-            # else GO + kein Regen → keine Änderung
-
-        elif badge == "MOD":
-            if is_zwift:
-                new_t   = f"↩️ {orig_title} Zwift (KI)"
-                creat_t = f"{orig_title} Zwift (KI)"
-                note    = (details.rstrip(" |") + " | Indoor wegen Wetter").lstrip(" |").strip()
-            else:
-                new_t   = f"↩️ {orig_title} (KI)"
-                creat_t = f"{orig_title} (KI)"
-                note    = details
-            ops.append(_rename(new_t))
+        if badge == "MOD":
+            rename_op["new_title"] = T["tp_mod_renamed"].format(title=orig_title)
+            ops.append(rename_op)
             ops.append({"action": "create_workout", "sport": sport, "date": target_date,
-                        "title": creat_t, "duration_min": round(orig_duration * 0.75),
-                        "note": note})
+                        "title": T["tp_mod_new_title"].format(title=orig_title),
+                        "duration_min": round(orig_duration * 0.75),
+                        "note": details})
 
         elif badge == "SKIP":
-            ops.append(_rename(f"❌ {orig_title} (KI)"))
+            rename_op["new_title"] = T["tp_skip_renamed"].format(title=orig_title)
+            ops.append(rename_op)
             ops.append({"action": "create_calendar_note", "date": target_date,
-                        "text": f"❌ {sport} gestrichen – {details} (KI)"})
+                        "text": T["tp_skip_note"].format(sport=sport, details=details)})
 
-    if "neu schwer" in str(symptome).lower():
+        # GO → no change
+
+    if "schwer" in str(symptome).lower() and ("neu" in str(symptome).lower() or "severe" in str(symptome).lower()):
         ops.append({"action": "create_calendar_note", "date": target_date,
-                    "text": "🤧 Krank – Training gestrichen (KI)"})
+                    "text": T["tp_sick_note"]})
 
     # Private note per existing TP workout
     for w in workouts:
@@ -633,19 +600,12 @@ async def tp_apply(request: Request):
             note_op["workout_id"] = w["id"]
         ops.append(note_op)
 
-    logger.info("tp_apply: %d ops for %s (regen=%s)", len(ops), target_date, wetter_regen)
+    logger.info("tp_apply: %d ops for %s", len(ops), target_date)
     prompt = (
-        f"Apply the following changes to TrainingPeaks for '{athlete.get('name', '')}' on {target_date}.\n\n"
+        f"{T['tp_apply_prompt_intro'].format(name=athlete.get('name', ''), date=target_date)}\n\n"
         f"Execute each operation in order:\n"
         f"{json.dumps(ops, ensure_ascii=False, indent=2)}\n\n"
-        f"Operation semantics:\n"
-        f"- rename_workout: Use workout_id (if provided) to find and rename the workout; fallback to old_title match\n"
-        f"- create_workout: Create a new planned workout with the given title, sport, duration_min and note\n"
-        f"- create_calendar_note: Add a calendar note/annotation with the given text on that date\n"
-        f"- add_private_note: Use workout_id (if provided) to find the workout and append note to its private description\n\n"
-        f"After completing all operations respond ONLY with a JSON array (no markdown):\n"
-        f'[{{"action":"rename_workout","sport":"Rad","status":"ok","detail":"Titel geändert zu ↩️ Z2 Ausdauer (KI)"}}]\n'
-        f"Use status 'ok' or 'error'. detail is a short German confirmation or error message."
+        f"{T['tp_apply_prompt_sem']}"
     )
     try:
         raw = call_claude_tp_mcp(prompt)
@@ -699,29 +659,40 @@ async def check_abend(request: Request):
     tp_ctx = ""
     tp_workouts_data = data.get("tp_workouts")
     if tp_workouts_data:
-        tp_ctx = (
-            f"\nTrainingPeaks geplante Workouts morgen: "
-            f"{json.dumps(tp_workouts_data, ensure_ascii=False)}"
+        tp_ctx = "\n" + T["prompt_tp_ctx"].format(data=json.dumps(tp_workouts_data, ensure_ascii=False))
+
+    heat_thr = athlete.get("nutrition", {}).get("heat_threshold_celsius", 25)
+    thunderstorm_val = T["prompt_weather_thunderstorm"] if weather.get("is_thunderstorm") else T["prompt_weather_no"]
+    heat_val = T["prompt_weather_heat"] if weather.get("is_hot") else T["prompt_weather_no"]
+    wasser_line = ""
+    if data.get("wasser_temp"):
+        wasser_line = "\n- " + T["prompt_wasser"].format(temp=data["wasser_temp"])
+    rain_line = ""
+    if peak_rain:
+        rain_line = "\n- " + T["prompt_rain_peaks"].format(
+            peaks=" | ".join(f"{h['hour']:02d}:00 {h['rain']}%" for h in peak_rain[:4])
         )
 
-    user_msg = f"""Abend-Check — Plan für morgen ({tomorrow}):
+    header = T["prompt_abend_header"].format(date=tomorrow)
+    weather_label = T["prompt_weather_label"].format(city=athlete["location"]["name"])
+    units_str = ", ".join(einheiten) if einheiten else T["prompt_abend_units_empty"]
 
-Fragebogen:
-- Knie: {data.get('knie', 0)}/10
-- Achillessehne L: {data.get('achilles_l', 0)}/10
-- Achillessehne R: {data.get('achilles_r', 0)}/10
-- Müdigkeit: {data.get('muedigkeit', 1)}/5
-- Muskelkater: {', '.join(muskelkater)}
-- Symptome: {data.get('symptome', 'keine')}
-
-Wetter morgen in {athlete['location']['name']}:
-- {weather.get('description', 'unbekannt')}, {weather.get('temp_min', '?')}–{weather.get('temp_max', '?')}°C
-- Regenrisiko: {weather.get('rain_prob', 0)}%{rain_hourly_line}
-- Gewitter: {'JA' if weather.get('is_thunderstorm') else 'nein'}
-- Hitzealarm (>{athlete.get('nutrition', {}).get('heat_threshold_celsius', 25)}°C): {'JA' if weather.get('is_hot') else 'nein'}
-{f"- Wassertemperatur Freibad: {data['wasser_temp']}°C" if data.get('wasser_temp') else ''}{tp_ctx}
-
-Geplante Einheiten morgen: {', '.join(einheiten) if einheiten else 'noch nicht festgelegt — bitte empfehlen'}"""
+    user_msg = (
+        f"{header}\n\nFragebogen:\n"
+        f"- Knie: {data.get('knie', 0)}/10\n"
+        f"- Achillessehne L: {data.get('achilles_l', 0)}/10\n"
+        f"- Achillessehne R: {data.get('achilles_r', 0)}/10\n"
+        f"- Müdigkeit: {data.get('muedigkeit', 1)}/5\n"
+        f"- Muskelkater: {', '.join(muskelkater)}\n"
+        f"- Symptome: {data.get('symptome', 'keine')}\n\n"
+        f"{weather_label}\n"
+        f"- {weather.get('description', 'unbekannt')}, {weather.get('temp_min', '?')}–{weather.get('temp_max', '?')}°C\n"
+        f"- Regenrisiko: {weather.get('rain_prob', 0)}%{rain_line}\n"
+        f"- Gewitter: {thunderstorm_val}\n"
+        f"- {T['prompt_heat_alarm'].format(threshold=heat_thr, val=heat_val)}"
+        f"{wasser_line}{tp_ctx}\n\n"
+        f"{T['prompt_abend_units'].format(units=units_str)}"
+    )
 
     try:
         result = call_claude(system, user_msg)
@@ -762,22 +733,23 @@ AutoSleep (letzte Nacht):
 - Atmung: {d.get('atmung', '?')}  Effizienz: {d.get('effizienz', '?')}%
 - Flags: {flag_str}"""
         except Exception as e:
-            sleep_text = f"\nAutoSleep Fehler: {e}"
+            sleep_text = "\n" + T["prompt_autosleep_err"].format(err=str(e))
 
     einheiten_list = [x.strip() for x in geplante_einheiten.split(",") if x.strip()]
     today_str = date.today().strftime("%d.%m.%Y")
+    header = T["prompt_morgen_header"].format(date=today_str)
+    units_str = ", ".join(einheiten_list) if einheiten_list else T["prompt_morgen_units_empty"]
 
-    user_msg = f"""Morgen-Check — Go/No-Go für heute ({today_str}):
-
-Fragebogen:
-- Waden: {waden}/10
-- Knie: {knie}/10
-- Achillessehne L: {achilles_l}/10
-- Achillessehne R: {achilles_r}/10
-- Symptome: {symptome}
-{sleep_text}
-
-Geplante Einheiten heute: {', '.join(einheiten_list) if einheiten_list else 'noch nicht festgelegt'}"""
+    user_msg = (
+        f"{header}\n\nFragebogen:\n"
+        f"- Waden: {waden}/10\n"
+        f"- Knie: {knie}/10\n"
+        f"- Achillessehne L: {achilles_l}/10\n"
+        f"- Achillessehne R: {achilles_r}/10\n"
+        f"- Symptome: {symptome}"
+        f"{sleep_text}\n\n"
+        f"{T['prompt_morgen_units'].format(units=units_str)}"
+    )
 
     try:
         result = call_claude(system, user_msg)

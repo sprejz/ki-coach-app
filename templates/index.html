@@ -641,8 +641,8 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 
 <!-- Splash screen -->
 <div id="splash">
-  <div class="splash-title"><span>KI</span> Coach</div>
-  <div class="splash-sub">Triathlon · Tagescoaching</div>
+  <div class="splash-title">{% if LANG == 'en' %}<span>AI</span> Coach{% else %}<span>KI</span> Coach{% endif %}</div>
+  <div class="splash-sub">{{ T.splash_sub }}</div>
   <div class="splash-ring">
     <div class="splash-ring-pulse2"></div>
     <div class="splash-ring-pulse"></div>
@@ -656,10 +656,10 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 <!-- Header -->
 <header class="header">
   <div class="header-row">
-    <span class="app-title">KI Coach</span>
+    <span class="app-title">{{ T.app_title }}</span>
     <div style="display:flex;align-items:center;gap:8px">
-      <span class="countdown-chip" id="countdown-chip">Laden…</span>
-      <button id="btn-refresh" onclick="refreshAll()" title="Neu laden" aria-label="Daten neu laden">↺</button>
+      <span class="countdown-chip" id="countdown-chip">{{ T.countdown_loading }}</span>
+      <button id="btn-refresh" onclick="refreshAll()" title="{{ T.btn_refresh_title }}" aria-label="{{ T.btn_refresh_aria }}">↺</button>
     </div>
   </div>
   <div class="race-strip" id="race-strip"></div>
@@ -667,9 +667,9 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 
 <!-- Tabs -->
 <div class="tabs">
-  <button class="tab-btn active" data-tab="abend">Abend</button>
-  <button class="tab-btn" data-tab="morgen">Morgen</button>
-  <button class="tab-btn" data-tab="einstellungen">Profil</button>
+  <button class="tab-btn active" data-tab="abend">{{ T.tab_abend }}</button>
+  <button class="tab-btn" data-tab="morgen">{{ T.tab_morgen }}</button>
+  <button class="tab-btn" data-tab="einstellungen">{{ T.tab_profil }}</button>
 </div>
 
 <!-- Error banner -->
@@ -684,27 +684,27 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 
       <!-- Wetter morgen (auto-geladen) -->
       <div id="abend-context" style="display:none;margin-bottom:20px">
-        <p class="section-title">Morgen</p>
+        <p class="section-title">{{ T.sec_tomorrow }}</p>
         <div id="abend-weather-content"></div>
       </div>
 
-      <p class="section-title">Körperzustand heute Abend</p>
+      <p class="section-title">{{ T.sec_body_evening }}</p>
 
       <div class="form-section">
         <!-- Knie -->
         <div class="field-row">
           <div class="field-label">
-            <span>Knie</span>
+            <span>{{ T.lbl_knie }}</span>
             <span class="slider-val ok" id="knie-abend-val">0</span>
           </div>
           <input type="range" id="knie-abend" min="0" max="10" step="0.5" value="0">
-          <div class="scale-labels"><span>0 — kein Schmerz</span><span>10 — max</span></div>
+          <div class="scale-labels"><span>{{ T.lbl_no_pain }}</span><span>{{ T.lbl_max }}</span></div>
         </div>
 
         <!-- Achilles L -->
         <div class="field-row">
           <div class="field-label">
-            <span>Achillessehne L</span>
+            <span>{{ T.lbl_achilles_l }}</span>
             <span class="slider-val ok" id="achilles-l-abend-val">0</span>
           </div>
           <input type="range" id="achilles-l-abend" min="0" max="10" step="0.5" value="0">
@@ -713,7 +713,7 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
         <!-- Achilles R -->
         <div class="field-row">
           <div class="field-label">
-            <span>Achillessehne R</span>
+            <span>{{ T.lbl_achilles_r }}</span>
             <span class="slider-val ok" id="achilles-r-abend-val">0</span>
           </div>
           <input type="range" id="achilles-r-abend" min="0" max="10" step="0.5" value="0">
@@ -723,8 +723,8 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
       <!-- Müdigkeit -->
       <div class="form-section">
         <div class="field-label" style="margin-bottom:12px">
-          <span>Müdigkeit</span>
-          <span style="font-size:12px;color:var(--muted)">1 = frisch · 5 = erschöpft</span>
+          <span>{{ T.lbl_muedigkeit }}</span>
+          <span style="font-size:12px;color:var(--muted)">{{ T.lbl_mud_hint }}</span>
         </div>
         <div class="muedigkeit-group" id="muedigkeit-group">
           <button type="button" class="mud-btn active" data-value="1">1</button>
@@ -737,61 +737,50 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 
       <!-- Muskelkater -->
       <div class="form-section">
-        <div class="field-label" style="margin-bottom:12px"><span>Muskelkater</span></div>
+        <div class="field-label" style="margin-bottom:12px"><span>{{ T.lbl_muskelkater }}</span></div>
         <div class="pill-group" id="muskelkater-group">
-          <button type="button" class="pill active" data-group="muskelkater" data-value="keine">keine</button>
-          <button type="button" class="pill" data-group="muskelkater" data-value="Waden">Waden</button>
-          <button type="button" class="pill" data-group="muskelkater" data-value="Oberschenkel">Oberschenkel</button>
-          <button type="button" class="pill" data-group="muskelkater" data-value="Beine allgemein">Beine</button>
-          <button type="button" class="pill" data-group="muskelkater" data-value="Oberkörper">Oberkörper</button>
-          <button type="button" class="pill" data-group="muskelkater" data-value="Ganzkörper">Ganzkörper</button>
+          <button type="button" class="pill active" data-group="muskelkater" data-value="{{ T.mkv_keine }}">{{ T.mk_keine }}</button>
+          <button type="button" class="pill" data-group="muskelkater" data-value="{{ T.mkv_waden }}">{{ T.mk_waden }}</button>
+          <button type="button" class="pill" data-group="muskelkater" data-value="{{ T.mkv_oberschenkel }}">{{ T.mk_oberschenkel }}</button>
+          <button type="button" class="pill" data-group="muskelkater" data-value="{{ T.mkv_beine }}">{{ T.mk_beine }}</button>
+          <button type="button" class="pill" data-group="muskelkater" data-value="{{ T.mkv_oberkoerper }}">{{ T.mk_oberkoerper }}</button>
+          <button type="button" class="pill" data-group="muskelkater" data-value="{{ T.mkv_ganzkoerper }}">{{ T.mk_ganzkoerper }}</button>
         </div>
       </div>
 
       <!-- Symptome -->
       <div class="form-section">
-        <div class="field-label" style="margin-bottom:12px"><span>Symptome</span></div>
+        <div class="field-label" style="margin-bottom:12px"><span>{{ T.lbl_symptome }}</span></div>
         <div class="pill-group pill-radio" id="symptome-abend-group">
-          <button type="button" class="pill active" data-group="symptome-abend" data-value="keine">keine</button>
-          <button type="button" class="pill" data-group="symptome-abend" data-value="besser">besser</button>
-          <button type="button" class="pill" data-group="symptome-abend" data-value="gleich leicht (Schnupfen/Kopfdruck)">gleich leicht</button>
-          <button type="button" class="pill" data-group="symptome-abend" data-value="schlechter">schlechter</button>
-          <button type="button" class="pill" data-group="symptome-abend" data-value="neu leicht">neu leicht</button>
-          <button type="button" class="pill" data-group="symptome-abend" data-value="neu mittel (Halsschmerzen/Husten)">neu mittel</button>
-          <button type="button" class="pill" data-group="symptome-abend" data-value="neu schwer (Fieber/Körperschmerzen)">neu schwer</button>
-        </div>
-      </div>
-
-      <!-- Geplante Einheiten -->
-      <div class="form-section">
-        <div class="field-label" style="margin-bottom:12px"><span>Geplante Einheiten morgen</span></div>
-        <div class="pill-group" id="einheiten-abend-group">
-          <button type="button" class="pill" data-group="einheiten-abend" data-value="Schwimmen">Schwimmen</button>
-          <button type="button" class="pill" data-group="einheiten-abend" data-value="Rad">Rad</button>
-          <button type="button" class="pill" data-group="einheiten-abend" data-value="Lauf">Lauf</button>
-          <button type="button" class="pill" data-group="einheiten-abend" data-value="STABI">STABI</button>
+          <button type="button" class="pill active" data-group="symptome-abend" data-value="{{ T.symv_keine }}">{{ T.sym_keine }}</button>
+          <button type="button" class="pill" data-group="symptome-abend" data-value="{{ T.symv_besser }}">{{ T.sym_besser }}</button>
+          <button type="button" class="pill" data-group="symptome-abend" data-value="{{ T.symv_gleich_leicht }}">{{ T.sym_gleich_leicht }}</button>
+          <button type="button" class="pill" data-group="symptome-abend" data-value="{{ T.symv_schlechter }}">{{ T.sym_schlechter }}</button>
+          <button type="button" class="pill" data-group="symptome-abend" data-value="{{ T.symv_neu_leicht }}">{{ T.sym_neu_leicht }}</button>
+          <button type="button" class="pill" data-group="symptome-abend" data-value="{{ T.symv_neu_mittel }}">{{ T.sym_neu_mittel }}</button>
+          <button type="button" class="pill" data-group="symptome-abend" data-value="{{ T.symv_neu_schwer }}">{{ T.sym_neu_schwer }}</button>
         </div>
       </div>
 
       <!-- TP Workouts morgen (auto-geladen) -->
       <div class="form-section" id="abend-tp-section" style="display:none">
         <div class="field-label" style="margin-bottom:8px">
-          <span>TP Workouts morgen</span>
+          <span>{{ T.lbl_tp_tomorrow }}</span>
           <span style="font-size:12px;color:var(--muted)" id="abend-tp-date"></span>
         </div>
-        <div id="abend-tp-content"><p style="color:var(--muted);font-size:13px">Wird geladen…</p></div>
+        <div id="abend-tp-content"><p style="color:var(--muted);font-size:13px">{{ T.tp_loading_text }}</p></div>
       </div>
 
-      <!-- Wassertemperatur (hidden unless Schwimmen selected) -->
+      <!-- Wassertemperatur (hidden unless Schwimmen in TP) -->
       <div class="form-section wasser-row" id="wasser-row">
         <div class="field-label" style="margin-bottom:10px">
-          <span>Wassertemperatur Freibad</span>
-          <span style="font-size:12px;color:var(--muted)">optional</span>
+          <span>{{ T.lbl_wasser_temp }}</span>
+          <span style="font-size:12px;color:var(--muted)">{{ T.lbl_optional }}</span>
         </div>
         <input type="number" id="wasser-temp" class="text-input" placeholder="z.B. 22" min="10" max="35" step="0.5">
       </div>
 
-      <button type="submit" class="btn-submit">Abend-Check starten</button>
+      <button type="submit" class="btn-submit">{{ T.btn_abend }}</button>
     </form>
   </div>
 
@@ -801,27 +790,27 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 
       <!-- Kontext: Wetter heute (auto-geladen) -->
       <div id="morgen-context" style="display:none;margin-bottom:20px">
-        <p class="section-title">Heute</p>
+        <p class="section-title">{{ T.sec_today }}</p>
         <div id="morgen-weather-content"></div>
       </div>
 
-      <p class="section-title">Körperzustand heute Morgen</p>
+      <p class="section-title">{{ T.sec_body_morning }}</p>
 
       <div class="form-section">
         <!-- Waden -->
         <div class="field-row">
           <div class="field-label">
-            <span>Waden</span>
+            <span>{{ T.lbl_waden }}</span>
             <span class="slider-val ok" id="waden-morgen-val">0</span>
           </div>
           <input type="range" id="waden-morgen" min="0" max="10" step="0.5" value="0">
-          <div class="scale-labels"><span>0 — kein Schmerz</span><span>10 — max</span></div>
+          <div class="scale-labels"><span>{{ T.lbl_no_pain }}</span><span>{{ T.lbl_max }}</span></div>
         </div>
 
         <!-- Knie -->
         <div class="field-row">
           <div class="field-label">
-            <span>Knie</span>
+            <span>{{ T.lbl_knie }}</span>
             <span class="slider-val ok" id="knie-morgen-val">0</span>
           </div>
           <input type="range" id="knie-morgen" min="0" max="10" step="0.5" value="0">
@@ -830,7 +819,7 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
         <!-- Achilles L -->
         <div class="field-row">
           <div class="field-label">
-            <span>Achillessehne L</span>
+            <span>{{ T.lbl_achilles_l }}</span>
             <span class="slider-val ok" id="achilles-l-morgen-val">0</span>
           </div>
           <input type="range" id="achilles-l-morgen" min="0" max="10" step="0.5" value="0">
@@ -839,7 +828,7 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
         <!-- Achilles R -->
         <div class="field-row">
           <div class="field-label">
-            <span>Achillessehne R</span>
+            <span>{{ T.lbl_achilles_r }}</span>
             <span class="slider-val ok" id="achilles-r-morgen-val">0</span>
           </div>
           <input type="range" id="achilles-r-morgen" min="0" max="10" step="0.5" value="0">
@@ -848,28 +837,28 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 
       <!-- Symptome -->
       <div class="form-section">
-        <div class="field-label" style="margin-bottom:12px"><span>Symptome</span></div>
+        <div class="field-label" style="margin-bottom:12px"><span>{{ T.lbl_symptome }}</span></div>
         <div class="pill-group pill-radio" id="symptome-morgen-group">
-          <button type="button" class="pill active" data-group="symptome-morgen" data-value="keine">keine</button>
-          <button type="button" class="pill" data-group="symptome-morgen" data-value="besser">besser</button>
-          <button type="button" class="pill" data-group="symptome-morgen" data-value="gleich leicht (Schnupfen/Kopfdruck)">gleich leicht</button>
-          <button type="button" class="pill" data-group="symptome-morgen" data-value="schlechter">schlechter</button>
-          <button type="button" class="pill" data-group="symptome-morgen" data-value="neu leicht">neu leicht</button>
-          <button type="button" class="pill" data-group="symptome-morgen" data-value="neu mittel (Halsschmerzen/Husten)">neu mittel</button>
-          <button type="button" class="pill" data-group="symptome-morgen" data-value="neu schwer (Fieber/Körperschmerzen)">neu schwer</button>
+          <button type="button" class="pill active" data-group="symptome-morgen" data-value="{{ T.symv_keine }}">{{ T.sym_keine }}</button>
+          <button type="button" class="pill" data-group="symptome-morgen" data-value="{{ T.symv_besser }}">{{ T.sym_besser }}</button>
+          <button type="button" class="pill" data-group="symptome-morgen" data-value="{{ T.symv_gleich_leicht }}">{{ T.sym_gleich_leicht }}</button>
+          <button type="button" class="pill" data-group="symptome-morgen" data-value="{{ T.symv_schlechter }}">{{ T.sym_schlechter }}</button>
+          <button type="button" class="pill" data-group="symptome-morgen" data-value="{{ T.symv_neu_leicht }}">{{ T.sym_neu_leicht }}</button>
+          <button type="button" class="pill" data-group="symptome-morgen" data-value="{{ T.symv_neu_mittel }}">{{ T.sym_neu_mittel }}</button>
+          <button type="button" class="pill" data-group="symptome-morgen" data-value="{{ T.symv_neu_schwer }}">{{ T.sym_neu_schwer }}</button>
         </div>
       </div>
 
       <!-- AutoSleep CSV -->
       <div class="form-section">
         <div class="field-label" style="margin-bottom:12px">
-          <span>AutoSleep CSV</span>
-          <span style="font-size:12px;color:var(--muted)">optional</span>
+          <span>{{ T.lbl_csv }}</span>
+          <span style="font-size:12px;color:var(--muted)">{{ T.lbl_optional }}</span>
         </div>
         <label class="upload-area" id="upload-area" for="csv-upload">
           <input type="file" id="csv-upload" accept=".csv">
           <div class="upload-icon">📊</div>
-          <div class="upload-label"><strong>CSV hochladen</strong> oder tippen</div>
+          <div class="upload-label"><strong>{{ T.lbl_csv_btn }}</strong> {{ T.lbl_csv_tap }}</div>
           <div class="upload-filename" id="upload-filename" style="display:none"></div>
         </label>
       </div>
@@ -877,10 +866,10 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
       <!-- TP Workouts heute (auto-geladen) -->
       <div class="form-section" id="morgen-tp-section">
         <div class="field-label" style="margin-bottom:8px">
-          <span>TP Workouts heute</span>
+          <span>{{ T.lbl_tp_today }}</span>
           <span id="morgen-tp-loading" style="display:flex;align-items:center;gap:5px">
             <div class="spinner" style="width:14px;height:14px;border-width:2px"></div>
-            <span style="color:var(--muted);font-size:12px">wird geladen…</span>
+            <span style="color:var(--muted);font-size:12px">{{ T.lbl_tp_loading }}</span>
           </span>
         </div>
         <div id="morgen-tp-content"></div>
@@ -889,13 +878,13 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
       <!-- Wassertemperatur (nur sichtbar wenn Schwimmen in TP) -->
       <div class="form-section wasser-row" id="wasser-row-morgen" style="display:none">
         <div class="field-label" style="margin-bottom:10px">
-          <span>Wassertemperatur Freibad</span>
-          <span style="font-size:12px;color:var(--muted)">optional</span>
+          <span>{{ T.lbl_wasser_temp }}</span>
+          <span style="font-size:12px;color:var(--muted)">{{ T.lbl_optional }}</span>
         </div>
         <input type="number" id="wasser-temp-morgen" class="text-input" placeholder="z.B. 22" min="10" max="35" step="0.5">
       </div>
 
-      <button type="submit" class="btn-submit">Morgen-Check starten</button>
+      <button type="submit" class="btn-submit">{{ T.btn_morgen }}</button>
     </form>
   </div>
 
@@ -904,57 +893,57 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 
     <!-- Athletenprofil -->
     <div class="form-card">
-      <p class="section-title">Athletenprofil</p>
+      <p class="section-title">{{ T.sec_athlete }}</p>
       <div class="form-section">
         <div class="field-row">
-          <div class="field-label"><span>FTP</span><span style="font-size:12px;color:var(--muted)">Watt</span></div>
+          <div class="field-label"><span>{{ T.lbl_ftp }}</span><span style="font-size:12px;color:var(--muted)">{{ T.lbl_ftp_unit }}</span></div>
           <input type="number" id="s-ftp" class="text-input" placeholder="286">
         </div>
         <div class="field-row">
-          <div class="field-label"><span>Gewicht</span><span style="font-size:12px;color:var(--muted)">kg</span></div>
+          <div class="field-label"><span>{{ T.lbl_weight }}</span><span style="font-size:12px;color:var(--muted)">{{ T.lbl_weight_unit }}</span></div>
           <input type="number" id="s-weight" class="text-input" placeholder="84" step="0.5">
         </div>
         <div class="field-row">
-          <div class="field-label"><span>Laufschwelle</span><span style="font-size:12px;color:var(--muted)">/km</span></div>
+          <div class="field-label"><span>{{ T.lbl_run_thr }}</span><span style="font-size:12px;color:var(--muted)">{{ T.lbl_run_thr_unit }}</span></div>
           <input type="text" id="s-run-threshold" class="text-input" placeholder="5:20">
         </div>
         <div class="field-row">
-          <div class="field-label"><span>CSS Schwimmen</span><span style="font-size:12px;color:var(--muted)">/100m</span></div>
+          <div class="field-label"><span>{{ T.lbl_css }}</span><span style="font-size:12px;color:var(--muted)">{{ T.lbl_css_unit }}</span></div>
           <input type="text" id="s-css" class="text-input" placeholder="2:20">
         </div>
         <div class="field-row">
-          <div class="field-label"><span>Outdoor-Schwimmen ab</span><span style="font-size:12px;color:var(--muted)">°C</span></div>
+          <div class="field-label"><span>{{ T.lbl_swim_min }}</span><span style="font-size:12px;color:var(--muted)">{{ T.lbl_swim_min_unit }}</span></div>
           <input type="number" id="s-swim-min" class="text-input" placeholder="15">
         </div>
       </div>
-      <button type="button" class="btn-submit" onclick="saveProfile()">Speichern</button>
-      <p class="save-ok" id="save-ok">✓ Gespeichert</p>
+      <button type="button" class="btn-submit" onclick="saveProfile()">{{ T.btn_save }}</button>
+      <p class="save-ok" id="save-ok">{{ T.btn_saved }}</p>
     </div>
 
     <!-- Rennen -->
     <div class="form-card" style="margin-top:0">
-      <p class="section-title">Rennen</p>
-      <div id="races-list"><p style="color:var(--muted);font-size:13px">Wird geladen…</p></div>
+      <p class="section-title">{{ T.sec_races }}</p>
+      <div id="races-list"><p style="color:var(--muted);font-size:13px">{{ T.tp_loading_text }}</p></div>
     </div>
 
     <!-- Baseline -->
     <div class="form-card" style="margin-top:0">
-      <p class="section-title">Schlaf-Baseline</p>
-      <div id="baseline-display"><p style="color:var(--muted);font-size:13px">Wird geladen…</p></div>
+      <p class="section-title">{{ T.sec_baseline }}</p>
+      <div id="baseline-display"><p style="color:var(--muted);font-size:13px">{{ T.tp_loading_text }}</p></div>
 
       <div class="form-section" style="margin-top:20px">
         <div class="field-label" style="margin-bottom:10px">
-          <span>Baseline neu berechnen</span>
-          <span style="font-size:12px;color:var(--muted)">AutoSleep CSVs</span>
+          <span>{{ T.sec_baseline_recalc }}</span>
+          <span style="font-size:12px;color:var(--muted)">{{ T.lbl_csv }}</span>
         </div>
         <label class="upload-area" id="baseline-upload-area" for="baseline-csv-input">
           <input type="file" id="baseline-csv-input" accept=".csv" multiple>
           <div class="upload-icon">📊</div>
-          <div class="upload-label"><strong>CSVs hochladen</strong> (mehrere möglich)</div>
+          <div class="upload-label"><strong>{{ T.lbl_csvs_btn }}</strong> ({{ T.lbl_csvs_hint }})</div>
           <div id="baseline-file-status" style="display:none;color:var(--green);font-size:13px;margin-top:6px"></div>
         </label>
       </div>
-      <button type="button" class="btn-submit" onclick="recalcBaseline()">Baseline neu berechnen</button>
+      <button type="button" class="btn-submit" onclick="recalcBaseline()">{{ T.btn_baseline }}</button>
     </div>
 
   </div><!-- Einstellungen panel -->
@@ -967,11 +956,12 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 <!-- Loading overlay -->
 <div class="loading-overlay" id="loading-overlay" style="display:none">
   <div class="spinner"></div>
-  <div class="loading-text">Claude analysiert…</div>
+  <div class="loading-text" id="loading-text">{{ T.claude_analyzing }}</div>
 </div>
 
 <script>
 'use strict';
+const T = {{ T_json|safe }};
 
 let athlete = null;
 let currentResult = null;
@@ -997,7 +987,7 @@ function setSplashStatus(text) {
 }
 
 function hideSplash() {
-  setSplashStatus('Bereit!');
+  setSplashStatus(T.ready);
   setTimeout(() => {
     const el = document.getElementById('splash');
     if (!el) return;
@@ -1019,13 +1009,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     const el = document.getElementById('splash-version');
     if (el) el.textContent = 'v' + d.version;
   }).catch(() => {});
-  setSplashStatus('Daten werden geladen…');
+  setSplashStatus(T.loading_data);
   try {
     const r = await apiFetch('/api/athlete');
     athlete = await r.json();
     renderHeader();
   } catch(e) {
-    showError('Athleten-Profil konnte nicht geladen werden.');
+    showError(T.err_profile_load);
   }
   initSliders();
   initTabs();
@@ -1122,16 +1112,6 @@ function initPills() {
     });
   });
 
-  // Multi-select: Geplante Einheiten (Abend only; Morgen derives from TP)
-  document.querySelectorAll('[data-group="einheiten-abend"]').forEach(pill => {
-    pill.addEventListener('click', () => {
-      pill.classList.toggle('active');
-      const schwimmen = document.querySelector('[data-group="einheiten-abend"][data-value="Schwimmen"]');
-      const wasserRow = document.getElementById('wasser-row');
-      if (wasserRow) wasserRow.style.display = schwimmen?.classList.contains('active') ? 'block' : 'none';
-    });
-  });
-
   // Radio: Symptome
   ['symptome-abend', 'symptome-morgen'].forEach(group => {
     document.querySelectorAll(`[data-group="${group}"]`).forEach(pill => {
@@ -1192,7 +1172,7 @@ async function submitAbend(e) {
     muedigkeit:         parseInt(getMuedigkeit(), 10),
     muskelkater:        getMulti('muskelkater'),
     symptome:           getRadio('symptome-abend'),
-    geplante_einheiten: getMulti('einheiten-abend'),
+    geplante_einheiten: preloadedTPWorkouts.map(w => w.sport).filter(Boolean),
     wasser_temp:        document.getElementById('wasser-temp')?.value || null,
     tp_workouts:        preloadedTPWorkouts.length ? preloadedTPWorkouts : undefined,
   };
@@ -1375,15 +1355,15 @@ function buildResult(data, fd, type) {
           </div>`
         ).join('')}
       </div>
-      <button class="btn-tp" id="btn-tp-apply" onclick="applyToTP()">→ Empfehlung in TP anwenden</button>
+      <button class="btn-tp" id="btn-tp-apply" onclick="applyToTP()">${T.btn_tp_apply}</button>
     </div>`;
   } else if (type === 'abend') {
     // Fallback: manual load when TP was not pre-loaded
     h += `<div class="card-section">
       <div class="section-lbl">TrainingPeaks</div>
       <div id="tp-result-list" style="display:none"></div>
-      <button class="btn-tp" id="btn-tp-load" onclick="loadTPWorkouts()">→ TP Workouts laden</button>
-      <button class="btn-tp" id="btn-tp-apply" onclick="applyToTP()" style="display:none">→ Empfehlung in TP anwenden</button>
+      <button class="btn-tp" id="btn-tp-load" onclick="loadTPWorkouts()">${T.btn_tp_load}</button>
+      <button class="btn-tp" id="btn-tp-apply" onclick="applyToTP()" style="display:none">${T.btn_tp_apply}</button>
     </div>`;
   }
 
@@ -1519,7 +1499,7 @@ async function recalcBaseline() {
     await loadBaselineDisplay();
     document.getElementById('baseline-upload-area')?.classList.remove('has-file');
     const fs = document.getElementById('baseline-file-status');
-    if (fs) fs.textContent = '✓ Baseline aktualisiert';
+    if (fs) fs.textContent = T.btn_saved + ' Baseline';
     input.value = '';
   } catch(err) {
     showError(err.message || String(err));
@@ -1578,7 +1558,7 @@ async function refreshAll() {
   if (morgenTPLoad) morgenTPLoad.style.display = 'flex';
   if (morgenTPEl)   morgenTPEl.innerHTML = '';
 
-  showSplash('Daten werden aktualisiert…');
+  showSplash(T.refreshing);
   try {
     await loadStartupData();
   } catch(_) {
@@ -1615,7 +1595,7 @@ function renderAbendWeather(w) {
   weatherTomorrow = w || null;
   const ctx = document.getElementById('abend-context');
   const el  = document.getElementById('abend-weather-content');
-  if (el) el.innerHTML = w ? _weatherHtml(w) : '<p style="color:var(--muted);font-size:12px">Wetter nicht verfügbar</p>';
+  if (el) el.innerHTML = w ? _weatherHtml(w) : `<p style="color:var(--muted);font-size:12px">${T.weather_n_a}</p>`;
   if (ctx) ctx.style.display = 'block';
 }
 
@@ -1623,7 +1603,7 @@ function renderMorgenWeather(w) {
   weatherToday = w || null;
   const ctx = document.getElementById('morgen-context');
   const el  = document.getElementById('morgen-weather-content');
-  if (el) el.innerHTML = w ? _weatherHtml(w) : '<p style="color:var(--muted);font-size:12px">Wetter nicht verfügbar</p>';
+  if (el) el.innerHTML = w ? _weatherHtml(w) : `<p style="color:var(--muted);font-size:12px">${T.weather_n_a}</p>`;
   if (ctx) ctx.style.display = 'block';
 }
 
@@ -1635,15 +1615,15 @@ function renderAbendTP(data) {
   if (section) section.style.display = 'block';
   if (dateEl && data.date) dateEl.textContent = fmtDate(data.date);
   if (!data.workouts?.length) {
-    if (content) content.innerHTML = '<p style="color:var(--muted);font-size:12px">Keine Workouts in TP für morgen</p>';
+    if (content) content.innerHTML = `<p style="color:var(--muted);font-size:12px">${T.tp_no_w_tomorrow}</p>`;
     return;
   }
   preloadedTPWorkouts = data.workouts;
   if (content) content.innerHTML = data.workouts.map(_tpItemHtml).join('');
-  preloadedTPWorkouts.forEach(w => {
-    const pill = document.querySelector(`[data-group="einheiten-abend"][data-value="${w.sport}"]`);
-    if (pill && !pill.classList.contains('active')) pill.click();
-  });
+  // Show water temp field if Schwimmen is in workouts
+  const hasSwim = data.workouts.some(w => w.sport?.toLowerCase().includes('schwimm'));
+  const wasserRow = document.getElementById('wasser-row');
+  if (wasserRow) wasserRow.style.display = hasSwim ? 'block' : 'none';
 }
 
 function renderMorgenTP(data) {
@@ -1651,11 +1631,11 @@ function renderMorgenTP(data) {
   const tpEl    = document.getElementById('morgen-tp-content');
   if (loading) loading.style.display = 'none';
   if (!data?.available) {
-    if (tpEl) tpEl.innerHTML = '<p style="color:var(--muted2);font-size:12px">TP nicht konfiguriert</p>';
+    if (tpEl) tpEl.innerHTML = `<p style="color:var(--muted2);font-size:12px">${T.tp_no_cfg}</p>`;
     return;
   }
   if (!data.workouts?.length) {
-    if (tpEl) tpEl.innerHTML = '<p style="color:var(--muted);font-size:12px">Keine Workouts in TP für heute</p>';
+    if (tpEl) tpEl.innerHTML = `<p style="color:var(--muted);font-size:12px">${T.tp_no_w_today}</p>`;
     return;
   }
   morgenTPWorkouts = data.workouts;
@@ -1717,21 +1697,21 @@ async function autoLoadMorgenTP() {
     const loading = document.getElementById('morgen-tp-loading');
     const tpEl    = document.getElementById('morgen-tp-content');
     if (loading) loading.style.display = 'none';
-    if (tpEl) tpEl.innerHTML = '<p style="color:var(--muted2);font-size:12px">TP nicht erreichbar</p>';
+    if (tpEl) tpEl.innerHTML = `<p style="color:var(--muted2);font-size:12px">${T.tp_unreachable}</p>`;
   } finally { morgenTPLoading = false; }
 }
 
 async function loadTPWorkouts() {
   const btn = document.getElementById('btn-tp-load');
   const list = document.getElementById('tp-result-list');
-  if (btn) { btn.disabled = true; btn.textContent = 'Laden…'; }
+  if (btn) { btn.disabled = true; btn.textContent = T.loading; }
   try {
     const r = await apiFetch('/api/tp/workouts?t=' + Date.now());
     const data = await r.json();
     if (!data.available) {
-      if (list) list.innerHTML = '<p style="color:var(--muted);font-size:13px">TP nicht konfiguriert</p>';
+      if (list) list.innerHTML = `<p style="color:var(--muted);font-size:13px">${T.tp_no_cfg}</p>`;
     } else if (!data.workouts?.length) {
-      if (list) list.innerHTML = '<p style="color:var(--muted);font-size:13px">Keine Workouts geplant</p>';
+      if (list) list.innerHTML = `<p style="color:var(--muted);font-size:13px">${T.tp_no_w}</p>`;
     } else {
       tpWorkouts = data.workouts;
       if (list) {
@@ -1749,7 +1729,7 @@ async function loadTPWorkouts() {
     if (btn) { btn.disabled = false; btn.textContent = '↺ Neu laden'; }
   } catch(err) {
     if (list) { list.innerHTML = `<p style="color:var(--red);font-size:13px">${esc(err.message)}</p>`; list.style.display = 'block'; }
-    if (btn) { btn.disabled = false; btn.textContent = '→ TP Workouts laden'; }
+    if (btn) { btn.disabled = false; btn.textContent = T.btn_tp_load; }
   }
 }
 
@@ -1763,16 +1743,13 @@ async function applyToTP() {
     btn.disabled = true;
     btn.innerHTML = `<span style="display:inline-flex;align-items:center;justify-content:center;gap:8px">` +
       `<div class="spinner" style="width:14px;height:14px;border-width:2px;flex-shrink:0"></div>` +
-      `Wird in TrainingPeaks übernommen…</span>`;
+      `${T.tp_applying}</span>`;
   }
 
   const activeWeather = currentResultType === 'morgen' ? weatherToday : (currentResult?.weather || weatherTomorrow);
   const formDataForTP = {
     ...(currentFormData || {}),
-    wetter_temp:         activeWeather?.temp_max ?? '-',
-    wetter_regen:        !!(activeWeather?.is_rain || activeWeather?.is_thunderstorm),
-    wetter_beschreibung: activeWeather?.description || '',
-    wasser_temp:         currentFormData?.wasser_temp || null,
+    wetter_temp: activeWeather?.temp_max ?? '-',
   };
 
   try {
@@ -1836,7 +1813,7 @@ async function applyToTP() {
     }
     if (btn) {
       btn.disabled = false;
-      btn.textContent = '→ Empfehlung in TP anwenden';
+      btn.textContent = T.btn_tp_apply;
     }
   }
 }
