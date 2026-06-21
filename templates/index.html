@@ -886,6 +886,15 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
         <div id="morgen-tp-content"></div>
       </div>
 
+      <!-- Wassertemperatur (nur sichtbar wenn Schwimmen in TP) -->
+      <div class="form-section wasser-row" id="wasser-row-morgen" style="display:none">
+        <div class="field-label" style="margin-bottom:10px">
+          <span>Wassertemperatur Freibad</span>
+          <span style="font-size:12px;color:var(--muted)">optional</span>
+        </div>
+        <input type="number" id="wasser-temp-morgen" class="text-input" placeholder="z.B. 22" min="10" max="35" step="0.5">
+      </div>
+
       <button type="submit" class="btn-submit">Morgen-Check starten</button>
     </form>
   </div>
@@ -976,6 +985,8 @@ let morgenTPLoading = false;
 let morgenTPWorkouts = [];
 let currentResultType = null;
 let currentFormData = null;
+let weatherToday = null;
+let weatherTomorrow = null;
 
 // ── splash ────────────────────────────────────────────────────────────────────
 function setSplashStatus(text) {
@@ -1192,6 +1203,7 @@ async function submitAbend(e) {
     muedigkeit:  body.muedigkeit,
     muskelkater: Array.isArray(body.muskelkater) ? body.muskelkater.join(', ') : '-',
     symptome:    body.symptome,
+    wasser_temp: document.getElementById('wasser-temp')?.value || null,
   };
   try {
     const r = await fetch('/api/check-abend', {
@@ -1227,6 +1239,7 @@ async function submitMorgen(e) {
     muedigkeit:  '-',
     muskelkater: '-',
     symptome:    getRadio('symptome-morgen'),
+    wasser_temp: document.getElementById('wasser-temp-morgen')?.value || null,
   };
   try {
     const r = await fetch('/api/check-morgen', { method: 'POST', body: formData });
@@ -1532,7 +1545,7 @@ async function refreshAll() {
   const btn = document.getElementById('btn-refresh');
   if (btn) btn.classList.add('spinning');
 
-  // Reset loading flags
+  // Reset loading flags + weather cache
   abendTPLoaded = false;
   abendWeatherLoaded = false;
   morgenWeatherLoaded = false;
@@ -1540,6 +1553,8 @@ async function refreshAll() {
   morgenTPLoading = false;
   preloadedTPWorkouts = [];
   morgenTPWorkouts = [];
+  weatherToday = null;
+  weatherTomorrow = null;
 
   // Reset Abend TP UI
   const abendSection = document.getElementById('abend-tp-section');
@@ -1597,6 +1612,7 @@ function _tpItemHtml(w) {
 }
 
 function renderAbendWeather(w) {
+  weatherTomorrow = w || null;
   const ctx = document.getElementById('abend-context');
   const el  = document.getElementById('abend-weather-content');
   if (el) el.innerHTML = w ? _weatherHtml(w) : '<p style="color:var(--muted);font-size:12px">Wetter nicht verfügbar</p>';
@@ -1604,6 +1620,7 @@ function renderAbendWeather(w) {
 }
 
 function renderMorgenWeather(w) {
+  weatherToday = w || null;
   const ctx = document.getElementById('morgen-context');
   const el  = document.getElementById('morgen-weather-content');
   if (el) el.innerHTML = w ? _weatherHtml(w) : '<p style="color:var(--muted);font-size:12px">Wetter nicht verfügbar</p>';
@@ -1643,6 +1660,9 @@ function renderMorgenTP(data) {
   }
   morgenTPWorkouts = data.workouts;
   if (tpEl) tpEl.innerHTML = data.workouts.map(_tpItemHtml).join('');
+  const hasSwim = data.workouts.some(w => w.sport?.toLowerCase().includes('schwimm'));
+  const wasserRow = document.getElementById('wasser-row-morgen');
+  if (wasserRow) wasserRow.style.display = hasSwim ? 'block' : 'none';
 }
 
 // ── startup: single request, asyncio.gather on backend ───────────────────────
@@ -1746,9 +1766,13 @@ async function applyToTP() {
       `Wird in TrainingPeaks übernommen…</span>`;
   }
 
+  const activeWeather = currentResultType === 'morgen' ? weatherToday : (currentResult?.weather || weatherTomorrow);
   const formDataForTP = {
     ...(currentFormData || {}),
-    wetter_temp: currentResult?.weather?.temp_max ?? '-',
+    wetter_temp:         activeWeather?.temp_max ?? '-',
+    wetter_regen:        !!(activeWeather?.is_rain || activeWeather?.is_thunderstorm),
+    wetter_beschreibung: activeWeather?.description || '',
+    wasser_temp:         currentFormData?.wasser_temp || null,
   };
 
   try {

@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import anthropic
 
-APP_VERSION = "2.3.4"
+APP_VERSION = "2.4.0"
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -540,97 +540,100 @@ async def tp_apply(request: Request):
     if not tp_url:
         raise HTTPException(400, "TP_MCP_URL nicht konfiguriert")
     body = await request.json()
-    workouts = body.get("workouts", [])
-    recommendation = body.get("recommendation", {})
-    day = body.get("day", "tomorrow")
-    form_data = body.get("form_data", {})
-    athlete = load_athlete()
-    day_offset = 0 if day == "today" else 1
-    target_date = (date.today() + timedelta(days=day_offset)).isoformat()
+    workouts        = body.get("workouts", [])
+    recommendation  = body.get("recommendation", {})
+    day             = body.get("day", "tomorrow")
+    form_data       = body.get("form_data", {})
+    athlete         = load_athlete()
+    day_offset      = 0 if day == "today" else 1
+    target_date     = (date.today() + timedelta(days=day_offset)).isoformat()
 
-    # Build private note from form snapshot
-    knie       = form_data.get("knie", "-")
-    ach_l      = form_data.get("achilles_l", "-")
-    ach_r      = form_data.get("achilles_r", "-")
-    muedigkeit = form_data.get("muedigkeit", "-")
-    muskelkater= form_data.get("muskelkater", "-")
-    symptome   = form_data.get("symptome", "-")
-    wetter_temp= form_data.get("wetter_temp", "-")
+    # Form snapshot
+    knie         = form_data.get("knie", "-")
+    ach_l        = form_data.get("achilles_l", "-")
+    ach_r        = form_data.get("achilles_r", "-")
+    muedigkeit   = form_data.get("muedigkeit", "-")
+    muskelkater  = form_data.get("muskelkater", "-")
+    symptome     = form_data.get("symptome", "-")
+    wetter_temp  = form_data.get("wetter_temp", "-")
+    wetter_regen = bool(form_data.get("wetter_regen", False))
+    wetter_desc  = form_data.get("wetter_beschreibung", "")
+    wasser_temp  = form_data.get("wasser_temp") or ""
+
+    # Build private note
+    wetter_str  = f"{wetter_temp}°C" + (f", {wetter_desc}" if wetter_desc else "")
+    has_swim    = any(w.get("sport", "").lower() in ["schwimmen", "swim", "swimming"] for w in workouts)
+    wasser_str  = f" | Wasser: {wasser_temp}°C" if (has_swim and wasser_temp) else ""
     athlete_note = (
-        f"Wetter: {wetter_temp}°C | Gefühl: {muedigkeit}/5 | "
+        f"Wetter: {wetter_str} | Gefühl: {muedigkeit}/5 | "
         f"Knie: {knie}/10 | Achillessehne: L{ach_l}/R{ach_r}/10 | "
-        f"Muskelkater: {muskelkater} | Symptome: {symptome} | TSB: - | CTL: -"
+        f"Muskelkater: {muskelkater} | Symptome: {symptome}{wasser_str} | TSB: - | CTL: -"
     )
 
     # Build structured operation list — only for workouts that actually exist in TP
     ops: list = []
     for s in recommendation.get("sportarten", []):
-        sport  = s.get("sport", "?")
-        badge  = s.get("badge", "GO")
-        details= s.get("details", "")
+        sport   = s.get("sport", "?")
+        badge   = s.get("badge", "GO")
+        details = s.get("details", "")
 
-        # Only act on sports with an actual planned workout in TP
         tp_w = next((w for w in workouts if w.get("sport", "").lower() == sport.lower()), None)
         if tp_w is None:
-            continue  # Not planned in TP — no rename, no note, no new workout
+            continue  # not in TP — skip entirely
 
         orig_title    = tp_w.get("title", sport)
         orig_duration = tp_w.get("duration_min", 60)
-        workout_id    = tp_w.get("id")  # use actual ID from API response
+        workout_id    = tp_w.get("id")
+        is_zwift      = sport.lower() in ["rad", "cycling"] and wetter_regen
 
-        if badge == "MOD":
-            rename_op = {
-                "action": "rename_workout",
-                "sport": sport, "date": target_date,
-                "old_title": orig_title,
-                "new_title": f"↩️ {orig_title} (KI)",
-            }
+        def _rename(new_title: str) -> dict:
+            op = {"action": "rename_workout", "sport": sport, "date": target_date,
+                  "old_title": orig_title, "new_title": new_title}
             if workout_id:
-                rename_op["workout_id"] = workout_id
-            ops.append(rename_op)
-            ops.append({
-                "action": "create_workout",
-                "sport": sport, "date": target_date,
-                "title": f"{orig_title} (KI)",
-                "duration_min": round(orig_duration * 0.75),
-                "note": details,
-            })
+                op["workout_id"] = workout_id
+            return op
+
+        if badge == "GO":
+            if is_zwift:
+                t = f"{orig_title} Zwift (KI)"
+                ops.append(_rename(t))
+                ops.append({"action": "create_workout", "sport": sport, "date": target_date,
+                            "title": t, "duration_min": round(orig_duration * 0.80),
+                            "note": "Indoor wegen Wetter"})
+            # else GO + kein Regen → keine Änderung
+
+        elif badge == "MOD":
+            if is_zwift:
+                new_t   = f"↩️ {orig_title} Zwift (KI)"
+                creat_t = f"{orig_title} Zwift (KI)"
+                note    = (details.rstrip(" |") + " | Indoor wegen Wetter").lstrip(" |").strip()
+            else:
+                new_t   = f"↩️ {orig_title} (KI)"
+                creat_t = f"{orig_title} (KI)"
+                note    = details
+            ops.append(_rename(new_t))
+            ops.append({"action": "create_workout", "sport": sport, "date": target_date,
+                        "title": creat_t, "duration_min": round(orig_duration * 0.75),
+                        "note": note})
+
         elif badge == "SKIP":
-            rename_op = {
-                "action": "rename_workout",
-                "sport": sport, "date": target_date,
-                "old_title": orig_title,
-                "new_title": f"❌ {orig_title} (KI)",
-            }
-            if workout_id:
-                rename_op["workout_id"] = workout_id
-            ops.append(rename_op)
-            ops.append({
-                "action": "create_calendar_note",
-                "date": target_date,
-                "text": f"❌ {sport} gestrichen – {details} (KI)",
-            })
-        # GO → no change
+            ops.append(_rename(f"❌ {orig_title} (KI)"))
+            ops.append({"action": "create_calendar_note", "date": target_date,
+                        "text": f"❌ {sport} gestrichen – {details} (KI)"})
 
     if "neu schwer" in str(symptome).lower():
-        ops.append({
-            "action": "create_calendar_note",
-            "date": target_date,
-            "text": "🤧 Krank – Training gestrichen (KI)",
-        })
+        ops.append({"action": "create_calendar_note", "date": target_date,
+                    "text": "🤧 Krank – Training gestrichen (KI)"})
 
-    # Private note: one per existing TP workout, using actual workout IDs
+    # Private note per existing TP workout
     for w in workouts:
-        note_op: dict = {
-            "action": "add_private_note",
-            "date": target_date,
-            "note": athlete_note,
-            "title": w.get("title"),
-        }
+        note_op: dict = {"action": "add_private_note", "date": target_date,
+                         "note": athlete_note, "title": w.get("title")}
         if w.get("id"):
             note_op["workout_id"] = w["id"]
         ops.append(note_op)
 
+    logger.info("tp_apply: %d ops for %s (regen=%s)", len(ops), target_date, wetter_regen)
     prompt = (
         f"Apply the following changes to TrainingPeaks for '{athlete.get('name', '')}' on {target_date}.\n\n"
         f"Execute each operation in order:\n"
