@@ -17,7 +17,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.4.10"
+APP_VERSION = "2.4.11"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -533,6 +533,10 @@ async def tp_workouts(day: str = "tomorrow"):
         raise HTTPException(500, str(e))
 
 
+def clean_title(title: str) -> str:
+    return title.replace(" (KI)", "").replace(" (AI)", "").replace("❌ ", "").replace("↩️ ", "").strip()
+
+
 @app.post("/api/tp/apply")
 async def tp_apply(request: Request):
     if not os.environ.get("TP_MCP_URL"):
@@ -550,7 +554,7 @@ async def tp_apply(request: Request):
         if badge == "GO" or not workout_id:
             continue
 
-        new_title = (T["tp_skip_renamed"] if badge == "SKIP" else T["tp_mod_renamed"]).format(title=orig_title)
+        new_title = (T["tp_skip_renamed"] if badge == "SKIP" else T["tp_mod_renamed"]).format(title=clean_title(orig_title))
         try:
             result = await call_tp_mcp("tp_update_workout", {"workout_id": workout_id, "title": new_title})
             actions.append({"workout_id": workout_id, "badge": badge, "status": "ok",
