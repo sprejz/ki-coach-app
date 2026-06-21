@@ -1680,18 +1680,25 @@ async function applyToTP() {
   };
 
   try {
-    // Build operations: match TP workouts to Claude badges (frontend-side, fuzzy)
+    // Build operations: iterate Claude's sportarten, look up workout_id from loaded TP list
     const sportarten = currentResult.sportarten || [];
-    const operations = tpWorkouts
-      .filter(w => w.id)
-      .map(w => {
+    console.log('applyToTP tpWorkouts:', JSON.stringify(tpWorkouts));
+    const operations = [];
+    for (const s of sportarten) {
+      const badge = s.badge || 'GO';
+      if (badge === 'GO') continue;
+      const ss = (s.sport || '').toLowerCase();
+      const w = tpWorkouts.find(w => {
         const ws = (w.sport || '').toLowerCase();
-        const rec = sportarten.find(s => {
-          const ss = (s.sport || '').toLowerCase();
-          return ss === ws || ws.includes(ss) || ss.includes(ws);
-        });
-        return { workout_id: w.id, orig_title: w.title || w.sport || '', badge: rec ? rec.badge : 'GO' };
+        return ws === ss || ws.includes(ss) || ss.includes(ws);
       });
+      if (!w) { console.warn('applyToTP: no TP workout for sport', s.sport); continue; }
+      // Try all common ID field names returned by TP
+      const wid = w.id ?? w.workoutId ?? w.workout_id ?? w.Id ?? w.ID ?? null;
+      if (!wid) { console.warn('applyToTP: no id field in workout', w); continue; }
+      operations.push({ workout_id: String(wid), orig_title: w.title || w.sport || '', badge });
+    }
+    console.log('applyToTP operations:', JSON.stringify(operations));
     const r = await fetch('/api/tp/apply', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
