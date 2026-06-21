@@ -161,30 +161,28 @@ TRANSLATIONS = {
         "tp_apply_prompt_intro":  "Apply the following changes to TrainingPeaks for '{name}' on {date}.",
         "tp_apply_prompt_sem":    (
             "Operation semantics:\n"
-            "- rename_workout: Use workout_id (if provided) to find and rename the workout; fallback to old_title match\n"
-            "- create_workout: Create a new planned workout with the given title, sport, duration_min and note\n"
-            "- create_calendar_note: Add a calendar note/annotation with the given text on that date\n"
-            "- add_private_note: Use workout_id (if provided) to find the workout and append note to its private description\n\n"
+            "- rename_workout: Use workout_id (if provided) to find and rename; fallback to old_title match\n"
+            "- create_workout: Create a new planned workout with title, sport, duration_min and note\n\n"
             "After completing all operations respond ONLY with a JSON array (no markdown):\n"
-            '[{{"action":"rename_workout","sport":"Rad","status":"ok","detail":"Titel geändert zu ↩️ Z2 Ausdauer (KI)"}}]\n'
-            "Use status 'ok' or 'error'. detail is a short German confirmation or error message."
+            '[{{"action":"rename_workout","status":"ok","detail":"Renamed to ↩️ Z2 Ausdauer (KI)"}}]\n'
+            "Use status 'ok' or 'error'."
         ),
         "tp_workouts_prompt": (
             "Alle geplanten Workouts für {name} am {date} aus TrainingPeaks auflisten. "
             "Antworte NUR mit einem gültigen JSON-Array. Beispiel: "
             '[{{"id":"123","sport":"Rad","title":"Z2 Ausdauer","duration_min":90,"tss":65,"description":"60-70% FTP"}}]'
         ),
-        # TP op labels (for rename/notes)
-        "tp_mod_renamed":   "↩️ {title} (KI)",
-        "tp_mod_new_title": "{title} (KI)",
-        "tp_skip_renamed":  "❌ {title} (KI)",
-        "tp_skip_note":     "❌ {sport} gestrichen – {details} (KI)",
-        "tp_sick_note":     "\U0001f927 Krank – Training gestrichen (KI)",
-        "tp_note_fmt": (
-            "Wetter: {wetter_temp}°C | Gefühl: {muedigkeit}/5 | "
-            "Knie: {knie}/10 | Achillessehne: {achilles}/10 | "
-            "Muskelkater: {muskelkater} | Symptome: {symptome} | TSB: - | CTL: -"
-        ),
+        # TP op labels
+        "tp_mod_renamed":       "↩️ {title} (KI)",
+        "tp_mod_new_title":     "{title} (KI)",
+        "tp_skip_renamed":      "❌ {title} (KI)",
+        # Error messages (user-visible)
+        "err_tp_url_missing":   "TP_MCP_URL nicht konfiguriert",
+        "err_api_key_missing":  "ANTHROPIC_API_KEY nicht gesetzt",
+        "err_no_baseline":      "Keine Baseline — bitte zuerst CSVs hochladen",
+        "err_claude_json":      "Ungültiges JSON von Claude: {e}",
+        "err_weather_na":       "Wetterdaten nicht verfügbar",
+        "err_csv_empty":        "CSV ist leer",
     },
 
     "en": {
@@ -346,13 +344,11 @@ TRANSLATIONS = {
         "tp_apply_prompt_intro":  "Apply the following changes to TrainingPeaks for '{name}' on {date}.",
         "tp_apply_prompt_sem":    (
             "Operation semantics:\n"
-            "- rename_workout: Use workout_id (if provided) to find and rename the workout; fallback to old_title match\n"
-            "- create_workout: Create a new planned workout with the given title, sport, duration_min and note\n"
-            "- create_calendar_note: Add a calendar note/annotation with the given text on that date\n"
-            "- add_private_note: Use workout_id (if provided) to find the workout and append note to its private description\n\n"
+            "- rename_workout: Use workout_id (if provided) to find and rename; fallback to old_title match\n"
+            "- create_workout: Create a new planned workout with title, sport, duration_min and note\n\n"
             "After completing all operations respond ONLY with a JSON array (no markdown):\n"
-            '[{{"action":"rename_workout","sport":"Rad","status":"ok","detail":"renamed to ↩️ Z2 Endurance (AI)"}}]\n'
-            "Use status 'ok' or 'error'. detail is a short English confirmation or error message."
+            '[{{"action":"rename_workout","status":"ok","detail":"Renamed to ↩️ Z2 Endurance (AI)"}}]\n'
+            "Use status 'ok' or 'error'."
         ),
         "tp_workouts_prompt": (
             "List all planned workouts for {name} on {date} from TrainingPeaks. "
@@ -360,15 +356,15 @@ TRANSLATIONS = {
             '[{{"id":"123","sport":"Rad","title":"Z2 Endurance","duration_min":90,"tss":65,"description":"60-70% FTP"}}]'
         ),
         # TP op labels
-        "tp_mod_renamed":   "↩️ {title} (AI)",
-        "tp_mod_new_title": "{title} (AI)",
-        "tp_skip_renamed":  "❌ {title} (AI)",
-        "tp_skip_note":     "❌ {sport} cancelled – {details} (AI)",
-        "tp_sick_note":     "\U0001f927 Sick – training cancelled (AI)",
-        "tp_note_fmt": (
-            "Weather: {wetter_temp}°C | Fatigue: {muedigkeit}/5 | "
-            "Knee: {knie}/10 | Achilles: {achilles}/10 | "
-            "Soreness: {muskelkater} | Symptoms: {symptome} | TSB: - | CTL: -"
-        ),
+        "tp_mod_renamed":       "↩️ {title} (AI)",
+        "tp_mod_new_title":     "{title} (AI)",
+        "tp_skip_renamed":      "❌ {title} (AI)",
+        # Error messages (user-visible)
+        "err_tp_url_missing":   "TP_MCP_URL not configured",
+        "err_api_key_missing":  "ANTHROPIC_API_KEY not set",
+        "err_no_baseline":      "No baseline — please upload CSVs first",
+        "err_claude_json":      "Invalid JSON from Claude: {e}",
+        "err_weather_na":       "Weather data unavailable",
+        "err_csv_empty":        "CSV is empty",
     },
 }

@@ -17,7 +17,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.4.4"
+APP_VERSION = "2.4.5"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -158,7 +158,7 @@ def parse_autosleep_csv(content: bytes) -> dict:
     reader = csv.DictReader(io.StringIO(text))
     rows = list(reader)
     if not rows:
-        raise ValueError("CSV ist leer")
+        raise ValueError(T["err_csv_empty"])
     row = rows[-1]
 
     def sf(val: Optional[str]) -> Optional[float]:
@@ -256,7 +256,7 @@ def build_system_prompt(athlete: dict, baseline: Optional[dict]) -> str:
 def call_claude(system: str, user_msg: str) -> dict:
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
-        raise HTTPException(500, "ANTHROPIC_API_KEY nicht gesetzt")
+        raise HTTPException(500, T["err_api_key_missing"])
     c = anthropic.Anthropic(api_key=key)
     msg = c.messages.create(
         model="claude-haiku-4-5-20251001",
@@ -276,7 +276,7 @@ def call_claude_tp_mcp(user_content: str) -> str:
     tp_url = os.environ.get("TP_MCP_URL", "")
     key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not key:
-        raise HTTPException(500, "ANTHROPIC_API_KEY nicht gesetzt")
+        raise HTTPException(500, T["err_api_key_missing"])
     c = anthropic.Anthropic(api_key=key, http_client=_tp_http)
     try:
         msg = c.beta.messages.create(
@@ -388,7 +388,7 @@ async def update_athlete(request: Request):
 async def get_baseline():
     b = load_baseline()
     if not b:
-        raise HTTPException(404, "Keine Baseline — bitte zuerst CSVs hochladen")
+        raise HTTPException(404, T["err_no_baseline"])
     return b
 
 
@@ -505,42 +505,16 @@ async def tp_workouts(day: str = "tomorrow"):
 async def tp_apply(request: Request):
     tp_url = os.environ.get("TP_MCP_URL", "")
     if not tp_url:
-        raise HTTPException(400, "TP_MCP_URL nicht konfiguriert")
-    body = await request.json()
-    workouts        = body.get("workouts", [])
-    recommendation  = body.get("recommendation", {})
-    day             = body.get("day", "tomorrow")
-    form_data       = body.get("form_data", {})
-    athlete         = load_athlete()
-    day_offset      = 0 if day == "today" else 1
-    target_date     = (date.today() + timedelta(days=day_offset)).isoformat()
+        raise HTTPException(400, T["err_tp_url_missing"])
+    body           = await request.json()
+    workouts       = body.get("workouts", [])
+    recommendation = body.get("recommendation", {})
+    day            = body.get("day", "tomorrow")
+    athlete        = load_athlete()
+    day_offset     = 0 if day == "today" else 1
+    target_date    = (date.today() + timedelta(days=day_offset)).isoformat()
 
-    # Form snapshot
-    knie        = form_data.get("knie", "-")
-    ach_l       = form_data.get("achilles_l", "-")
-    ach_r       = form_data.get("achilles_r", "-")
-    muedigkeit  = form_data.get("muedigkeit", "-")
-    muskelkater = form_data.get("muskelkater", "-")
-    symptome    = form_data.get("symptome", "-")
-    wetter_temp = form_data.get("wetter_temp", "-")
-
-    # Achilles: max of L/R
-    try:
-        max_ach = max(float(ach_l), float(ach_r))
-        ach_str = str(int(max_ach) if max_ach == int(max_ach) else max_ach)
-    except (ValueError, TypeError):
-        ach_str = f"L{ach_l}/R{ach_r}"
-
-    athlete_note = T["tp_note_fmt"].format(
-        wetter_temp=wetter_temp,
-        muedigkeit=muedigkeit,
-        knie=knie,
-        achilles=ach_str,
-        muskelkater=muskelkater,
-        symptome=symptome,
-    )
-
-    # Build structured operation list — only for workouts that actually exist in TP
+    # Build ops — only for workouts that exist in TP, using their IDs
     ops: list = []
     for s in recommendation.get("sportarten", []):
         sport   = s.get("sport", "?")
@@ -549,19 +523,18 @@ async def tp_apply(request: Request):
 
         tp_w = next((w for w in workouts if w.get("sport", "").lower() == sport.lower()), None)
         if tp_w is None:
-            continue  # not in TP — skip entirely
+            continue  # not in TP — no phantom ops
 
+        workout_id    = tp_w.get("id")
         orig_title    = tp_w.get("title", sport)
         orig_duration = tp_w.get("duration_min", 60)
-        workout_id    = tp_w.get("id")
-
-        rename_op = {"action": "rename_workout", "sport": sport, "date": target_date,
-                     "old_title": orig_title}
-        if workout_id:
-            rename_op["workout_id"] = workout_id
 
         if badge == "MOD":
-            rename_op["new_title"] = T["tp_mod_renamed"].format(title=orig_title)
+            rename_op = {"action": "rename_workout", "date": target_date,
+                         "old_title": orig_title,
+                         "new_title": T["tp_mod_renamed"].format(title=orig_title)}
+            if workout_id:
+                rename_op["workout_id"] = workout_id
             ops.append(rename_op)
             ops.append({"action": "create_workout", "sport": sport, "date": target_date,
                         "title": T["tp_mod_new_title"].format(title=orig_title),
@@ -569,24 +542,14 @@ async def tp_apply(request: Request):
                         "note": details})
 
         elif badge == "SKIP":
-            rename_op["new_title"] = T["tp_skip_renamed"].format(title=orig_title)
+            rename_op = {"action": "rename_workout", "date": target_date,
+                         "old_title": orig_title,
+                         "new_title": T["tp_skip_renamed"].format(title=orig_title)}
+            if workout_id:
+                rename_op["workout_id"] = workout_id
             ops.append(rename_op)
-            ops.append({"action": "create_calendar_note", "date": target_date,
-                        "text": T["tp_skip_note"].format(sport=sport, details=details)})
 
         # GO → no change
-
-    if "schwer" in str(symptome).lower() and ("neu" in str(symptome).lower() or "severe" in str(symptome).lower()):
-        ops.append({"action": "create_calendar_note", "date": target_date,
-                    "text": T["tp_sick_note"]})
-
-    # Private note per existing TP workout
-    for w in workouts:
-        note_op: dict = {"action": "add_private_note", "date": target_date,
-                         "note": athlete_note, "title": w.get("title")}
-        if w.get("id"):
-            note_op["workout_id"] = w["id"]
-        ops.append(note_op)
 
     logger.info("tp_apply: %d ops for %s", len(ops), target_date)
     prompt = (
@@ -621,7 +584,7 @@ async def check_abend(request: Request):
         weather = await fetch_weather(athlete)
     except Exception as e:
         weather = {
-            "description": "Wetterdaten nicht verfügbar",
+            "description": T["err_weather_na"],
             "temp_max": None, "temp_min": None,
             "rain_prob": 0, "is_thunderstorm": False,
             "is_rain": False, "is_hot": False,
@@ -680,7 +643,7 @@ async def check_abend(request: Request):
         result["weather"] = weather
         return result
     except json.JSONDecodeError as e:
-        raise HTTPException(500, f"Ungültiges JSON von Claude: {e}")
+        raise HTTPException(500, T["err_claude_json"].format(e=e))
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -738,6 +701,6 @@ AutoSleep (letzte Nacht):
             result["sleep_flags"] = sleep_result
         return result
     except json.JSONDecodeError as e:
-        raise HTTPException(500, f"Ungültiges JSON von Claude: {e}")
+        raise HTTPException(500, T["err_claude_json"].format(e=e))
     except Exception as e:
         raise HTTPException(500, str(e))
