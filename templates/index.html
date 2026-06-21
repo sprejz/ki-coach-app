@@ -966,8 +966,8 @@ const T = {{ T_json|safe }};
 let athlete = null;
 let currentResult = null;
 let tpWorkouts = [];
-let preloadedTPWorkouts = [];
-let morgenTPWorkouts = [];
+let tpWorkoutsAbend = [];
+let tpWorkoutsMorgen = [];
 let currentResultType = null;
 let currentFormData = null;
 let weatherToday = null;
@@ -1154,9 +1154,9 @@ async function submitAbend(e) {
     muedigkeit:         parseInt(getMuedigkeit(), 10),
     muskelkater:        getMulti('muskelkater'),
     symptome:           getRadio('symptome-abend'),
-    geplante_einheiten: preloadedTPWorkouts.map(w => w.sport).filter(Boolean),
+    geplante_einheiten: tpWorkoutsAbend.map(w => w.sport).filter(Boolean),
     wasser_temp:        document.getElementById('wasser-temp')?.value || null,
-    tp_workouts:        preloadedTPWorkouts.length ? preloadedTPWorkouts : undefined,
+    tp_workouts:        tpWorkoutsAbend.length ? tpWorkoutsAbend : undefined,
   };
   currentFormData = {
     knie:        body.knie,
@@ -1191,7 +1191,7 @@ async function submitMorgen(e) {
   formData.append('achilles_l',          document.getElementById('achilles-l-morgen').value);
   formData.append('achilles_r',          document.getElementById('achilles-r-morgen').value);
   formData.append('symptome',            getRadio('symptome-morgen'));
-  formData.append('geplante_einheiten',  morgenTPWorkouts.map(w => w.sport).join(','));
+  formData.append('geplante_einheiten',  tpWorkoutsMorgen.map(w => w.sport).join(','));
   const csvFile = document.getElementById('csv-upload')?.files[0];
   if (csvFile) formData.append('csv_file', csvFile);
   currentFormData = {
@@ -1224,7 +1224,7 @@ async function submitMorgen(e) {
 function showResult(data, formData, type) {
   currentResult = data;
   currentResultType = type;
-  tpWorkouts = type === 'abend' ? [...preloadedTPWorkouts] : [...morgenTPWorkouts];
+  tpWorkouts = type === 'abend' ? [...tpWorkoutsAbend] : [...tpWorkoutsMorgen];
   const section = document.getElementById('result-section');
   section.innerHTML = buildResult(data, formData, type);
   section.style.display = 'block';
@@ -1325,7 +1325,7 @@ function buildResult(data, fd, type) {
   }
 
   // TrainingPeaks section — show if workouts were pre-loaded (both tabs)
-  const _tpWorks = type === 'abend' ? preloadedTPWorkouts : morgenTPWorkouts;
+  const _tpWorks = type === 'abend' ? tpWorkoutsAbend : tpWorkoutsMorgen;
   if (_tpWorks.length > 0) {
     h += `<div class="card-section">
       <div class="section-lbl">TrainingPeaks</div>
@@ -1507,8 +1507,8 @@ async function refreshAll() {
   const btn = document.getElementById('btn-refresh');
   if (btn) btn.classList.add('spinning');
 
-  preloadedTPWorkouts = [];
-  morgenTPWorkouts = [];
+  tpWorkoutsAbend = [];
+  tpWorkoutsMorgen = [];
   weatherToday = null;
   weatherTomorrow = null;
 
@@ -1585,7 +1585,7 @@ function renderAbendTP(data) {
     if (content) content.innerHTML = `<p style="color:var(--muted);font-size:12px">${T.tp_no_w_tomorrow}</p>`;
     return;
   }
-  preloadedTPWorkouts = data.workouts;
+  tpWorkoutsAbend = data.workouts;
   if (content) content.innerHTML = data.workouts.map(_tpItemHtml).join('');
   // Show water temp field if Schwimmen is in workouts
   const hasSwim = data.workouts.some(w => w.sport?.toLowerCase().includes('schwimm'));
@@ -1605,7 +1605,7 @@ function renderMorgenTP(data) {
     if (tpEl) tpEl.innerHTML = `<p style="color:var(--muted);font-size:12px">${T.tp_no_w_today}</p>`;
     return;
   }
-  morgenTPWorkouts = data.workouts;
+  tpWorkoutsMorgen = data.workouts;
   if (tpEl) tpEl.innerHTML = data.workouts.map(_tpItemHtml).join('');
   const hasSwim = data.workouts.some(w => w.sport?.toLowerCase().includes('schwimm'));
   const wasserRow = document.getElementById('wasser-row-morgen');
@@ -1680,22 +1680,20 @@ async function applyToTP() {
   };
 
   try {
-    // Build operations: iterate Claude's sportarten, look up workout_id from loaded TP list
+    // For each loaded TP workout: look up badge from Claude recommendation
     const sportarten = currentResult.sportarten || [];
     console.log('applyToTP tpWorkouts:', JSON.stringify(tpWorkouts));
     const operations = [];
-    for (const s of sportarten) {
-      const badge = s.badge || 'GO';
-      if (badge === 'GO') continue;
-      const ss = (s.sport || '').toLowerCase();
-      const w = tpWorkouts.find(w => {
-        const ws = (w.sport || '').toLowerCase();
-        return ws === ss || ws.includes(ss) || ss.includes(ws);
-      });
-      if (!w) { console.warn('applyToTP: no TP workout for sport', s.sport); continue; }
-      // Try all common ID field names returned by TP
+    for (const w of tpWorkouts) {
       const wid = w.id ?? w.workoutId ?? w.workout_id ?? w.Id ?? w.ID ?? null;
-      if (!wid) { console.warn('applyToTP: no id field in workout', w); continue; }
+      if (!wid) { console.warn('applyToTP: no id in workout', JSON.stringify(w)); continue; }
+      const ws = (w.sport || '').toLowerCase();
+      const rec = sportarten.find(s => {
+        const ss = (s.sport || '').toLowerCase();
+        return ss === ws || ws.includes(ss) || ss.includes(ws);
+      });
+      const badge = rec?.badge || 'GO';
+      if (badge === 'GO') continue;
       operations.push({ workout_id: String(wid), orig_title: w.title || w.sport || '', badge });
     }
     console.log('applyToTP operations:', JSON.stringify(operations));
