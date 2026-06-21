@@ -407,24 +407,101 @@ async def tp_apply(request: Request):
     body = await request.json()
     workouts = body.get("workouts", [])
     recommendation = body.get("recommendation", {})
-    athlete = load_athlete()
     day = body.get("day", "tomorrow")
+    form_data = body.get("form_data", {})
+    athlete = load_athlete()
     day_offset = 0 if day == "today" else 1
     target_date = (date.today() + timedelta(days=day_offset)).isoformat()
+
+    # Build private note from form snapshot
+    knie       = form_data.get("knie", "-")
+    ach_l      = form_data.get("achilles_l", "-")
+    ach_r      = form_data.get("achilles_r", "-")
+    muedigkeit = form_data.get("muedigkeit", "-")
+    muskelkater= form_data.get("muskelkater", "-")
+    symptome   = form_data.get("symptome", "-")
+    wetter_temp= form_data.get("wetter_temp", "-")
+    athlete_note = (
+        f"Wetter: {wetter_temp}°C | Gefühl: {muedigkeit}/5 | "
+        f"Knie: {knie}/10 | Achillessehne: L{ach_l}/R{ach_r}/10 | "
+        f"Muskelkater: {muskelkater} | Symptome: {symptome} | TSB: - | CTL: -"
+    )
+
+    # Build structured operation list
+    ops: list = []
+    for s in recommendation.get("sportarten", []):
+        sport  = s.get("sport", "?")
+        badge  = s.get("badge", "GO")
+        details= s.get("details", "")
+        tp_w   = next((w for w in workouts if w.get("sport", "").lower() == sport.lower()), None)
+        orig_title    = tp_w.get("title", sport) if tp_w else sport
+        orig_duration = tp_w.get("duration_min", 60) if tp_w else 60
+
+        if badge == "MOD":
+            ops.append({
+                "action": "rename_workout",
+                "sport": sport, "date": target_date,
+                "old_title": orig_title,
+                "new_title": f"↩️ {orig_title} (KI)",
+            })
+            ops.append({
+                "action": "create_workout",
+                "sport": sport, "date": target_date,
+                "title": f"{orig_title} (KI)",
+                "duration_min": round(orig_duration * 0.75),
+                "note": details,
+            })
+        elif badge == "SKIP":
+            ops.append({
+                "action": "rename_workout",
+                "sport": sport, "date": target_date,
+                "old_title": orig_title,
+                "new_title": f"❌ {orig_title} (KI)",
+            })
+            ops.append({
+                "action": "create_calendar_note",
+                "date": target_date,
+                "text": f"❌ {sport} gestrichen – {details} (KI)",
+            })
+        # GO → no change
+
+    if "neu schwer" in str(symptome).lower():
+        ops.append({
+            "action": "create_calendar_note",
+            "date": target_date,
+            "text": "🤧 Krank – Training gestrichen (KI)",
+        })
+
+    ops.append({
+        "action": "add_private_note",
+        "date": target_date,
+        "note": athlete_note,
+        "apply_to": "all_workouts",
+    })
+
     prompt = (
-        f"Apply the KI Coach recommendation to TrainingPeaks workouts "
-        f"for {athlete.get('name', 'the athlete')} on {target_date}.\n\n"
-        f"Current TP workouts: {json.dumps(workouts, ensure_ascii=False)}\n\n"
-        f"KI Recommendation: {json.dumps(recommendation, ensure_ascii=False)}\n\n"
-        f"Rules: SKIP → add note 'KI: SKIP' and mark optional; "
-        f"MOD → update title with '(KI)' suffix + add details as note; "
-        f"GO → add prep text as note; "
-        f"Zwift indoor → rename title to 'Zwift (KI)' + note 'wegen Wetter indoor'.\n\n"
-        f"Apply these changes and confirm each action taken."
+        f"Apply the following changes to TrainingPeaks for '{athlete.get('name', '')}' on {target_date}.\n\n"
+        f"Execute each operation in order:\n"
+        f"{json.dumps(ops, ensure_ascii=False, indent=2)}\n\n"
+        f"Operation semantics:\n"
+        f"- rename_workout: Find workout with old_title on that date and update its title to new_title\n"
+        f"- create_workout: Create a new planned workout with the given title, sport, duration_min and note\n"
+        f"- create_calendar_note: Add a calendar note/annotation with the given text on that date\n"
+        f"- add_private_note: Append the note text as a private description to all workouts on that date\n\n"
+        f"After completing all operations respond ONLY with a JSON array (no markdown):\n"
+        f'[{{"action":"rename_workout","sport":"Rad","status":"ok","detail":"Titel geändert zu ↩️ Z2 Ausdauer (KI)"}}]\n'
+        f"Use status 'ok' or 'error'. detail is a short German confirmation or error message."
     )
     try:
-        result = call_claude_tp_mcp(prompt)
-        return {"ok": True, "message": result}
+        raw = call_claude_tp_mcp(prompt)
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+        try:
+            actions = json.loads(raw)
+        except json.JSONDecodeError:
+            actions = [{"action": "apply", "status": "ok", "detail": raw[:500]}]
+        return {"ok": True, "actions": actions}
     except HTTPException:
         raise
     except Exception as e:

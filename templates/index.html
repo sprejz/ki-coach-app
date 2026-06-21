@@ -524,9 +524,112 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
   color: var(--green);
   display: none;
 }
+
+/* ── splash screen ──────────────────────────────────────────────────────────── */
+#splash {
+  position: fixed;
+  inset: 0;
+  background: #0f0f13;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.55s cubic-bezier(0.4,0,0.2,1);
+}
+#splash.fade-out { opacity: 0; pointer-events: none; }
+.splash-title {
+  font-size: 38px;
+  font-weight: 800;
+  letter-spacing: -1.2px;
+  color: #e8e8e8;
+  margin-bottom: 7px;
+}
+.splash-title span { color: #1D9E75; }
+.splash-sub {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 2.8px;
+  text-transform: uppercase;
+  color: #3a3a4a;
+  margin-bottom: 54px;
+}
+.splash-ring {
+  position: relative;
+  width: 68px;
+  height: 68px;
+  margin-bottom: 36px;
+}
+.splash-ring-pulse {
+  position: absolute;
+  inset: -12px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(29,158,117,0.22);
+  animation: splashPulse 2.2s ease-in-out infinite;
+}
+.splash-ring-pulse2 {
+  position: absolute;
+  inset: -24px;
+  border-radius: 50%;
+  border: 1px solid rgba(29,158,117,0.09);
+  animation: splashPulse 2.2s ease-in-out infinite 0.4s;
+}
+@keyframes splashPulse {
+  0%, 100% { transform: scale(0.94); opacity: 0.7; }
+  50% { transform: scale(1.1); opacity: 0.05; }
+}
+.splash-arc {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2.5px solid rgba(29,158,117,0.1);
+  border-top-color: #1D9E75;
+  animation: spin 1s linear infinite;
+}
+.splash-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.splash-center::after {
+  content: '';
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #1D9E75;
+  box-shadow: 0 0 14px rgba(29,158,117,0.55);
+  animation: splashDot 2.2s ease-in-out infinite;
+}
+@keyframes splashDot {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(0.78); opacity: 0.55; }
+}
+.splash-status {
+  font-size: 13px;
+  color: #4a4a5a;
+  letter-spacing: 0.2px;
+  min-height: 18px;
+  transition: opacity 0.22s ease;
+}
+.splash-status.fading { opacity: 0; }
 </style>
 </head>
 <body>
+
+<!-- Splash screen -->
+<div id="splash">
+  <div class="splash-title"><span>KI</span> Coach</div>
+  <div class="splash-sub">Triathlon · Tagescoaching</div>
+  <div class="splash-ring">
+    <div class="splash-ring-pulse2"></div>
+    <div class="splash-ring-pulse"></div>
+    <div class="splash-arc"></div>
+    <div class="splash-center"></div>
+  </div>
+  <div class="splash-status" id="splash-status"></div>
+</div>
 
 <!-- Header -->
 <header class="header">
@@ -837,9 +940,29 @@ let abendTPLoaded = false;
 let morgenContextLoaded = false;
 let morgenTPWorkouts = [];
 let currentResultType = null;
+let currentFormData = null;
+
+// ── splash ────────────────────────────────────────────────────────────────────
+function setSplashStatus(text) {
+  const el = document.getElementById('splash-status');
+  if (!el) return;
+  el.classList.add('fading');
+  setTimeout(() => { el.textContent = text; el.classList.remove('fading'); }, 220);
+}
+
+function hideSplash() {
+  setSplashStatus('Bereit');
+  setTimeout(() => {
+    const el = document.getElementById('splash');
+    if (!el) return;
+    el.classList.add('fade-out');
+    setTimeout(() => el.remove(), 600);
+  }, 520);
+}
 
 // ── init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
+  setSplashStatus('Wetter wird geladen…');
   try {
     const r = await fetch('/api/athlete');
     athlete = await r.json();
@@ -853,6 +976,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   initForms();
   initUpload();
   initSettings();
+  setSplashStatus('Workouts werden geladen…');
+  await autoLoadAbendTP();
+  hideSplash();
 });
 
 // ── header ───────────────────────────────────────────────────────────────────
@@ -894,8 +1020,7 @@ function initTabs() {
       if (tab === 'morgen' && !morgenContextLoaded) autoLoadMorgenContext();
     });
   });
-  // Trigger for the default active tab (abend)
-  autoLoadAbendTP();
+  // autoLoadAbendTP() is called explicitly in DOMContentLoaded (awaited for splash)
 }
 
 // ── sliders ───────────────────────────────────────────────────────────────────
@@ -1004,6 +1129,14 @@ async function submitAbend(e) {
     wasser_temp:        document.getElementById('wasser-temp')?.value || null,
     tp_workouts:        preloadedTPWorkouts.length ? preloadedTPWorkouts : undefined,
   };
+  currentFormData = {
+    knie:        body.knie,
+    achilles_l:  body.achilles_l,
+    achilles_r:  body.achilles_r,
+    muedigkeit:  body.muedigkeit,
+    muskelkater: Array.isArray(body.muskelkater) ? body.muskelkater.join(', ') : '-',
+    symptome:    body.symptome,
+  };
   try {
     const r = await fetch('/api/check-abend', {
       method: 'POST',
@@ -1031,6 +1164,14 @@ async function submitMorgen(e) {
   formData.append('geplante_einheiten',  morgenTPWorkouts.map(w => w.sport).join(','));
   const csvFile = document.getElementById('csv-upload')?.files[0];
   if (csvFile) formData.append('csv_file', csvFile);
+  currentFormData = {
+    knie:        parseFloat(document.getElementById('knie-morgen').value),
+    achilles_l:  parseFloat(document.getElementById('achilles-l-morgen').value),
+    achilles_r:  parseFloat(document.getElementById('achilles-r-morgen').value),
+    muedigkeit:  '-',
+    muskelkater: '-',
+    symptome:    getRadio('symptome-morgen'),
+  };
   try {
     const r = await fetch('/api/check-morgen', { method: 'POST', body: formData });
     if (!r.ok) { const t = await r.text(); throw new Error(t); }
@@ -1186,6 +1327,7 @@ function backToForm() {
   document.getElementById('result-section').style.display = 'none';
   document.getElementById('form-section').style.display = 'block';
   currentResult = null;
+  currentFormData = null;
   tpWorkouts = [];
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -1454,24 +1596,51 @@ async function loadTPWorkouts() {
 
 async function applyToTP() {
   if (!currentResult || !tpWorkouts.length) return;
-  const btn = document.getElementById('btn-tp-apply');
-  if (btn) { btn.disabled = true; btn.textContent = 'Anpassen…'; }
+  const btn  = document.getElementById('btn-tp-apply');
+  const list = document.getElementById('tp-result-list');
+  if (btn) { btn.disabled = true; btn.textContent = 'Anwenden…'; }
+
+  const formDataForTP = {
+    ...(currentFormData || {}),
+    wetter_temp: currentResult?.weather?.temp_max ?? '-',
+  };
+
   try {
     const r = await fetch('/api/tp/apply', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ workouts: tpWorkouts, recommendation: currentResult, day: currentResultType === 'morgen' ? 'today' : 'tomorrow' }),
+      body: JSON.stringify({
+        workouts: tpWorkouts,
+        recommendation: currentResult,
+        day: currentResultType === 'morgen' ? 'today' : 'tomorrow',
+        form_data: formDataForTP,
+      }),
     });
     if (!r.ok) { const t = await r.text(); throw new Error(t); }
     const data = await r.json();
-    const list = document.getElementById('tp-result-list');
-    if (list && data.message) {
-      list.innerHTML += `<div style="margin-top:10px;font-size:12px;color:var(--green);line-height:1.6;white-space:pre-wrap">${esc(data.message)}</div>`;
+
+    if (list) {
+      list.style.display = 'block';
+      const rows = (data.actions || []).map(a => {
+        const ok  = (a.status || 'ok') !== 'error';
+        const col = ok ? 'var(--green)' : 'var(--red)';
+        return `<div style="font-size:12px;color:${col};line-height:1.8">${ok ? '✓' : '✗'} ${esc(a.detail || a.action || '')}</div>`;
+      }).join('');
+      const box = document.createElement('div');
+      box.style.cssText = 'margin-top:10px;padding:10px;background:rgba(29,158,117,.06);border-radius:8px;border:1px solid rgba(29,158,117,.2)';
+      box.innerHTML = rows;
+      list.appendChild(box);
     }
-    if (btn) { btn.textContent = '✓ Angepasst'; }
+    if (btn) { btn.textContent = '✓ In TP angepasst'; }
   } catch(err) {
+    if (list) {
+      list.style.display = 'block';
+      const box = document.createElement('div');
+      box.style.cssText = 'margin-top:10px;padding:10px;background:rgba(226,75,74,.08);border-radius:8px;border:1px solid rgba(226,75,74,.25);font-size:12px;color:var(--red)';
+      box.textContent = '✗ ' + (err.message || String(err));
+      list.appendChild(box);
+    }
     if (btn) { btn.disabled = false; btn.textContent = '→ Empfehlung in TP anwenden'; }
-    showError(err.message || String(err));
   }
 }
 
