@@ -17,7 +17,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.4.1"
+APP_VERSION = "2.4.2"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -243,13 +243,11 @@ def build_system_prompt(athlete: dict, baseline: Optional[dict]) -> str:
         run_thr=athlete.get("run_threshold_pace", "?"),
         css=athlete.get("css_per_100m", "?"),
         b_text=b_text,
-        nutrition_mix=n.get("mix", ""),
         carbs=n.get("carbs_per_hour_g", 90),
         salt=n.get("salt_per_hour", 1),
         heat_thr=heat_thr,
         fluid_heat=n.get("fluid_heat_per_hour_ml", 750),
         salt_heat=n.get("salt_heat_per_hour", 2),
-        swim_min=swim_min,
     )
 
 
@@ -261,7 +259,7 @@ def call_claude(system: str, user_msg: str) -> dict:
         raise HTTPException(500, "ANTHROPIC_API_KEY nicht gesetzt")
     c = anthropic.Anthropic(api_key=key)
     msg = c.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-haiku-4-5-20251001",
         max_tokens=1500,
         system=system,
         messages=[{"role": "user", "content": user_msg}],
@@ -646,15 +644,6 @@ async def check_abend(request: Request):
     muskelkater = data.get("muskelkater") or ["keine"]
     tomorrow = (date.today() + timedelta(days=1)).strftime("%d.%m.%Y")
 
-    # Hourly rain peaks for Claude context
-    hourly = weather.get("hourly", [])
-    peak_rain = [h for h in hourly if h.get("rain", 0) >= 30]
-    rain_hourly_line = ""
-    if peak_rain:
-        rain_hourly_line = "\n- Regenspitzen: " + " | ".join(
-            f"{h['hour']:02d}:00 {h['rain']}%" for h in peak_rain[:4]
-        )
-
     # Optional TP workouts context (pre-loaded by user in form)
     tp_ctx = ""
     tp_workouts_data = data.get("tp_workouts")
@@ -662,19 +651,26 @@ async def check_abend(request: Request):
         tp_ctx = "\n" + T["prompt_tp_ctx"].format(data=json.dumps(tp_workouts_data, ensure_ascii=False))
 
     heat_thr = athlete.get("nutrition", {}).get("heat_threshold_celsius", 25)
-    thunderstorm_val = T["prompt_weather_thunderstorm"] if weather.get("is_thunderstorm") else T["prompt_weather_no"]
-    heat_val = T["prompt_weather_heat"] if weather.get("is_hot") else T["prompt_weather_no"]
     wasser_line = ""
     if data.get("wasser_temp"):
-        wasser_line = "\n- " + T["prompt_wasser"].format(temp=data["wasser_temp"])
-    rain_line = ""
-    if peak_rain:
-        rain_line = "\n- " + T["prompt_rain_peaks"].format(
-            peaks=" | ".join(f"{h['hour']:02d}:00 {h['rain']}%" for h in peak_rain[:4])
-        )
+        wasser_line = f", Wassertemp {data['wasser_temp']}°C"
+
+    weather_flags = []
+    if weather.get("is_thunderstorm"):
+        weather_flags.append("Gewitter")
+    elif weather.get("is_rain"):
+        weather_flags.append("Regen")
+    if weather.get("is_hot"):
+        weather_flags.append(f"Hitze >{heat_thr}°C")
+    weather_summary = (
+        f"{weather.get('description', '?')}, "
+        f"{weather.get('temp_min', '?')}–{weather.get('temp_max', '?')}°C, "
+        f"Regen {weather.get('rain_prob', 0)}%"
+        + (f" [{', '.join(weather_flags)}]" if weather_flags else "")
+        + wasser_line
+    )
 
     header = T["prompt_abend_header"].format(date=tomorrow)
-    weather_label = T["prompt_weather_label"].format(city=athlete["location"]["name"])
     units_str = ", ".join(einheiten) if einheiten else T["prompt_abend_units_empty"]
 
     user_msg = (
@@ -685,12 +681,7 @@ async def check_abend(request: Request):
         f"- Müdigkeit: {data.get('muedigkeit', 1)}/5\n"
         f"- Muskelkater: {', '.join(muskelkater)}\n"
         f"- Symptome: {data.get('symptome', 'keine')}\n\n"
-        f"{weather_label}\n"
-        f"- {weather.get('description', 'unbekannt')}, {weather.get('temp_min', '?')}–{weather.get('temp_max', '?')}°C\n"
-        f"- Regenrisiko: {weather.get('rain_prob', 0)}%{rain_line}\n"
-        f"- Gewitter: {thunderstorm_val}\n"
-        f"- {T['prompt_heat_alarm'].format(threshold=heat_thr, val=heat_val)}"
-        f"{wasser_line}{tp_ctx}\n\n"
+        f"Wetter morgen: {weather_summary}{tp_ctx}\n\n"
         f"{T['prompt_abend_units'].format(units=units_str)}"
     )
 
