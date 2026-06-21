@@ -1673,29 +1673,16 @@ async function applyToTP() {
       `${T.tp_applying}</span>`;
   }
 
-  const activeWeather = currentResultType === 'morgen' ? weatherToday : (currentResult?.weather || weatherTomorrow);
-  const formDataForTP = {
-    ...(currentFormData || {}),
-    wetter_temp: activeWeather?.temp_max ?? '-',
-  };
-
   try {
-    // For each loaded TP workout: look up badge from Claude recommendation
+    // Kein Sport-Matching — tpWorkouts[i] bekommt sportarten[i].badge (gleiche Reihenfolge)
     const sportarten = currentResult.sportarten || [];
-    console.log('applyToTP tpWorkouts:', JSON.stringify(tpWorkouts));
-    const operations = [];
-    for (const w of tpWorkouts) {
+    const operations = tpWorkouts.reduce((acc, w, i) => {
       const wid = w.id ?? w.workoutId ?? w.workout_id ?? w.Id ?? w.ID ?? null;
-      if (!wid) { console.warn('applyToTP: no id in workout', JSON.stringify(w)); continue; }
-      const ws = (w.sport || '').toLowerCase();
-      const rec = sportarten.find(s => {
-        const ss = (s.sport || '').toLowerCase();
-        return ss === ws || ws.includes(ss) || ss.includes(ws);
-      });
-      const badge = rec?.badge || 'GO';
-      if (badge === 'GO') continue;
-      operations.push({ workout_id: String(wid), orig_title: w.title || w.sport || '', badge });
-    }
+      if (!wid) { console.warn('applyToTP: no id in workout', JSON.stringify(w)); return acc; }
+      const badge = sportarten[i]?.badge || 'GO';
+      if (badge !== 'GO') acc.push({ workout_id: String(wid), orig_title: w.title || w.sport || '', badge });
+      return acc;
+    }, []);
     console.log('applyToTP operations:', JSON.stringify(operations));
     const r = await fetch('/api/tp/apply', {
       method: 'POST',
