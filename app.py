@@ -314,8 +314,8 @@ def call_claude_tp_mcp(user_content: str) -> str:
     return ""
 
 
-async def call_tp_mcp(tool_name: str, arguments: dict) -> dict:
-    url = os.environ.get("TP_MCP_URL", "")
+async def call_tp_mcp(tool_name: str, arguments: dict):
+    url = os.environ["TP_MCP_URL"]
     payload = {
         "jsonrpc": "2.0",
         "method": "tools/call",
@@ -328,21 +328,21 @@ async def call_tp_mcp(tool_name: str, arguments: dict) -> dict:
     }
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(url, json=payload, headers=headers)
-        text = response.text
-        logger.info("call_tp_mcp %s args=%s status=%s raw=%r",
-                    tool_name, json.dumps(arguments)[:200],
-                    response.status_code, text[:500])
-        if not text.strip():
-            raise ValueError(f"call_tp_mcp: empty response (HTTP {response.status_code})")
-        if text.lstrip().startswith("data:"):
-            # SSE stream — pick first non-empty data line
-            for line in text.splitlines():
-                line = line.strip()
-                if line.startswith("data:"):
-                    payload_str = line[5:].strip()
-                    if payload_str:
-                        return json.loads(payload_str)
-            raise ValueError("call_tp_mcp: SSE stream contained no data line")
+        logger.info("tp_mcp status: %d raw: %r", response.status_code, response.text[:500])
+        text = response.text.strip()
+        if not text:
+            raise ValueError("Empty response from TP MCP")
+        # SSE Format: mehrere Zeilen mit "data: {...}"
+        for line in text.splitlines():
+            if line.startswith("data:"):
+                data = line[5:].strip()
+                if data:
+                    result = json.loads(data)
+                    if "result" in result:
+                        content = result["result"].get("content", [])
+                        if content:
+                            return json.loads(content[0]["text"])
+        # Plain JSON
         return json.loads(text)
 
 
