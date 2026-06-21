@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#1D9E75">
+<link rel="manifest" href="/manifest.json">
 <title>KI Coach</title>
 <style>
 :root {
@@ -410,6 +412,80 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
   transition: border-color .15s, color .15s;
 }
 .btn-back:active { border-color: var(--green); color: var(--green); }
+
+/* ── rain timeline ────────────────────────────────────────────────────────── */
+.rain-wrap {
+  display: flex;
+  gap: 2px;
+  align-items: flex-end;
+  height: 44px;
+  margin: 8px 0 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.rain-wrap::-webkit-scrollbar { display: none; }
+.rain-col {
+  flex: 1;
+  min-width: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+}
+.rain-fill { width: 100%; border-radius: 2px 2px 0 0; min-height: 2px; }
+.rain-lbl { font-size: 8px; color: var(--muted2); margin-top: 2px; line-height: 1; }
+
+/* ── TP section ───────────────────────────────────────────────────────────── */
+.btn-tp {
+  width: 100%;
+  padding: 11px;
+  background: transparent;
+  border: 1px solid rgba(29,158,117,.35);
+  border-radius: 10px;
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s;
+  text-align: center;
+  margin-top: 6px;
+}
+.btn-tp:active { background: rgba(29,158,117,.1); }
+.btn-tp:disabled { opacity: 0.4; cursor: default; }
+.btn-tp-pre {
+  width: 100%;
+  padding: 11px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color .15s, color .15s;
+  text-align: center;
+}
+.btn-tp-pre:active { border-color: var(--green); color: var(--green); }
+.btn-tp-pre:disabled { opacity: 0.4; }
+.tp-workout-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.tp-workout-item:last-child { border-bottom: none; }
+.tp-sport-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(29,158,117,.15);
+  color: var(--green);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 </style>
 </head>
 <body>
@@ -521,6 +597,16 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
           <button type="button" class="pill" data-group="einheiten-abend" data-value="Lauf">Lauf</button>
           <button type="button" class="pill" data-group="einheiten-abend" data-value="STABI">STABI</button>
         </div>
+      </div>
+
+      <!-- TP Workouts preload -->
+      <div class="form-section">
+        <div class="field-label" style="margin-bottom:10px">
+          <span>TrainingPeaks</span>
+          <span style="font-size:12px;color:var(--muted)">optional</span>
+        </div>
+        <button type="button" class="btn-tp-pre" id="btn-tp-preload" onclick="preloadTPWorkouts()">→ Workouts für morgen laden</button>
+        <div id="tp-preload-result" style="display:none;margin-top:8px"></div>
       </div>
 
       <!-- Wassertemperatur (hidden unless Schwimmen selected) -->
@@ -638,6 +724,9 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 'use strict';
 
 let athlete = null;
+let currentResult = null;
+let tpWorkouts = [];
+let preloadedTPWorkouts = [];
 
 // ── init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
@@ -803,6 +892,7 @@ async function submitAbend(e) {
     symptome:           getRadio('symptome-abend'),
     geplante_einheiten: getMulti('einheiten-abend'),
     wasser_temp:        document.getElementById('wasser-temp')?.value || null,
+    tp_workouts:        preloadedTPWorkouts.length ? preloadedTPWorkouts : undefined,
   };
   try {
     const r = await fetch('/api/check-abend', {
@@ -850,6 +940,8 @@ async function submitMorgen(e) {
 
 // ── result rendering ──────────────────────────────────────────────────────────
 function showResult(data, formData, type) {
+  currentResult = data;
+  tpWorkouts = [];
   const section = document.getElementById('result-section');
   section.innerHTML = buildResult(data, formData, type);
   section.style.display = 'block';
@@ -905,6 +997,7 @@ function buildResult(data, fd, type) {
         ${w.is_thunderstorm ? `<span class="weather-thunder">⚡ Gewitter</span>` : ''}
         ${w.is_hot ? `<span class="weather-rain" style="color:var(--red)">Hitze</span>` : ''}
       </div>
+      ${w.hourly?.length ? buildRainTimeline(w.hourly) : ''}
       ${data.wetter_hinweis ? `<p class="card-hint">${esc(data.wetter_hinweis)}</p>` : ''}
     </div>`;
   } else if (data.wetter_hinweis) {
@@ -948,6 +1041,16 @@ function buildResult(data, fd, type) {
     h += `<div class="card-section prep-section"><p class="prep-text">"${esc(data.prep)}"</p></div>`;
   }
 
+  // TrainingPeaks section (Abend-Check only — tomorrow's workouts)
+  if (type === 'abend') {
+    h += `<div class="card-section">
+      <div class="section-lbl">TrainingPeaks</div>
+      <div id="tp-result-list" style="display:none"></div>
+      <button class="btn-tp" id="btn-tp-load" onclick="loadTPWorkouts()">→ TP Workouts laden</button>
+      <button class="btn-tp" id="btn-tp-apply" onclick="applyToTP()" style="display:none">→ Empfehlung in TP anwenden</button>
+    </div>`;
+  }
+
   h += `</div>`; // .dark-card
   h += `<button class="btn-back" onclick="backToForm()">← Zurück zum Formular</button>`;
   return h;
@@ -956,7 +1059,110 @@ function buildResult(data, fd, type) {
 function backToForm() {
   document.getElementById('result-section').style.display = 'none';
   document.getElementById('form-section').style.display = 'block';
+  currentResult = null;
+  tpWorkouts = [];
   window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ── rain timeline ─────────────────────────────────────────────────────────────
+function buildRainTimeline(hourly) {
+  if (!hourly || !hourly.length) return '';
+  const bars = hourly.map(h => {
+    const p = h.rain || 0;
+    const col = p >= 60 ? '#E24B4A' : p >= 30 ? '#EF9F27' : p >= 10 ? '#4d8fa8' : '#2a2a3a';
+    const px = Math.max(Math.round(p * 0.38), 2);
+    return `<div class="rain-col"><div class="rain-fill" style="height:${px}px;background:${col}"></div><span class="rain-lbl">${h.hour}</span></div>`;
+  }).join('');
+  return `<div class="rain-wrap">${bars}</div>`;
+}
+
+// ── TrainingPeaks ─────────────────────────────────────────────────────────────
+async function preloadTPWorkouts() {
+  const btn = document.getElementById('btn-tp-preload');
+  const res = document.getElementById('tp-preload-result');
+  if (btn) { btn.disabled = true; btn.textContent = 'Laden…'; }
+  try {
+    const r = await fetch('/api/tp/workouts');
+    const data = await r.json();
+    if (!data.available) {
+      res.innerHTML = '<p style="color:var(--muted);font-size:12px">TP nicht konfiguriert (TP_MCP_URL fehlt)</p>';
+    } else if (!data.workouts?.length) {
+      res.innerHTML = '<p style="color:var(--muted);font-size:12px">Keine Workouts in TP für morgen</p>';
+    } else {
+      preloadedTPWorkouts = data.workouts;
+      res.innerHTML = data.workouts.map(w =>
+        `<div class="tp-workout-item">
+          <span class="tp-sport-badge">${esc(w.sport || '?')}</span>
+          <span style="font-size:12px">${esc(w.title || w.sport || '?')}${w.duration_min ? ` · ${w.duration_min}min` : ''}</span>
+        </div>`
+      ).join('');
+      // Auto-select matching Einheiten pills
+      preloadedTPWorkouts.forEach(w => {
+        const pill = document.querySelector(`[data-group="einheiten-abend"][data-value="${w.sport}"]`);
+        if (pill && !pill.classList.contains('active')) pill.click();
+      });
+    }
+    res.style.display = 'block';
+    if (btn) { btn.disabled = false; btn.textContent = '↺ Neu laden'; }
+  } catch(err) {
+    if (res) { res.innerHTML = `<p style="color:var(--red);font-size:12px">${esc(err.message)}</p>`; res.style.display = 'block'; }
+    if (btn) { btn.disabled = false; btn.textContent = '→ Workouts für morgen laden'; }
+  }
+}
+
+async function loadTPWorkouts() {
+  const btn = document.getElementById('btn-tp-load');
+  const list = document.getElementById('tp-result-list');
+  if (btn) { btn.disabled = true; btn.textContent = 'Laden…'; }
+  try {
+    const r = await fetch('/api/tp/workouts');
+    const data = await r.json();
+    if (!data.available) {
+      if (list) list.innerHTML = '<p style="color:var(--muted);font-size:13px">TP nicht konfiguriert</p>';
+    } else if (!data.workouts?.length) {
+      if (list) list.innerHTML = '<p style="color:var(--muted);font-size:13px">Keine Workouts geplant</p>';
+    } else {
+      tpWorkouts = data.workouts;
+      if (list) {
+        list.innerHTML = data.workouts.map(w =>
+          `<div class="tp-workout-item">
+            <span class="tp-sport-badge">${esc(w.sport || '?')}</span>
+            <span>${esc(w.title || w.sport || '?')}${w.duration_min ? ` · ${w.duration_min}min` : ''}${w.tss ? ` · ${w.tss} TSS` : ''}</span>
+          </div>`
+        ).join('');
+        const applyBtn = document.getElementById('btn-tp-apply');
+        if (applyBtn) applyBtn.style.display = 'block';
+      }
+    }
+    if (list) list.style.display = 'block';
+    if (btn) { btn.disabled = false; btn.textContent = '↺ Neu laden'; }
+  } catch(err) {
+    if (list) { list.innerHTML = `<p style="color:var(--red);font-size:13px">${esc(err.message)}</p>`; list.style.display = 'block'; }
+    if (btn) { btn.disabled = false; btn.textContent = '→ TP Workouts laden'; }
+  }
+}
+
+async function applyToTP() {
+  if (!currentResult || !tpWorkouts.length) return;
+  const btn = document.getElementById('btn-tp-apply');
+  if (btn) { btn.disabled = true; btn.textContent = 'Anpassen…'; }
+  try {
+    const r = await fetch('/api/tp/apply', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ workouts: tpWorkouts, recommendation: currentResult }),
+    });
+    if (!r.ok) { const t = await r.text(); throw new Error(t); }
+    const data = await r.json();
+    const list = document.getElementById('tp-result-list');
+    if (list && data.message) {
+      list.innerHTML += `<div style="margin-top:10px;font-size:12px;color:var(--green);line-height:1.6;white-space:pre-wrap">${esc(data.message)}</div>`;
+    }
+    if (btn) { btn.textContent = '✓ Angepasst'; }
+  } catch(err) {
+    if (btn) { btn.disabled = false; btn.textContent = '→ Empfehlung in TP anwenden'; }
+    showError(err.message || String(err));
+  }
 }
 
 // ── utils ─────────────────────────────────────────────────────────────────────

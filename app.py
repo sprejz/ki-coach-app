@@ -9,7 +9,7 @@ from typing import Optional, List
 
 import httpx
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import anthropic
 
@@ -77,6 +77,26 @@ def parse_weather(raw: dict) -> dict:
     }
 
 
+def parse_hourly(raw: dict) -> list:
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    hourly = raw.get("hourly", {})
+    times = hourly.get("time", [])
+    rain_probs = hourly.get("precipitation_probability", [])
+    temps = hourly.get("temperature_2m", [])
+    result = []
+    for i, t in enumerate(times):
+        if not t.startswith(tomorrow):
+            continue
+        hour = int(t[11:13])
+        if 6 <= hour <= 20:
+            result.append({
+                "hour": hour,
+                "rain": rain_probs[i] if i < len(rain_probs) else 0,
+                "temp": round(temps[i], 1) if i < len(temps) and temps[i] is not None else None,
+            })
+    return result
+
+
 async def fetch_weather(athlete: dict) -> dict:
     lat = athlete["location"]["lat"]
     lon = athlete["location"]["lon"]
@@ -84,12 +104,16 @@ async def fetch_weather(athlete: dict) -> dict:
         f"https://api.open-meteo.com/v1/forecast"
         f"?latitude={lat}&longitude={lon}"
         f"&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode"
+        f"&hourly=precipitation_probability,temperature_2m"
         f"&timezone=Europe/Berlin&forecast_days=2"
     )
     async with httpx.AsyncClient(timeout=10) as client:
         r = await client.get(url)
         r.raise_for_status()
-        return parse_weather(r.json())
+        raw = r.json()
+    result = parse_weather(raw)
+    result["hourly"] = parse_hourly(raw)
+    return result
 
 
 # ── AutoSleep CSV ─────────────────────────────────────────────────────────────
@@ -240,11 +264,47 @@ def call_claude(system: str, user_msg: str) -> dict:
     return json.loads(raw)
 
 
+def call_claude_tp_mcp(user_content: str) -> str:
+    tp_url = os.environ.get("TP_MCP_URL", "")
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not key:
+        raise HTTPException(500, "ANTHROPIC_API_KEY nicht gesetzt")
+    c = anthropic.Anthropic(api_key=key)
+    msg = c.beta.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=2000,
+        betas=["mcp-client-2025-11-20"],
+        mcp_servers=[{"type": "url", "url": tp_url, "name": "trainingpeaks"}],
+        tools=[{"type": "mcp_toolset", "mcp_server_name": "trainingpeaks"}],
+        messages=[{"role": "user", "content": user_content}],
+    )
+    for block in msg.content:
+        if hasattr(block, "text") and block.text:
+            return block.text
+    return ""
+
+
 # ── routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse(request=request, name="index.html")
+
+
+@app.get("/manifest.json")
+async def manifest_json():
+    return JSONResponse(
+        {
+            "name": "KI Coach",
+            "short_name": "KI Coach",
+            "description": "Triathlon Tagescoaching",
+            "start_url": "/",
+            "display": "standalone",
+            "background_color": "#0f0f13",
+            "theme_color": "#1D9E75",
+        },
+        media_type="application/manifest+json",
+    )
 
 
 @app.get("/api/athlete")
@@ -300,6 +360,63 @@ async def calc_baseline(files: List[UploadFile] = File(...)):
     return baseline
 
 
+@app.get("/api/tp/workouts")
+async def tp_workouts():
+    tp_url = os.environ.get("TP_MCP_URL", "")
+    if not tp_url:
+        return {"available": False, "workouts": [], "date": None}
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    athlete = load_athlete()
+    prompt = (
+        f"List all planned workouts for {athlete.get('name', 'the athlete')} on {tomorrow} from TrainingPeaks. "
+        f"Respond ONLY with a valid JSON array. Example: "
+        f'[{{"id":"123","sport":"Rad","title":"Z2 Ausdauer","duration_min":90,"tss":65,"description":"60-70% FTP"}}]'
+    )
+    try:
+        raw = call_claude_tp_mcp(prompt)
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+        workouts = json.loads(raw)
+        return {"available": True, "workouts": workouts, "date": tomorrow}
+    except json.JSONDecodeError:
+        return {"available": True, "workouts": [], "date": tomorrow, "raw": raw[:300]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post("/api/tp/apply")
+async def tp_apply(request: Request):
+    tp_url = os.environ.get("TP_MCP_URL", "")
+    if not tp_url:
+        raise HTTPException(400, "TP_MCP_URL nicht konfiguriert")
+    body = await request.json()
+    workouts = body.get("workouts", [])
+    recommendation = body.get("recommendation", {})
+    athlete = load_athlete()
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    prompt = (
+        f"Apply the KI Coach recommendation to TrainingPeaks workouts "
+        f"for {athlete.get('name', 'the athlete')} on {tomorrow}.\n\n"
+        f"Current TP workouts: {json.dumps(workouts, ensure_ascii=False)}\n\n"
+        f"KI Recommendation: {json.dumps(recommendation, ensure_ascii=False)}\n\n"
+        f"Rules: SKIP → add note 'KI: SKIP' and mark optional; "
+        f"MOD → update title with '(KI)' suffix + add details as note; "
+        f"GO → add prep text as note; "
+        f"Zwift indoor → rename title to 'Zwift (KI)' + note 'wegen Wetter indoor'.\n\n"
+        f"Apply these changes and confirm each action taken."
+    )
+    try:
+        result = call_claude_tp_mcp(prompt)
+        return {"ok": True, "message": result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
 @app.post("/api/check-abend")
 async def check_abend(request: Request):
     data = await request.json()
@@ -314,6 +431,7 @@ async def check_abend(request: Request):
             "temp_max": None, "temp_min": None,
             "rain_prob": 0, "is_thunderstorm": False,
             "is_rain": False, "is_hot": False,
+            "hourly": [],
             "error": str(e),
         }
 
@@ -321,6 +439,24 @@ async def check_abend(request: Request):
     einheiten = data.get("geplante_einheiten", [])
     muskelkater = data.get("muskelkater") or ["keine"]
     tomorrow = (date.today() + timedelta(days=1)).strftime("%d.%m.%Y")
+
+    # Hourly rain peaks for Claude context
+    hourly = weather.get("hourly", [])
+    peak_rain = [h for h in hourly if h.get("rain", 0) >= 30]
+    rain_hourly_line = ""
+    if peak_rain:
+        rain_hourly_line = "\n- Regenspitzen: " + " | ".join(
+            f"{h['hour']:02d}:00 {h['rain']}%" for h in peak_rain[:4]
+        )
+
+    # Optional TP workouts context (pre-loaded by user in form)
+    tp_ctx = ""
+    tp_workouts_data = data.get("tp_workouts")
+    if tp_workouts_data:
+        tp_ctx = (
+            f"\nTrainingPeaks geplante Workouts morgen: "
+            f"{json.dumps(tp_workouts_data, ensure_ascii=False)}"
+        )
 
     user_msg = f"""Abend-Check — Plan für morgen ({tomorrow}):
 
@@ -334,10 +470,10 @@ Fragebogen:
 
 Wetter morgen in {athlete['location']['name']}:
 - {weather.get('description', 'unbekannt')}, {weather.get('temp_min', '?')}–{weather.get('temp_max', '?')}°C
-- Regenrisiko: {weather.get('rain_prob', 0)}%
+- Regenrisiko: {weather.get('rain_prob', 0)}%{rain_hourly_line}
 - Gewitter: {'JA' if weather.get('is_thunderstorm') else 'nein'}
 - Hitzealarm (>{athlete.get('nutrition', {}).get('heat_threshold_celsius', 25)}°C): {'JA' if weather.get('is_hot') else 'nein'}
-{f"- Wassertemperatur Freibad: {data['wasser_temp']}°C" if data.get('wasser_temp') else ''}
+{f"- Wassertemperatur Freibad: {data['wasser_temp']}°C" if data.get('wasser_temp') else ''}{tp_ctx}
 
 Geplante Einheiten morgen: {', '.join(einheiten) if einheiten else 'noch nicht festgelegt — bitte empfehlen'}"""
 
