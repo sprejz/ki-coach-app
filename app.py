@@ -17,7 +17,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.4.31"
+APP_VERSION = "2.4.32"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -227,18 +227,8 @@ def nutrition_for_duration(duration_min: Optional[int], nutrition: dict) -> str:
     return ""
 
 
-def build_pain_rules(pt: dict) -> str:
-    k  = pt.get("knee", {})
-    a  = pt.get("achilles", {})
-    km = k.get("mod_low", 3)
-    ks = k.get("stop", 7)
-    am = a.get("mod_low", 4)
-    as_ = a.get("stop", 6)
-    return (
-        f"KNIE: 0–{km-1}→GO · {km}–{ks-3}→MOD(Distanz+Intensität↓,kein Tempo) · "
-        f"{ks-2}–{ks-1}→MOD(max 30min Z1,Rad/Aqua) · ≥{ks}→STOP\n"
-        f"ACHILLES L/R: 0–{am-1}→GO · {am}–{as_-1}→MOD(Distanz↓,kein Tempo,weich) · ≥{as_}→STOP"
-    )
+def build_pain_rules(_pt: dict) -> str:
+    return ""
 
 
 def build_system_prompt(athlete: dict, baseline: Optional[dict]) -> str:
