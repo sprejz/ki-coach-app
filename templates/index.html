@@ -1546,15 +1546,16 @@ async function refreshAll() {
 
 // ── render helpers ────────────────────────────────────────────────────────────
 function weatherIcon(code) {
-  if (code >= 95) return '⛈️';
-  if (code >= 80) return '🌧️';
-  if (code >= 71) return '🌨️';
-  if (code >= 61) return '🌧️';
-  if (code >= 51) return '🌦️';
-  if (code >= 45) return '🌫️';
-  if (code === 3)  return '☁️';
-  if (code === 2)  return '⛅';
-  if (code === 1)  return '🌤️';
+  const c = Number(code) || 0;
+  if (c >= 95) return '⛈️';
+  if (c >= 80) return '🌧️';
+  if (c >= 71) return '🌨️';
+  if (c >= 61) return '🌧️';
+  if (c >= 51) return '🌦️';
+  if (c >= 45) return '🌫️';
+  if (c === 3)  return '☁️';
+  if (c === 2)  return '⛅';
+  if (c === 1)  return '🌤️';
   return '☀️';
 }
 function rainBadge(prob) {
