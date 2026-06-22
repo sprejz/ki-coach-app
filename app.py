@@ -135,7 +135,7 @@ async def fetch_weather(athlete: dict, day: int = 1) -> dict:
     url = (
         f"https://api.open-meteo.com/v1/forecast"
         f"?latitude={lat}&longitude={lon}"
-        f"&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode"
+        f"&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code"
         f"&hourly=precipitation_probability,temperature_2m"
         f"&timezone=Europe/Berlin&forecast_days=2"
     )
