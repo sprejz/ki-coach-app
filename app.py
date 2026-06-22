@@ -17,7 +17,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.4.13"
+APP_VERSION = "2.4.14"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -617,9 +617,9 @@ async def tp_apply(request: Request):
                     pass
 
             create_args: dict = {
-                "title":        new_title,
-                "sport_type":   sport,
-                "planned_date": target_date,
+                "title":  new_title,
+                "sport":  sport,
+                "date":   target_date,
             }
             if description:
                 create_args["description"] = description
