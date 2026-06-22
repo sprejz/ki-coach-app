@@ -194,21 +194,15 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 .mud-btn[data-value="4"].active,
 .mud-btn[data-value="5"].active { background: rgba(239,159,39,.15); border-color: var(--orange); color: var(--orange); }
 
-/* ── Läufer-Animation (Workout-Analyse) ───────────────────────────────────── */
-.runner-anim { text-align:center; padding:20px 0 16px; }
-.runner-icon { font-size:28px; display:inline-block;
-  animation: runBounce 0.38s ease-in-out infinite alternate; }
-@keyframes runBounce {
-  from { transform: translateY(0px) rotate(-6deg) scaleY(1); }
-  to   { transform: translateY(-8px) rotate(6deg) scaleY(0.93); }
-}
-.runner-track { width:110px; height:2px; background:rgba(29,158,117,.15);
-  border-radius:1px; margin:8px auto 0; overflow:hidden; position:relative; }
-.runner-track::after { content:''; position:absolute; top:0; left:-35%; width:35%; height:100%;
-  background:#1D9E75; border-radius:1px;
-  animation: trackGlide 1.4s ease-in-out infinite; }
-@keyframes trackGlide { 0%{left:-35%} 100%{left:135%} }
-.runner-label { font-size:12px; color:var(--muted); margin-top:10px; line-height:1.5; }
+/* ── Analyse-Ladeindikator (drei Punkte) ─────────────────────────────────── */
+.analyse-loading { display:flex; flex-direction:column; align-items:center; gap:12px; padding:20px 0; }
+.analyse-dots { display:flex; gap:6px; }
+.analyse-dots span { width:8px; height:8px; border-radius:50%; background:#1D9E75; opacity:.25;
+  animation: dotPulse 1.2s ease-in-out infinite; }
+.analyse-dots span:nth-child(2) { animation-delay:.2s; }
+.analyse-dots span:nth-child(3) { animation-delay:.4s; }
+@keyframes dotPulse { 0%,80%,100%{opacity:.25;transform:scale(1)} 40%{opacity:1;transform:scale(1.25)} }
+.analyse-loading-label { font-size:12px; color:var(--muted); text-align:center; line-height:1.6; }
 
 /* pill groups */
 .pill-group {
@@ -2252,10 +2246,9 @@ async function analyzeWorkout(idx, workoutId, sport, title, workoutDate) {
   const resultDiv = document.getElementById(`analyse-result-${idx}`);
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
   if (resultDiv) resultDiv.innerHTML = `
-    <div class="runner-anim">
-      <span class="runner-icon">🏃</span>
-      <div class="runner-track"></div>
-      <p class="runner-label">Coach lädt Trainingsdaten aus TP…<br><span style="font-size:11px;opacity:.7">Kann 2–5 Min dauern</span></p>
+    <div class="analyse-loading">
+      <div class="analyse-dots"><span></span><span></span><span></span></div>
+      <p class="analyse-loading-label">Trainingsdaten werden aus TP geladen…<br><span style="font-size:11px;opacity:.6">Dauert 2–5 Min</span></p>
     </div>`;
   try {
     const fd = new FormData();
@@ -2276,31 +2269,26 @@ async function analyzeWorkout(idx, workoutId, sport, title, workoutDate) {
 
 function renderAnalysisCard(data) {
   const BEW = {
-    gut:                  { color: '#1D9E75', bg: 'rgba(29,158,117,.12)', label: 'Gut' },
-    ok:                   { color: '#EF9F27', bg: 'rgba(239,159,39,.12)', label: 'OK' },
-    verbesserungsbedarf:  { color: '#E24B4A', bg: 'rgba(226,75,74,.12)',  label: 'Verbesserungsbedarf' },
+    gut:                 { color: '#1D9E75', bg: 'rgba(29,158,117,.12)', label: 'Gut' },
+    ok:                  { color: '#EF9F27', bg: 'rgba(239,159,39,.12)', label: 'OK' },
+    verbesserungsbedarf: { color: '#E24B4A', bg: 'rgba(226,75,74,.12)',  label: 'Verbesserungsbedarf' },
   };
   const b = BEW[data.bewertung] || BEW.ok;
-  const rows = [
-    ['Zusammenfassung',  data.zusammenfassung],
-    ['Stärken',          data.staerken],
-    ['Schwächen',        data.schwaechen],
-    ['Physiologie',      data.physiologie],
-    ['Malbork-Relevanz', data.malbork_relevanz],
-    ['Empfehlung',       data.empfehlung],
-  ];
+  // Support both old format (zusammenfassung etc.) and new format (urteil + naechster_schritt)
+  const urteil = data.urteil || data.zusammenfassung || '';
+  const next   = data.naechster_schritt || data.empfehlung || '';
   return `
     <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:14px;margin-top:6px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <span style="font-size:11px;font-weight:600;color:var(--muted2);text-transform:uppercase;letter-spacing:.06em">Coach-Analyse</span>
-        <span style="font-size:11px;font-weight:700;color:${b.color};background:${b.bg};padding:2px 9px;border-radius:4px">${b.label}</span>
+        <span style="font-size:11px;font-weight:600;color:var(--muted2);text-transform:uppercase;letter-spacing:.06em">Coach-Urteil</span>
+        <span style="font-size:12px;font-weight:700;color:${b.color};background:${b.bg};padding:3px 10px;border-radius:4px">${b.label}</span>
       </div>
-      ${rows.filter(([,t]) => t).map(([label, text]) => `
-        <div style="margin-bottom:10px">
-          <div style="font-size:10px;font-weight:700;color:var(--muted2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px">${label}</div>
-          <div style="font-size:13px;color:var(--text);line-height:1.5">${esc(text)}</div>
-        </div>
-      `).join('')}
+      ${urteil ? `<p style="font-size:13px;color:var(--text);line-height:1.55;margin-bottom:${next ? '12px' : '0'}">${esc(urteil)}</p>` : ''}
+      ${next ? `
+        <div style="border-top:1px solid rgba(255,255,255,.06);padding-top:10px">
+          <div style="font-size:10px;font-weight:700;color:var(--muted2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Nächster Schritt</div>
+          <p style="font-size:13px;color:var(--text);line-height:1.5;margin:0">${esc(next)}</p>
+        </div>` : ''}
     </div>`;
 }
 

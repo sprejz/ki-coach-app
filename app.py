@@ -948,30 +948,15 @@ async def workout_analyze(
     if not key:
         raise HTTPException(500, T["err_api_key_missing"])
 
+    if not tp_url:
+        raise HTTPException(400, T["err_tp_url_missing"])
+
     athlete = load_athlete()
     a_race = next((r for r in athlete.get("races", []) if r.get("type") == "A"), {})
     target_date = workout_date or date.today().isoformat()
 
-    # Step 1 — Claude+MCP holt Ist-Daten direkt aus TP
-    workout_raw = f"Sport: {sport}, Titel: {title}, Datum: {target_date}"
-    if tp_url:
-        fetch_prompt = T["tp_completed_prompt"].format(
-            name=athlete.get("name", "the athlete"),
-            date=target_date,
-            workout_id=workout_id or "unbekannt",
-            sport=sport or "unbekannt",
-            title=title or sport,
-        )
-        try:
-            raw_tp = call_claude_tp_mcp(fetch_prompt)
-            if raw_tp and len(raw_tp.strip()) > 20:
-                workout_raw = raw_tp
-                logger.info("workout_analyze: TP data fetched (%d chars)", len(raw_tp))
-        except Exception as e:
-            logger.warning("workout_analyze: TP fetch failed: %s", e)
-
-    # Step 2 — Coach-Analyse (plain Claude, kein MCP)
-    analysis_prompt = T["coach_analysis_prompt"].format(
+    # Einziger Call: Claude+MCP holt TP-Daten UND analysiert direkt
+    prompt = T["coach_analysis_prompt"].format(
         name=athlete.get("name", "Hendrik"),
         ftp=athlete.get("ftp_watt", 286),
         run_threshold=athlete.get("run_threshold_pace", "5:20"),
@@ -980,16 +965,26 @@ async def workout_analyze(
         race_date=a_race.get("date", "2026-09-06"),
         race_goal=a_race.get("goal_total", "10:50"),
         weight=athlete.get("weight_kg", 84),
-        workout_data=workout_raw,
+        workout_id=workout_id or "unbekannt",
+        sport=sport or "unbekannt",
+        title=title or sport,
+        date=target_date,
     )
-    c = anthropic.Anthropic(api_key=key)
-    msg = c.messages.create(
+    c = anthropic.Anthropic(api_key=key, http_client=_tp_http)
+    msg = c.beta.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=1500,
-        system="Du bist ein erfahrener Triathlon-Coach. Antworte ausschließlich mit gültigem JSON, ohne Markdown.",
-        messages=[{"role": "user", "content": analysis_prompt}],
+        max_tokens=800,
+        betas=["mcp-client-2025-11-20"],
+        mcp_servers=[{"type": "url", "url": tp_url, "name": "trainingpeaks"}],
+        tools=[{"type": "mcp_toolset", "mcp_server_name": "trainingpeaks"}],
+        system="Du bist ein erfahrener Triathlon-Coach. Antworte ausschließlich mit gültigem JSON ohne Markdown.",
+        messages=[{"role": "user", "content": prompt}],
     )
-    raw = msg.content[0].text.strip()
+    raw = ""
+    for block in msg.content:
+        if hasattr(block, "text") and block.text:
+            raw = block.text.strip()
+            break
     if raw.startswith("```"):
         lines = raw.split("\n")
         raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
@@ -1000,6 +995,6 @@ async def workout_analyze(
         if m:
             result = json.loads(m.group())
         else:
-            raise HTTPException(500, f"Ungültiges JSON von Claude: {raw[:200]}")
+            raise HTTPException(500, f"Ungültiges JSON: {raw[:200]}")
     logger.info("workout_analyze ok: bewertung=%s", result.get("bewertung"))
     return JSONResponse(result, headers=_NO_CACHE)
