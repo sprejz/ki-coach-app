@@ -5,6 +5,8 @@ import csv
 import io
 import logging
 import statistics
+import uuid
+import threading
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional, List
@@ -17,7 +19,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.0"
+APP_VERSION = "2.6.5"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -35,6 +37,9 @@ _tp_http_long = httpx.Client(
     timeout=httpx.Timeout(360.0),   # 6 Min für Workout-Analyse
     limits=httpx.Limits(max_connections=5, max_keepalive_connections=3),
 )
+
+# In-memory Job-Store für Workout-Analysen
+_analysis_jobs: dict = {}  # job_id -> {"status":"pending"|"done"|"error", "result":{}, "error":"..."}
 ATHLETE_FILE = BASE_DIR / "athlete.json"
 BASELINE_FILE = BASE_DIR / "baseline.json"
 SLEEP_HISTORY_FILE = BASE_DIR / "sleep_history.json"
@@ -939,6 +944,40 @@ async def tp_workouts_history(days: int = 5):
         return JSONResponse({"available": False, "days": [], "error": str(e)[:200]}, headers=_NO_CACHE)
 
 
+def _run_analysis_job(job_id: str, tp_url: str, key: str, prompt: str):
+    """Läuft in eigenem Thread — kein Timeout durch Railway/Browser."""
+    import re as _re
+    try:
+        c = anthropic.Anthropic(api_key=key, http_client=_tp_http_long)
+        msg = c.beta.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=800,
+            betas=["mcp-client-2025-11-20"],
+            mcp_servers=[{"type": "url", "url": tp_url, "name": "trainingpeaks"}],
+            tools=[{"type": "mcp_toolset", "mcp_server_name": "trainingpeaks"}],
+            system="Du bist ein erfahrener Triathlon-Coach. Antworte ausschließlich mit gültigem JSON ohne Markdown.",
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = ""
+        for block in msg.content:
+            if hasattr(block, "text") and block.text:
+                raw = block.text.strip()
+                break
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+        try:
+            result = json.loads(raw)
+        except json.JSONDecodeError:
+            m = _re.search(r'\{.*\}', raw, _re.DOTALL)
+            result = json.loads(m.group()) if m else {"bewertung": "ok", "urteil": raw[:400], "naechster_schritt": ""}
+        logger.info("analysis job %s done: bewertung=%s", job_id, result.get("bewertung"))
+        _analysis_jobs[job_id] = {"status": "done", "result": result}
+    except Exception as e:
+        logger.error("analysis job %s error: %s", job_id, e)
+        _analysis_jobs[job_id] = {"status": "error", "error": str(e)[:300]}
+
+
 @app.post("/api/workout/analyze")
 async def workout_analyze(
     workout_id: str = Form(""),
@@ -946,12 +985,10 @@ async def workout_analyze(
     title: str = Form(""),
     workout_date: str = Form(""),
 ):
-    import re as _re
     tp_url = os.environ.get("TP_MCP_URL", "")
     key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not key:
         raise HTTPException(500, T["err_api_key_missing"])
-
     if not tp_url:
         raise HTTPException(400, T["err_tp_url_missing"])
 
@@ -959,7 +996,6 @@ async def workout_analyze(
     a_race = next((r for r in athlete.get("races", []) if r.get("type") == "A"), {})
     target_date = workout_date or date.today().isoformat()
 
-    # Einziger Call: Claude+MCP holt TP-Daten UND analysiert direkt
     prompt = T["coach_analysis_prompt"].format(
         name=athlete.get("name", "Hendrik"),
         ftp=athlete.get("ftp_watt", 286),
@@ -974,31 +1010,17 @@ async def workout_analyze(
         title=title or sport,
         date=target_date,
     )
-    c = anthropic.Anthropic(api_key=key, http_client=_tp_http_long)
-    msg = c.beta.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=800,
-        betas=["mcp-client-2025-11-20"],
-        mcp_servers=[{"type": "url", "url": tp_url, "name": "trainingpeaks"}],
-        tools=[{"type": "mcp_toolset", "mcp_server_name": "trainingpeaks"}],
-        system="Du bist ein erfahrener Triathlon-Coach. Antworte ausschließlich mit gültigem JSON ohne Markdown.",
-        messages=[{"role": "user", "content": prompt}],
-    )
-    raw = ""
-    for block in msg.content:
-        if hasattr(block, "text") and block.text:
-            raw = block.text.strip()
-            break
-    if raw.startswith("```"):
-        lines = raw.split("\n")
-        raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-    try:
-        result = json.loads(raw)
-    except json.JSONDecodeError:
-        m = _re.search(r'\{.*\}', raw, _re.DOTALL)
-        if m:
-            result = json.loads(m.group())
-        else:
-            raise HTTPException(500, f"Ungültiges JSON: {raw[:200]}")
-    logger.info("workout_analyze ok: bewertung=%s", result.get("bewertung"))
-    return JSONResponse(result, headers=_NO_CACHE)
+    job_id = uuid.uuid4().hex[:10]
+    _analysis_jobs[job_id] = {"status": "pending"}
+    t = threading.Thread(target=_run_analysis_job, args=(job_id, tp_url, key, prompt), daemon=True)
+    t.start()
+    logger.info("analysis job %s started for %s on %s", job_id, title, target_date)
+    return JSONResponse({"job_id": job_id}, headers=_NO_CACHE)
+
+
+@app.get("/api/workout/analyze/{job_id}")
+async def workout_analyze_status(job_id: str):
+    job = _analysis_jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job nicht gefunden")
+    return JSONResponse(job, headers=_NO_CACHE)
