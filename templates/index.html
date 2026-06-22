@@ -1536,6 +1536,7 @@ function buildResult(data, fd, type) {
           <span class="sport-name">${esc(s.sport)}</span>
         </div>
         ${s.details ? `<p class="sport-details">${esc(s.details)}</p>` : ''}
+        ${s.beschreibung ? `<pre style="font-size:11px;color:var(--muted);line-height:1.55;margin:4px 0 2px;white-space:pre-wrap;font-family:inherit">${esc(s.beschreibung)}</pre>` : ''}
         ${s.ernaehrung ? `<p class="sport-ernaehrung">🍎 ${esc(s.ernaehrung)}</p>` : ''}
       </div>`;
     });
@@ -2492,7 +2493,7 @@ async function applyToTP() {
         orig_title:   w.title || w.sport || '',
         badge,
         sport:        w.sport || '',
-        description:  sportarten[i]?.details || '',
+        description:  sportarten[i]?.beschreibung || sportarten[i]?.details || '',
         reason:       badge === 'MOD' ? buildModReason(currentFormData) : '',
         duration_min: w.duration_min || null,
         tss:          w.tss || null,

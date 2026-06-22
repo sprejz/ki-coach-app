@@ -190,8 +190,17 @@ TRANSLATIONS = {
             "Stelle keine Fragen an den Athleten. "
             "Wenn mehrere Optionen möglich sind, wähle die konservativere. "
             "Bei MOD: konkrete Anpassung nennen (Distanz, Zone, Alternative), nicht beide Optionen.\n\n"
+            "WORKOUT-BESCHREIBUNG für TrainingPeaks (Feld 'beschreibung'):\n"
+            "Schreibe die vollständige Workout-Struktur als kurze Stichpunkte — NUR was der Athlet tun soll:\n"
+            "- Aufwärmen: X min Z1\n"
+            "- Hauptteil: z.B. 3×10min @ Schwelle (5:15/km), 3min Trabpause ODER 60min Z2 @ 220-240W\n"
+            "- Auslaufen: X min Z1\n"
+            "Keine Begründungen, kein Wetter, keine Erklärungen — nur die Workout-Schritte. Max 5 Zeilen.\n\n"
             "Antworte NUR als JSON (kein Markdown):\n"
-            '{{"status":"green","status_text":"Alles grün","sportarten":[{{"sport":"Schwimmen","badge":"GO","details":"...","ernaehrung":"..."}}],"autosleep_summary":null,"wetter_hinweis":"...","prep":"..."}}'
+            '{{"status":"green","status_text":"Alles grün","sportarten":[{{"sport":"Schwimmen","badge":"GO",'
+            '"details":"1-2 Sätze Coach-Hinweis für den Athleten (Besonderheiten, Wetter-Tipp)",'
+            '"beschreibung":"Aufwärmen: 10min Z1\\n- Hauptteil: ...\\n- Auslaufen: 10min Z1",'
+            '"ernaehrung":"..."}}],"autosleep_summary":null,"wetter_hinweis":"...","prep":"..."}}'
         ),
         "prompt_system_baseline": (
             "\nBaseline ({nights} Nächte, Stand {updated}):"
@@ -467,8 +476,17 @@ TRANSLATIONS = {
             "Never ask the athlete questions. "
             "When multiple options are possible, choose the more conservative one. "
             "For MOD: name the concrete adjustment (distance, zone, alternative), do not list both options.\n\n"
+            "WORKOUT DESCRIPTION for TrainingPeaks (field 'beschreibung'):\n"
+            "Write the complete workout structure as short bullet points — ONLY what the athlete should do:\n"
+            "- Warm-up: X min Z1\n"
+            "- Main set: e.g. 3×10min @ threshold (5:15/km), 3min jog recovery OR 60min Z2 @ 220-240W\n"
+            "- Cool-down: X min Z1\n"
+            "No reasoning, no weather, no explanations — only workout steps. Max 5 lines.\n\n"
             "Respond ONLY as JSON (no markdown):\n"
-            '{{"status":"green","status_text":"All clear","sportarten":[{{"sport":"Schwimmen","badge":"GO","details":"...","ernaehrung":"..."}}],"autosleep_summary":null,"wetter_hinweis":"...","prep":"..."}}'
+            '{{"status":"green","status_text":"All clear","sportarten":[{{"sport":"Swimming","badge":"GO",'
+            '"details":"1-2 sentences coach hint for athlete (special notes, weather tip)",'
+            '"beschreibung":"Warm-up: 10min Z1\\n- Main set: ...\\n- Cool-down: 10min Z1",'
+            '"ernaehrung":"..."}}],"autosleep_summary":null,"wetter_hinweis":"...","prep":"..."}}'
         ),
         "prompt_system_baseline": (
             "\nBaseline ({nights} nights, as of {updated}):"
