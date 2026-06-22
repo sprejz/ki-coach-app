@@ -1157,6 +1157,7 @@ async function submitAbend(e) {
     geplante_einheiten: tpWorkoutsAbend.map(w => w.sport).filter(Boolean),
     wasser_temp:        document.getElementById('wasser-temp')?.value || null,
     tp_workouts:        tpWorkoutsAbend.length ? tpWorkoutsAbend : undefined,
+    weather_data:       weatherTomorrow ? JSON.stringify(weatherTomorrow) : undefined,
   };
   currentFormData = {
     knie:        body.knie,
@@ -1192,6 +1193,7 @@ async function submitMorgen(e) {
   formData.append('achilles_r',          document.getElementById('achilles-r-morgen').value);
   formData.append('symptome',            getRadio('symptome-morgen'));
   formData.append('geplante_einheiten',  tpWorkoutsMorgen.map(w => w.sport).join(','));
+  if (weatherToday) formData.append('weather_data', JSON.stringify(weatherToday));
   const csvFile = document.getElementById('csv-upload')?.files[0];
   if (csvFile) formData.append('csv_file', csvFile);
   currentFormData = {
@@ -1647,15 +1649,66 @@ function renderMorgenTP(data) {
   if (wasserRow) wasserRow.style.display = hasSwim ? 'block' : 'none';
 }
 
+// ── Wetter direkt im Browser von Open-Meteo laden (Railway kann es nicht) ────
+const _WMO_DESC = {
+  0:'Sonnig',1:'Meist klar',2:'Teils bewölkt',3:'Bedeckt',
+  45:'Nebel',48:'Nebel',
+  51:'Leichter Niesel',53:'Nieselregen',55:'Starker Niesel',
+  61:'Leichter Regen',63:'Regen',65:'Starker Regen',
+  71:'Leichter Schnee',73:'Schnee',75:'Starker Schnee',
+  80:'Leichte Schauer',81:'Schauer',82:'Starke Schauer',
+  95:'Gewitter',96:'Gewitter + Hagel',99:'Schweres Gewitter',
+};
+function parseWeatherRaw(raw, idx) {
+  const daily = raw.daily || {};
+  const times = daily.time || [];
+  if (idx >= times.length) return null;
+  const wc = (daily.weather_code || daily.weathercode || [])[idx] || 0;
+  const tempMax = (daily.temperature_2m_max || [])[idx] ?? null;
+  const tempMin = (daily.temperature_2m_min || [])[idx] ?? null;
+  const rainProb = (daily.precipitation_probability_max || [])[idx] || 0;
+  const datum = times[idx] || '';
+  const hTimes = (raw.hourly || {}).time || [];
+  const hRain  = (raw.hourly || {}).precipitation_probability || [];
+  const hTemp  = (raw.hourly || {}).temperature_2m || [];
+  const hourly = [];
+  hTimes.forEach((t, i) => {
+    if (!t.startsWith(datum)) return;
+    const hour = parseInt(t.substring(11, 13));
+    if (hour >= 6 && hour <= 20) {
+      hourly.push({ hour, rain: hRain[i] || 0, temp: hTemp[i] != null ? Math.round(hTemp[i]*10)/10 : null });
+    }
+  });
+  return {
+    datum, code: wc,
+    description: _WMO_DESC[wc] || ('Code '+wc),
+    temp_max: tempMax, temp_min: tempMin, rain_prob: rainProb,
+    is_thunderstorm: [95,96,99].includes(wc),
+    is_rain: [51,53,55,61,63,65,80,81,82].includes(wc) || rainProb > 60,
+    is_hot: tempMax != null && tempMax > 25,
+    hourly,
+  };
+}
+async function fetchWeatherDirect(dayOffset) {
+  const lat = athlete?.location?.lat || 52.30;
+  const lon = athlete?.location?.lon || 13.25;
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code&hourly=precipitation_probability,temperature_2m&timezone=Europe/Berlin&forecast_days=2`;
+  try {
+    const r = await fetch(url, {cache:'no-store'});
+    if (!r.ok) return null;
+    return parseWeatherRaw(await r.json(), dayOffset);
+  } catch(e) { return null; }
+}
+
 // ── startup: alle 4 parallel mit cache:'no-store' ────────────────────────────
 async function loadStartupData() {
   const t = Date.now();
   const okJson = r => r.ok ? r.json() : null;
   const results = await Promise.allSettled([
-    fetch('/api/weather?day=tomorrow&t='+t,          {cache:'no-store'}).then(okJson),
-    fetch('/api/weather?day=today&t='+t,             {cache:'no-store'}).then(okJson),
-    fetch('/api/tp/workouts?day=tomorrow&t='+t,      {cache:'no-store'}).then(okJson),
-    fetch('/api/tp/workouts?day=today&t='+t,         {cache:'no-store'}).then(okJson),
+    fetchWeatherDirect(1),
+    fetchWeatherDirect(0),
+    fetch('/api/tp/workouts?day=tomorrow&t='+t, {cache:'no-store'}).then(okJson),
+    fetch('/api/tp/workouts?day=today&t='+t,    {cache:'no-store'}).then(okJson),
   ]);
   const val = r => r.status === 'fulfilled' ? r.value : null;
   renderAbendWeather(val(results[0]));

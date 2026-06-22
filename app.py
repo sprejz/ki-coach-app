@@ -17,7 +17,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.4.28"
+APP_VERSION = "2.4.29"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -713,17 +713,24 @@ async def check_abend(request: Request):
     athlete = load_athlete()
     baseline = load_baseline()
 
-    try:
-        weather = await fetch_weather(athlete)
-    except Exception as e:
-        weather = {
-            "description": T["err_weather_na"],
-            "temp_max": None, "temp_min": None,
-            "rain_prob": 0, "is_thunderstorm": False,
-            "is_rain": False, "is_hot": False,
-            "hourly": [],
-            "error": str(e),
-        }
+    weather = None
+    if data.get("weather_data"):
+        try:
+            weather = json.loads(data["weather_data"]) if isinstance(data["weather_data"], str) else data["weather_data"]
+        except Exception:
+            pass
+    if not weather:
+        try:
+            weather = await fetch_weather(athlete)
+        except Exception as e:
+            logger.warning("check-abend: Wetter nicht verfügbar: %s", e)
+            weather = {
+                "description": T["err_weather_na"],
+                "temp_max": None, "temp_min": None,
+                "rain_prob": 0, "is_thunderstorm": False,
+                "is_rain": False, "is_hot": False,
+                "hourly": [],
+            }
 
     system = build_system_prompt(athlete, baseline)
     einheiten = data.get("geplante_einheiten", [])
@@ -789,6 +796,7 @@ async def check_morgen(
     waden: str = Form("0"),
     symptome: str = Form("keine"),
     geplante_einheiten: str = Form(""),
+    weather_data: str = Form(""),
     csv_file: Optional[UploadFile] = File(None),
 ):
     athlete = load_athlete()
@@ -796,10 +804,16 @@ async def check_morgen(
     system = build_system_prompt(athlete, baseline)
 
     weather = None
-    try:
-        weather = await fetch_weather(athlete, day=0)
-    except Exception as e:
-        logger.warning("check-morgen: Wetter nicht verfügbar: %s", e)
+    if weather_data:
+        try:
+            weather = json.loads(weather_data)
+        except Exception:
+            pass
+    if not weather:
+        try:
+            weather = await fetch_weather(athlete, day=0)
+        except Exception as e:
+            logger.warning("check-morgen: Wetter nicht verfügbar: %s", e)
 
     sleep_text = ""
     sleep_result = None
