@@ -90,12 +90,12 @@ body {
 }
 .tab-btn {
   flex: 1;
-  padding: 10px 4px;
+  padding: 10px 2px;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius) var(--radius) 0 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   cursor: pointer;
   transition: background .15s, color .15s;
@@ -771,6 +771,7 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 <div class="tabs">
   <button class="tab-btn active" data-tab="abend">{{ T.tab_abend }}</button>
   <button class="tab-btn" data-tab="morgen">{{ T.tab_morgen }}</button>
+  <button class="tab-btn" data-tab="analyse">{{ T.tab_analyse }}</button>
   <button class="tab-btn" data-tab="erholung">{{ T.tab_erholung }}</button>
   <button class="tab-btn" data-tab="einstellungen">{{ T.tab_profil }}</button>
 </div>
@@ -1007,15 +1008,17 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
   </div>
 
   <!-- Erholung -->
+  <!-- Analyse Tab -->
+  <div class="tab-panel" data-panel="analyse">
+    <div class="form-card" id="abend-analyse-section" style="border-top:none;border-radius:0 0 var(--radius) var(--radius)">
+      <p style="color:var(--muted);font-size:13px">{{ T.loading }}</p>
+    </div>
+  </div>
+
+  <!-- Erholung Tab -->
   <div class="tab-panel" data-panel="erholung">
     <div class="form-card" id="erholung-card" style="border-top:none;border-radius:0 0 var(--radius) var(--radius)">
       <p style="color:var(--muted);font-size:13px">{{ T.loading }}</p>
-    </div>
-    <div id="abend-analyse-section" style="display:none;margin-top:12px">
-      <div class="form-card">
-        <p class="section-title" style="margin-bottom:12px">Heutige Einheiten analysieren</p>
-        <div id="abend-analyse-list"></div>
-      </div>
     </div>
   </div>
 
@@ -1234,6 +1237,7 @@ function initTabs() {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.dataset.panel === tab));
       if (tab === 'erholung' && !erholungLoaded) loadErholung();
+      if (tab === 'analyse') renderAnalyseSection();
     });
   });
 }
@@ -1726,7 +1730,6 @@ async function loadErholung() {
   } catch(e) {
     card.innerHTML = `<p style="color:var(--red);font-size:13px">${esc(e.message)}</p>`;
   }
-  renderAnalyseSection();
 }
 
 function markerStatus(key, value, baseline) {
@@ -2161,18 +2164,18 @@ function renderMorgenTP(data) {
   const hasSwim = data.workouts.some(w => w.sport?.toLowerCase().includes('schwimm'));
   const wasserRow = document.getElementById('wasser-row-morgen');
   if (wasserRow) wasserRow.style.display = hasSwim ? 'block' : 'none';
-  renderAnalyseSection();
 }
 
 // ── Workout-Analyse ───────────────────────────────────────────────────────────
 function renderAnalyseSection() {
   const section = document.getElementById('abend-analyse-section');
-  const list    = document.getElementById('abend-analyse-list');
-  if (!section || !list || !tpWorkoutsMorgen.length) {
-    if (section) section.style.display = 'none';
+  if (!section) return;
+  if (!tpWorkoutsMorgen.length) {
+    section.innerHTML = `<p style="color:var(--muted);font-size:13px">Keine Workouts geladen — TP wird beim Start synchronisiert.</p>`;
     return;
   }
-  section.style.display = 'block';
+  section.innerHTML = `<p class="section-title" style="margin-bottom:12px">Heutige Einheiten analysieren</p><div id="abend-analyse-list"></div>`;
+  const list = document.getElementById('abend-analyse-list');
   list.innerHTML = tpWorkoutsMorgen.map((w, i) => `
     <div id="analyse-item-${i}" style="margin-bottom:10px">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">

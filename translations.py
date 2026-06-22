@@ -16,6 +16,7 @@ TRANSLATIONS = {
         # Tabs
         "tab_abend":         "Abend",
         "tab_morgen":        "Morgen",
+        "tab_analyse":       "Analyse",
         "tab_erholung":      "Erholung",
         "tab_profil":        "Profil",
         # Section titles
@@ -289,6 +290,7 @@ TRANSLATIONS = {
         # Tabs
         "tab_abend":         "Evening",
         "tab_morgen":        "Morning",
+        "tab_analyse":       "Analysis",
         "tab_erholung":      "Recovery",
         "tab_profil":        "Profile",
         # Section titles
