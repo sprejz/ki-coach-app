@@ -17,7 +17,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.4.14"
+APP_VERSION = "2.4.15"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -214,6 +214,21 @@ def flag_sleep(data: dict, baseline: Optional[dict]) -> dict:
 
 
 # ── Claude system prompt ──────────────────────────────────────────────────────
+
+def nutrition_for_duration(duration_min: Optional[int], nutrition: dict) -> str:
+    if not duration_min:
+        return ""
+    for rule in nutrition.get("rules", []):
+        lo = rule.get("duration_min_min", 0)
+        hi = rule.get("duration_max_min")
+        if duration_min >= lo and (hi is None or duration_min < hi):
+            parts = []
+            if rule.get("before"):  parts.append(f"Vorher: {rule['before']}")
+            if rule.get("during"):  parts.append(f"Während: {rule['during']}")
+            if rule.get("after"):   parts.append(f"Nachher: {rule['after']}")
+            return " | ".join(parts)
+    return ""
+
 
 def build_pain_rules(pt: dict) -> str:
     k  = pt.get("knee", {})
@@ -561,6 +576,7 @@ async def tp_apply(request: Request):
     day         = body.get("day", "tomorrow")
     day_offset  = 0 if day == "today" else 1
     target_date = (date.today() + timedelta(days=day_offset)).isoformat()
+    athlete     = load_athlete()
 
     logger.info("tp_apply: %d operations for %s", len(operations), target_date)
     actions = []
@@ -601,11 +617,12 @@ async def tp_apply(request: Request):
                 continue
 
             # Step 2: create new adjusted workout
-            new_title   = T["tp_mod_new_title"].format(title=base_title)
-            sport       = op.get("sport", "")
-            description = op.get("description", "")
-            orig_dur    = op.get("duration_min")
-            orig_tss    = op.get("tss")
+            new_title  = T["tp_mod_new_title"].format(title=base_title)
+            sport      = op.get("sport", "")
+            coach_rec  = op.get("description", "")
+            reason     = op.get("reason", "")
+            orig_dur   = op.get("duration_min")
+            orig_tss   = op.get("tss")
 
             new_duration = new_tss = None
             if orig_dur:
@@ -616,13 +633,23 @@ async def tp_apply(request: Request):
                 except (TypeError, ValueError):
                     pass
 
+            # Structured description — no old workout notes
+            desc_parts: list = []
+            if reason:
+                desc_parts.append(f"Angepasst wegen: {reason}")
+            if coach_rec:
+                desc_parts.append(coach_rec)
+            nutr = nutrition_for_duration(new_duration, athlete.get("nutrition", {}))
+            if nutr:
+                desc_parts.append(f"ERNÄHRUNG: {nutr}")
+
             create_args: dict = {
-                "title":  new_title,
-                "sport":  sport,
-                "date":   target_date,
+                "title": new_title,
+                "sport": sport,
+                "date":  target_date,
             }
-            if description:
-                create_args["description"] = description
+            if desc_parts:
+                create_args["description"] = "\n\n".join(desc_parts)
             if new_duration is not None:
                 create_args["duration_min"] = new_duration
             if new_tss is not None:

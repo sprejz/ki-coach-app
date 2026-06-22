@@ -1697,6 +1697,7 @@ async function applyToTP() {
         badge,
         sport:        w.sport || '',
         description:  sportarten[i]?.details || '',
+        reason:       badge === 'MOD' ? buildModReason(currentFormData) : '',
         duration_min: w.duration_min || null,
         tss:          w.tss || null,
       });
@@ -1777,6 +1778,23 @@ async function applyToTP() {
       btn.textContent = T.btn_tp_apply;
     }
   }
+}
+
+// ── mod reason ────────────────────────────────────────────────────────────────
+function buildModReason(fd) {
+  if (!fd) return 'KI-Anpassung';
+  const pt   = athlete?.pain_thresholds || {};
+  const knieMod = pt.knee?.mod_low     ?? 3;
+  const achMod  = pt.achilles?.mod_low ?? 4;
+  const parts = [];
+  if ((fd.knie       || 0) >= knieMod) parts.push(`Knie ${fd.knie}/10`);
+  if ((fd.achilles_l || 0) >= achMod)  parts.push(`Achilles L ${fd.achilles_l}/10`);
+  if ((fd.achilles_r || 0) >= achMod)  parts.push(`Achilles R ${fd.achilles_r}/10`);
+  if ((fd.waden      || 0) >= 4)       parts.push(`Waden ${fd.waden}/10`);
+  if ((fd.muedigkeit || 0) >= 4)       parts.push(`Müdigkeit ${fd.muedigkeit}/5`);
+  const sym = fd.symptome || '';
+  if (sym && sym !== 'keine' && sym !== 'besser') parts.push(sym);
+  return parts.length ? parts.join(', ') : 'KI-Anpassung';
 }
 
 // ── api fetch (cache bypass) ──────────────────────────────────────────────────
