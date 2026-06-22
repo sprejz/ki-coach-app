@@ -31,6 +31,10 @@ _tp_http = httpx.Client(
     timeout=httpx.Timeout(15.0),
     limits=httpx.Limits(max_connections=5, max_keepalive_connections=3),
 )
+_tp_http_long = httpx.Client(
+    timeout=httpx.Timeout(360.0),   # 6 Min für Workout-Analyse
+    limits=httpx.Limits(max_connections=5, max_keepalive_connections=3),
+)
 ATHLETE_FILE = BASE_DIR / "athlete.json"
 BASELINE_FILE = BASE_DIR / "baseline.json"
 SLEEP_HISTORY_FILE = BASE_DIR / "sleep_history.json"
@@ -970,7 +974,7 @@ async def workout_analyze(
         title=title or sport,
         date=target_date,
     )
-    c = anthropic.Anthropic(api_key=key, http_client=_tp_http)
+    c = anthropic.Anthropic(api_key=key, http_client=_tp_http_long)
     msg = c.beta.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=800,
