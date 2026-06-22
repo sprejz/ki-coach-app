@@ -852,12 +852,16 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
       </div>
 
       <!-- TP Workouts morgen (auto-geladen) -->
-      <div class="form-section" id="abend-tp-section" style="display:none">
+      <div class="form-section" id="abend-tp-section">
         <div class="field-label" style="margin-bottom:8px">
           <span>{{ T.lbl_tp_tomorrow }}</span>
-          <span style="font-size:12px;color:var(--muted)" id="abend-tp-date"></span>
+          <span id="abend-tp-loading" style="display:flex;align-items:center;gap:5px">
+            <div class="spinner" style="width:14px;height:14px;border-width:2px"></div>
+            <span style="color:var(--muted);font-size:12px">{{ T.lbl_tp_loading }}</span>
+          </span>
+          <span style="font-size:12px;color:var(--muted);display:none" id="abend-tp-date"></span>
         </div>
-        <div id="abend-tp-content"><p style="color:var(--muted);font-size:13px">{{ T.tp_loading_text }}</p></div>
+        <div id="abend-tp-content"></div>
       </div>
 
       <!-- Wassertemperatur (hidden unless Schwimmen in TP) -->
@@ -1934,10 +1938,12 @@ async function refreshAll() {
   try { localStorage.removeItem('wx_0'); localStorage.removeItem('wx_1'); } catch {}
 
   // Reset Abend TP UI
-  const abendSection = document.getElementById('abend-tp-section');
   const abendContent = document.getElementById('abend-tp-content');
-  if (abendSection) abendSection.style.display = 'none';
-  if (abendContent) abendContent.innerHTML = '<p style="color:var(--muted);font-size:13px">Wird geladen…</p>';
+  const abendTPLoad  = document.getElementById('abend-tp-loading');
+  const abendTPDate  = document.getElementById('abend-tp-date');
+  if (abendContent) abendContent.innerHTML = '';
+  if (abendTPLoad)  abendTPLoad.style.display  = 'flex';
+  if (abendTPDate)  abendTPDate.style.display  = 'none';
 
   // Reset Abend weather UI
   const abendCtx = document.getElementById('abend-context');
@@ -2037,11 +2043,15 @@ function renderMorgenWeather(w) {
 }
 
 function renderAbendTP(data) {
-  const section = document.getElementById('abend-tp-section');
-  const content = document.getElementById('abend-tp-content');
-  const dateEl  = document.getElementById('abend-tp-date');
-  if (!data?.available) return;
-  if (section) section.style.display = 'block';
+  const content  = document.getElementById('abend-tp-content');
+  const loadEl   = document.getElementById('abend-tp-loading');
+  const dateEl   = document.getElementById('abend-tp-date');
+  if (loadEl) loadEl.style.display = 'none';
+  if (dateEl) dateEl.style.display = 'block';
+  if (!data?.available) {
+    if (content) content.innerHTML = `<p style="color:var(--muted2);font-size:12px">${T.tp_no_cfg}</p>`;
+    return;
+  }
   if (dateEl && data.date) dateEl.textContent = fmtDate(data.date);
   if (!data.workouts?.length) {
     if (content) content.innerHTML = `<p style="color:var(--muted);font-size:12px">${T.tp_no_w_tomorrow}</p>`;
@@ -2049,7 +2059,6 @@ function renderAbendTP(data) {
   }
   tpWorkoutsAbend = data.workouts;
   if (content) content.innerHTML = data.workouts.map(_tpItemHtml).join('');
-  // Show water temp field if Schwimmen is in workouts
   const hasSwim = data.workouts.some(w => w.sport?.toLowerCase().includes('schwimm'));
   const wasserRow = document.getElementById('wasser-row');
   if (wasserRow) wasserRow.style.display = hasSwim ? 'block' : 'none';
@@ -2137,19 +2146,19 @@ function setWeatherCache(dayOffset, data) {
   try { localStorage.setItem('wx_' + dayOffset, JSON.stringify({ ts: Date.now(), data })); } catch {}
 }
 
-// ── Startup: Phase 1 schnell, Phase 2 TP mit sichtbarem Status ───────────────
+// ── Startup: Phase 1 schnell → Splash weg, TP läuft inline weiter ───────────
 async function loadStartupData() {
   const t = Date.now();
   const okJson = r => r.ok ? r.json() : null;
   erholungLoaded = false;
 
-  // Wetter sofort aus Cache — user sieht es ohne Warten
+  // Wetter sofort aus Cache zeigen
   const cTomorrow = getWeatherCache(1);
   const cToday    = getWeatherCache(0);
   if (cTomorrow) renderAbendWeather(cTomorrow);
   if (cToday)    renderMorgenWeather(cToday);
 
-  // Phase 1 — Wetter + Schlafdaten (schnell, <1s)
+  // Phase 1 — Wetter + Schlafdaten + Baseline (<1s)
   setSplashStatus(T.loading_weather);
   const fast = await Promise.allSettled([
     fetchWeatherDirect(1),
@@ -2168,14 +2177,21 @@ async function loadStartupData() {
   const erholungPanel = document.querySelector('[data-panel="erholung"]');
   if (erholungPanel?.classList.contains('active')) loadErholung();
 
-  // Phase 2 — TP Workouts (langsam wenn TP konfiguriert, aber Splash zeigt Status)
-  setSplashStatus(T.loading_workouts);
-  const slow = await Promise.allSettled([
-    fetch('/api/tp/workouts?day=tomorrow&t='+t, {cache:'no-store'}).then(okJson),
-    fetch('/api/tp/workouts?day=today&t='+t,    {cache:'no-store'}).then(okJson),
-  ]);
-  renderAbendTP(val(slow[0]));
-  renderMorgenTP(val(slow[1]));
+  // Phase 2 — TP Workouts im Hintergrund; Spinner schon sichtbar in den Forms
+  _loadTPWorkouts(t);
+}
+
+function _loadTPWorkouts(t) {
+  const ts = t || Date.now();
+  const okJson = r => r.ok ? r.json() : null;
+  Promise.allSettled([
+    fetch('/api/tp/workouts?day=tomorrow&t='+ts, {cache:'no-store'}).then(okJson),
+    fetch('/api/tp/workouts?day=today&t='+ts,    {cache:'no-store'}).then(okJson),
+  ]).then(results => {
+    const val = r => r.status === 'fulfilled' ? r.value : null;
+    renderAbendTP(val(results[0]));
+    renderMorgenTP(val(results[1]));
+  });
 }
 
 async function loadTPWorkouts() {
