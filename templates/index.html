@@ -1268,11 +1268,12 @@ function buildResult(data, fd, type) {
     h += `<div class="card-section"><div class="section-lbl">Schlaf</div><p class="card-hint">${esc(data.autosleep_summary)}</p></div>`;
   }
 
-  // Weather (Abend)
-  const w = data.weather;
+  // Weather
+  const w = data.weather || (type === 'morgen' ? weatherToday : null);
+  const wLbl = type === 'morgen' ? `Wetter heute — ${esc(athlete?.location?.name || '')}` : `Wetter morgen — ${esc(athlete?.location?.name || '')}`;
   if (w) {
     h += `<div class="card-section">
-      <div class="section-lbl">Wetter morgen — ${esc(athlete?.location?.name || '')}</div>
+      <div class="section-lbl">${wLbl}</div>
       ${_weatherHtml(w)}
       ${data.wetter_hinweis ? `<p class="card-hint" style="margin-top:4px">${esc(data.wetter_hinweis)}</p>` : ''}
     </div>`;
