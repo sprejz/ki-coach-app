@@ -808,6 +808,7 @@ async def check_morgen(
     achilles_l: str = Form("0"),
     achilles_r: str = Form("0"),
     waden: str = Form("0"),
+    muedigkeit: str = Form("1"),
     symptome: str = Form("keine"),
     geplante_einheiten: str = Form(""),
     weather_data: str = Form(""),
@@ -884,6 +885,7 @@ AutoSleep (letzte Nacht):
         f"- Knie: {knie}/10\n"
         f"- Achillessehne L: {achilles_l}/10\n"
         f"- Achillessehne R: {achilles_r}/10\n"
+        f"- Müdigkeit: {muedigkeit}/5\n"
         f"- Symptome: {symptome}"
         f"{sleep_text}\n\n"
         f"Wetter heute: {weather_summary}\n\n"
@@ -901,6 +903,36 @@ AutoSleep (letzte Nacht):
         raise HTTPException(500, T["err_claude_json"].format(e=e))
     except Exception as e:
         raise HTTPException(500, str(e))
+
+
+@app.get("/api/tp/workouts/history")
+async def tp_workouts_history(days: int = 5):
+    tp_url = os.environ.get("TP_MCP_URL", "")
+    if not tp_url:
+        return JSONResponse({"available": False, "days": []}, headers=_NO_CACHE)
+    athlete = load_athlete()
+    today = date.today()
+    start = (today - timedelta(days=days - 1)).isoformat()
+    end = today.isoformat()
+    prompt = T["tp_history_prompt"].format(
+        name=athlete.get("name", "the athlete"),
+        start=start,
+        end=end,
+    )
+    try:
+        raw = call_claude_tp_mcp(prompt)
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+        result = json.loads(raw)
+        logger.info("tp_workouts_history ok: %d days", len(result))
+        return JSONResponse({"available": True, "days": result}, headers=_NO_CACHE)
+    except json.JSONDecodeError:
+        logger.error("tp_workouts_history JSON error, raw=%s", raw[:300])
+        return JSONResponse({"available": True, "days": [], "raw": raw[:300]}, headers=_NO_CACHE)
+    except Exception as e:
+        logger.error("tp_workouts_history error: %s", e)
+        return JSONResponse({"available": False, "days": [], "error": str(e)[:200]}, headers=_NO_CACHE)
 
 
 @app.post("/api/workout/analyze")

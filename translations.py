@@ -232,6 +232,12 @@ TRANSLATIONS = {
             "Antworte NUR mit einem gültigen JSON-Array. Beispiel: "
             '[{{"id":"123","sport":"Rad","title":"Z2 Ausdauer","duration_min":90,"tss":65,"description":"60-70% FTP"}}]'
         ),
+        "tp_history_prompt": (
+            "Liste alle Workouts (geplant und abgeschlossen) für {name} vom {start} bis {end} aus TrainingPeaks. "
+            "Gruppiere nach Datum. Antworte NUR mit einem gültigen JSON-Array. Beispiel: "
+            '[{{"date":"2026-06-20","workouts":[{{"id":"123","sport":"Rad","title":"Z2 Ausdauer","duration_min":90,"tss":65}}]}}] '
+            "Nur Tage mit Workouts einbeziehen. Älteste Tage zuerst."
+        ),
         "tp_completed_prompt": (
             "Hole die tatsächlich ausgeführten Ist-Daten für das Workout von {name} am {date}. "
             "Workout-ID (geplant): {workout_id}. Sport: {sport}. "
@@ -505,6 +511,12 @@ TRANSLATIONS = {
             "List all planned workouts for {name} on {date} from TrainingPeaks. "
             "Respond ONLY with a valid JSON array. Example: "
             '[{{"id":"123","sport":"Rad","title":"Z2 Endurance","duration_min":90,"tss":65,"description":"60-70% FTP"}}]'
+        ),
+        "tp_history_prompt": (
+            "List all workouts (planned and completed) for {name} from {start} to {end} from TrainingPeaks. "
+            "Group by date. Respond ONLY with a valid JSON array. Example: "
+            '[{{"date":"2026-06-20","workouts":[{{"id":"123","sport":"Rad","title":"Z2 Endurance","duration_min":90,"tss":65}}]}}] '
+            "Only include days that have workouts. Oldest date first."
         ),
         "tp_completed_prompt": (
             "Get the actual completed execution data for {name}'s workout on {date}. "

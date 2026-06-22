@@ -953,6 +953,21 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
         </div>
       </div>
 
+      <!-- Müdigkeit -->
+      <div class="form-section">
+        <div class="field-label" style="margin-bottom:12px">
+          <span>{{ T.lbl_muedigkeit }}</span>
+          <span style="font-size:12px;color:var(--muted)">{{ T.lbl_mud_hint }}</span>
+        </div>
+        <div class="muedigkeit-group" id="muedigkeit-morgen-group">
+          <button type="button" class="mud-btn active" data-value="1">1</button>
+          <button type="button" class="mud-btn" data-value="2">2</button>
+          <button type="button" class="mud-btn" data-value="3">3</button>
+          <button type="button" class="mud-btn" data-value="4">4</button>
+          <button type="button" class="mud-btn" data-value="5">5</button>
+        </div>
+      </div>
+
       <!-- Symptome -->
       <div class="form-section">
         <div class="field-label" style="margin-bottom:12px"><span>{{ T.lbl_symptome }}</span></div>
@@ -1284,11 +1299,13 @@ function initPills() {
     });
   });
 
-  // Müdigkeit
-  document.querySelectorAll('.mud-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.mud-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
+  // Müdigkeit — scoped pro Gruppe
+  document.querySelectorAll('.muedigkeit-group').forEach(group => {
+    group.querySelectorAll('.mud-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        group.querySelectorAll('.mud-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
     });
   });
 }
@@ -1314,8 +1331,9 @@ function getMulti(group) {
 function getRadio(group) {
   return document.querySelector(`[data-group="${group}"].active`)?.dataset.value || 'keine';
 }
-function getMuedigkeit() {
-  return document.querySelector('.mud-btn.active')?.dataset.value || '1';
+function getMuedigkeit(groupId) {
+  const sel = groupId ? `#${groupId} .mud-btn.active` : '#muedigkeit-group .mud-btn.active';
+  return document.querySelector(sel)?.dataset.value || '1';
 }
 
 // ── forms ─────────────────────────────────────────────────────────────────────
@@ -1373,6 +1391,7 @@ async function submitMorgen(e) {
   formData.append('knie',                document.getElementById('knie-morgen').value);
   formData.append('achilles_l',          document.getElementById('achilles-l-morgen').value);
   formData.append('achilles_r',          document.getElementById('achilles-r-morgen').value);
+  formData.append('muedigkeit',          getMuedigkeit('muedigkeit-morgen-group'));
   formData.append('symptome',            getRadio('symptome-morgen'));
   formData.append('geplante_einheiten',  tpWorkoutsMorgen.map(w => w.sport).join(','));
   if (weatherToday) formData.append('weather_data', JSON.stringify(weatherToday));
@@ -1382,7 +1401,7 @@ async function submitMorgen(e) {
     knie:        parseFloat(document.getElementById('knie-morgen').value),
     achilles_l:  parseFloat(document.getElementById('achilles-l-morgen').value),
     achilles_r:  parseFloat(document.getElementById('achilles-r-morgen').value),
-    muedigkeit:  '-',
+    muedigkeit:  parseInt(getMuedigkeit('muedigkeit-morgen-group'), 10),
     muskelkater: '-',
     symptome:    getRadio('symptome-morgen'),
     wasser_temp: document.getElementById('wasser-temp-morgen')?.value || null,
@@ -2167,44 +2186,61 @@ function renderMorgenTP(data) {
 }
 
 // ── Workout-Analyse ───────────────────────────────────────────────────────────
-function renderAnalyseSection() {
+let analyseLoaded = false;
+
+async function renderAnalyseSection() {
   const section = document.getElementById('abend-analyse-section');
   if (!section) return;
-  if (!tpWorkoutsMorgen.length) {
-    section.innerHTML = `<p style="color:var(--muted);font-size:13px">Keine Workouts geladen — TP wird beim Start synchronisiert.</p>`;
-    return;
+  if (analyseLoaded) return;
+  section.innerHTML = `<div style="display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px"><div class="spinner" style="width:14px;height:14px;border-width:2px"></div> Workouts werden geladen…</div>`;
+  try {
+    const r = await fetch('/api/tp/workouts/history?days=5', {cache:'no-store'});
+    const data = r.ok ? await r.json() : null;
+    if (!data?.available || !data.days?.length) {
+      section.innerHTML = `<p style="color:var(--muted);font-size:13px">Keine Workouts der letzten 5 Tage gefunden.</p>`;
+      return;
+    }
+    analyseLoaded = true;
+    let html = `<p class="section-title" style="margin-bottom:12px">Einheiten analysieren</p>`;
+    let idx = 0;
+    data.days.slice().reverse().forEach(day => {
+      if (!day.workouts?.length) return;
+      const dayLabel = new Date(day.date + 'T12:00:00').toLocaleDateString('de-DE', {weekday:'short',day:'2-digit',month:'2-digit'});
+      html += `<div style="margin-bottom:4px;font-size:11px;font-weight:600;color:var(--muted2);text-transform:uppercase;letter-spacing:.05em">${dayLabel}</div>`;
+      day.workouts.forEach(w => {
+        const i = idx++;
+        html += `
+          <div id="analyse-item-${i}" style="margin-bottom:10px">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+              <div>
+                <span style="font-size:13px;color:var(--text)">${esc(w.title || w.sport || 'Workout')}</span>
+                ${w.duration_min ? `<span style="font-size:11px;color:var(--muted);margin-left:6px">${w.duration_min} min</span>` : ''}
+              </div>
+              <button onclick="analyzeWorkout(${i},'${esc(w.id||'')}','${esc(w.sport||'')}','${esc(w.title||'')}')"
+                      style="flex-shrink:0;background:rgba(29,158,117,.12);border:1px solid rgba(29,158,117,.3);color:#1D9E75;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;white-space:nowrap">
+                Analysieren
+              </button>
+            </div>
+            <div id="analyse-result-${i}"></div>
+          </div>`;
+      });
+    });
+    section.innerHTML = html;
+  } catch(e) {
+    section.innerHTML = `<p style="color:var(--red);font-size:12px">${esc(String(e.message||e))}</p>`;
   }
-  section.innerHTML = `<p class="section-title" style="margin-bottom:12px">Heutige Einheiten analysieren</p><div id="abend-analyse-list"></div>`;
-  const list = document.getElementById('abend-analyse-list');
-  list.innerHTML = tpWorkoutsMorgen.map((w, i) => `
-    <div id="analyse-item-${i}" style="margin-bottom:10px">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-        <div>
-          <span style="font-size:13px;color:var(--text)">${esc(w.title || w.sport || 'Workout')}</span>
-          ${w.duration_min ? `<span style="font-size:11px;color:var(--muted);margin-left:6px">${w.duration_min} min</span>` : ''}
-        </div>
-        <button onclick="analyzeWorkout(${i})"
-                style="flex-shrink:0;background:rgba(29,158,117,.12);border:1px solid rgba(29,158,117,.3);color:#1D9E75;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;white-space:nowrap">
-          Analysieren
-        </button>
-      </div>
-      <div id="analyse-result-${i}"></div>
-    </div>
-  `).join('');
 }
 
-async function analyzeWorkout(idx) {
-  const w = tpWorkoutsMorgen[idx];
-  if (!w) return;
+async function analyzeWorkout(idx, workoutId, sport, title) {
   const btn       = document.querySelector(`#analyse-item-${idx} button`);
   const resultDiv = document.getElementById(`analyse-result-${idx}`);
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
   if (resultDiv) resultDiv.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:8px 0;display:flex;align-items:center;gap:8px"><div class="spinner" style="width:12px;height:12px;border-width:2px"></div> Coach analysiert… (ca. 15–20s)</div>`;
   try {
     const fd = new FormData();
-    fd.append('workout_id', w.id   || '');
-    fd.append('sport',      w.sport || '');
-    fd.append('title',      w.title || '');
+    fd.append('workout_id', workoutId || '');
+    fd.append('sport',      sport     || '');
+    fd.append('title',      title     || '');
     const r = await fetch('/api/workout/analyze', { method: 'POST', body: fd });
     if (!r.ok) throw new Error(await r.text());
     const data = await r.json();
