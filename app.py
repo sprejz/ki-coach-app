@@ -17,7 +17,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.4.24"
+APP_VERSION = "2.4.25"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -799,6 +799,18 @@ async def check_morgen(
     baseline = load_baseline()
     system = build_system_prompt(athlete, baseline)
 
+    try:
+        weather = await fetch_weather(athlete, day=0)
+    except Exception as e:
+        weather = {
+            "description": T["err_weather_na"],
+            "temp_max": None, "temp_min": None,
+            "rain_prob": 0, "is_thunderstorm": False,
+            "is_rain": False, "is_hot": False,
+            "hourly": [],
+            "error": str(e),
+        }
+
     sleep_text = ""
     sleep_result = None
     if csv_file and csv_file.filename:
@@ -816,6 +828,21 @@ AutoSleep (letzte Nacht):
         except Exception as e:
             sleep_text = "\n" + T["prompt_autosleep_err"].format(err=str(e))
 
+    heat_thr = athlete.get("nutrition", {}).get("heat_threshold_celsius", 25)
+    weather_flags = []
+    if weather.get("is_thunderstorm"):
+        weather_flags.append("Gewitter")
+    elif weather.get("is_rain"):
+        weather_flags.append("Regen")
+    if weather.get("is_hot"):
+        weather_flags.append(f"Hitze >{heat_thr}°C")
+    weather_summary = (
+        f"{weather.get('description', '?')}, "
+        f"{weather.get('temp_min', '?')}–{weather.get('temp_max', '?')}°C, "
+        f"Regen {weather.get('rain_prob', 0)}%"
+        + (f" [{', '.join(weather_flags)}]" if weather_flags else "")
+    )
+
     einheiten_list = [x.strip() for x in geplante_einheiten.split(",") if x.strip()]
     today_str = date.today().strftime("%d.%m.%Y")
     header = T["prompt_morgen_header"].format(date=today_str)
@@ -829,11 +856,13 @@ AutoSleep (letzte Nacht):
         f"- Achillessehne R: {achilles_r}/10\n"
         f"- Symptome: {symptome}"
         f"{sleep_text}\n\n"
+        f"Wetter heute: {weather_summary}\n\n"
         f"{T['prompt_morgen_units'].format(units=units_str)}"
     )
 
     try:
         result = call_claude(system, user_msg)
+        result["weather"] = weather
         if sleep_result:
             result["sleep_flags"] = sleep_result
         return result
