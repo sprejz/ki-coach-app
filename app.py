@@ -19,7 +19,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.5"
+APP_VERSION = "2.6.7"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -40,6 +40,142 @@ _tp_http_long = httpx.Client(
 
 # In-memory Job-Store für Workout-Analysen
 _analysis_jobs: dict = {}  # job_id -> {"status":"pending"|"done"|"error", "result":{}, "error":"..."}
+
+
+def parse_fit_summary(fit_bytes: bytes) -> dict:
+    """Parst eine FIT-Datei und gibt die wichtigsten Metriken als Dict zurück."""
+    try:
+        from fitparse import FitFile
+    except ImportError:
+        return {}
+    try:
+        ff = FitFile(io.BytesIO(fit_bytes))
+        session = {}
+        laps = []
+        records_power = []
+        for msg in ff.get_messages():
+            name = msg.name
+            if name == "session":
+                for f in msg.fields:
+                    session[f.name] = f.value
+            elif name == "lap":
+                lap = {}
+                for f in msg.fields:
+                    lap[f.name] = f.value
+                laps.append(lap)
+            elif name == "record":
+                pw = None
+                for f in msg.fields:
+                    if f.name == "power":
+                        pw = f.value
+                if pw is not None:
+                    records_power.append(pw)
+
+        summary = {}
+
+        def _s(key, unit=""):
+            v = session.get(key)
+            if v is None:
+                return None
+            if unit:
+                return f"{round(v)} {unit}"
+            return v
+
+        # Dauer
+        elapsed = session.get("total_elapsed_time") or session.get("total_timer_time")
+        if elapsed:
+            summary["dauer_min"] = round(elapsed / 60, 1)
+
+        # Distanz
+        dist = session.get("total_distance")
+        if dist:
+            summary["distanz_km"] = round(dist / 1000, 2)
+
+        # Leistung (Rad)
+        avg_pw = session.get("avg_power") or session.get("average_power")
+        max_pw = session.get("max_power")
+        np = session.get("normalized_power")
+        if avg_pw:
+            summary["avg_power_w"] = round(avg_pw)
+        if max_pw:
+            summary["max_power_w"] = round(max_pw)
+        if np:
+            summary["normalized_power_w"] = round(np)
+        elif records_power and len(records_power) > 30:
+            # NP berechnen: 30s rolling avg^4, dann MW^(1/4)
+            window = 30
+            rolling = []
+            for i in range(window - 1, len(records_power)):
+                chunk = records_power[i - window + 1:i + 1]
+                rolling.append((sum(chunk) / window) ** 4)
+            if rolling:
+                summary["normalized_power_w"] = round(statistics.mean(rolling) ** 0.25)
+
+        # Herzrate
+        avg_hr = session.get("avg_heart_rate") or session.get("average_heart_rate")
+        max_hr = session.get("max_heart_rate")
+        if avg_hr:
+            summary["avg_hr"] = round(avg_hr)
+        if max_hr:
+            summary["max_hr"] = round(max_hr)
+
+        # Kadenz (Rad oder Lauf)
+        avg_cad = session.get("avg_cadence") or session.get("average_cadence")
+        if avg_cad:
+            summary["avg_kadenz"] = round(avg_cad)
+
+        # Pace (Lauf)
+        avg_speed = session.get("avg_speed") or session.get("average_speed")
+        if avg_speed and avg_speed > 0:
+            pace_sec = 1000 / avg_speed
+            summary["avg_pace_min_km"] = f"{int(pace_sec//60)}:{int(pace_sec%60):02d}"
+
+        # TSS / Work
+        tss = session.get("training_stress_score") or session.get("total_training_effect")
+        total_work = session.get("total_work")
+        if tss:
+            summary["tss"] = round(tss, 1)
+        if total_work:
+            summary["total_work_kj"] = round(total_work / 1000, 1)
+
+        # Sport
+        sport = session.get("sport")
+        sub_sport = session.get("sub_sport")
+        if sport:
+            summary["sport"] = str(sport)
+        if sub_sport and str(sub_sport) not in ("generic", "None"):
+            summary["sub_sport"] = str(sub_sport)
+
+        # Lap-Splits (max 10)
+        if laps:
+            lap_list = []
+            for lap in laps[:10]:
+                entry = {}
+                t = lap.get("total_elapsed_time") or lap.get("total_timer_time")
+                d = lap.get("total_distance")
+                p = lap.get("avg_power") or lap.get("average_power")
+                h = lap.get("avg_heart_rate") or lap.get("average_heart_rate")
+                sp = lap.get("avg_speed") or lap.get("average_speed")
+                if t:
+                    entry["t_min"] = round(t / 60, 1)
+                if d:
+                    entry["km"] = round(d / 1000, 2)
+                if p:
+                    entry["avg_w"] = round(p)
+                if h:
+                    entry["avg_hr"] = round(h)
+                if sp and sp > 0:
+                    ps = 1000 / sp
+                    entry["pace"] = f"{int(ps//60)}:{int(ps%60):02d}"
+                if entry:
+                    lap_list.append(entry)
+            if lap_list:
+                summary["laps"] = lap_list
+
+        return summary
+    except Exception as e:
+        logger.warning("FIT parse error: %s", e)
+        return {}
 ATHLETE_FILE = BASE_DIR / "athlete.json"
 BASELINE_FILE = BASE_DIR / "baseline.json"
 SLEEP_HISTORY_FILE = BASE_DIR / "sleep_history.json"
@@ -978,25 +1114,9 @@ def _run_analysis_job(job_id: str, tp_url: str, key: str, prompt: str):
         _analysis_jobs[job_id] = {"status": "error", "error": str(e)[:300]}
 
 
-@app.post("/api/workout/analyze")
-async def workout_analyze(
-    workout_id: str = Form(""),
-    sport: str = Form(""),
-    title: str = Form(""),
-    workout_date: str = Form(""),
-):
-    tp_url = os.environ.get("TP_MCP_URL", "")
-    key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not key:
-        raise HTTPException(500, T["err_api_key_missing"])
-    if not tp_url:
-        raise HTTPException(400, T["err_tp_url_missing"])
-
-    athlete = load_athlete()
-    a_race = next((r for r in athlete.get("races", []) if r.get("type") == "A"), {})
-    target_date = workout_date or date.today().isoformat()
-
-    prompt = T["coach_analysis_prompt"].format(
+def _build_analysis_prompt(athlete: dict, a_race: dict, workout_id: str, sport: str,
+                            title: str, target_date: str, fit_data: dict) -> str:
+    base = T["coach_analysis_prompt"].format(
         name=athlete.get("name", "Hendrik"),
         ftp=athlete.get("ftp_watt", 286),
         run_threshold=athlete.get("run_threshold_pace", "5:20"),
@@ -1010,12 +1130,79 @@ async def workout_analyze(
         title=title or sport,
         date=target_date,
     )
+    if fit_data:
+        lines = ["\n\n--- FIT-DATEI (lokale Ist-Daten) ---"]
+        label_map = {
+            "dauer_min": "Dauer", "distanz_km": "Distanz", "avg_power_w": "Ø Leistung",
+            "max_power_w": "Max Leistung", "normalized_power_w": "NP",
+            "avg_hr": "Ø HF", "max_hr": "Max HF", "avg_kadenz": "Ø Kadenz",
+            "avg_pace_min_km": "Ø Pace", "tss": "TSS", "total_work_kj": "Gesamtarbeit",
+            "sport": "Sport (FIT)", "sub_sport": "Sub-Sport",
+        }
+        for k, label in label_map.items():
+            v = fit_data.get(k)
+            if v is not None:
+                unit = {"dauer_min": " min", "distanz_km": " km", "avg_power_w": " W",
+                        "max_power_w": " W", "normalized_power_w": " W",
+                        "avg_hr": " bpm", "max_hr": " bpm", "avg_kadenz": " rpm",
+                        "total_work_kj": " kJ"}.get(k, "")
+                lines.append(f"- {label}: {v}{unit}")
+        if fit_data.get("laps"):
+            lines.append("Splits:")
+            for lap in fit_data["laps"]:
+                parts = []
+                if "t_min" in lap:
+                    parts.append(f"{lap['t_min']} min")
+                if "km" in lap:
+                    parts.append(f"{lap['km']} km")
+                if "avg_w" in lap:
+                    parts.append(f"{lap['avg_w']} W")
+                if "avg_hr" in lap:
+                    parts.append(f"{lap['avg_hr']} bpm")
+                if "pace" in lap:
+                    parts.append(f"{lap['pace']}/km")
+                lines.append("  • " + " | ".join(parts))
+        lines.append("Nutze diese FIT-Daten als primäre Ist-Daten. TrainingPeaks nur zur Ergänzung abfragen.")
+        base += "\n".join(lines)
+    return base
+
+
+@app.post("/api/workout/analyze")
+async def workout_analyze(
+    workout_id: str = Form(""),
+    sport: str = Form(""),
+    title: str = Form(""),
+    workout_date: str = Form(""),
+    fit_file: Optional[UploadFile] = File(None),
+):
+    tp_url = os.environ.get("TP_MCP_URL", "")
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not key:
+        raise HTTPException(500, T["err_api_key_missing"])
+    if not tp_url:
+        raise HTTPException(400, T["err_tp_url_missing"])
+
+    # FIT-Datei sofort parsen (sync, schnell) bevor der Thread startet
+    fit_data = {}
+    if fit_file and fit_file.filename:
+        try:
+            fit_bytes = await fit_file.read()
+            fit_data = parse_fit_summary(fit_bytes)
+            logger.info("FIT parsed: %s keys for %s", len(fit_data), fit_file.filename)
+        except Exception as e:
+            logger.warning("FIT read error: %s", e)
+
+    athlete = load_athlete()
+    a_race = next((r for r in athlete.get("races", []) if r.get("type") == "A"), {})
+    target_date = workout_date or date.today().isoformat()
+
+    prompt = _build_analysis_prompt(athlete, a_race, workout_id, sport, title, target_date, fit_data)
     job_id = uuid.uuid4().hex[:10]
-    _analysis_jobs[job_id] = {"status": "pending"}
+    _analysis_jobs[job_id] = {"status": "pending", "has_fit": bool(fit_data)}
     t = threading.Thread(target=_run_analysis_job, args=(job_id, tp_url, key, prompt), daemon=True)
     t.start()
-    logger.info("analysis job %s started for %s on %s", job_id, title, target_date)
-    return JSONResponse({"job_id": job_id}, headers=_NO_CACHE)
+    logger.info("analysis job %s started for %s on %s (fit=%s)", job_id, title, target_date, bool(fit_data))
+    return JSONResponse({"job_id": job_id, "has_fit": bool(fit_data)}, headers=_NO_CACHE)
 
 
 @app.get("/api/workout/analyze/{job_id}")

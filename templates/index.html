@@ -2231,6 +2231,10 @@ async function renderAnalyseSection() {
                 Analysieren
               </button>
             </div>
+            <label id="analyse-fit-label-${i}" style="display:flex;align-items:center;gap:6px;margin-top:5px;cursor:pointer">
+              <input type="file" id="analyse-fit-${i}" accept=".fit" style="display:none" onchange="updateFitLabel(${i})">
+              <span style="font-size:11px;color:var(--muted2);padding:3px 8px;border:1px dashed var(--border);border-radius:5px" id="analyse-fit-name-${i}">FIT optional</span>
+            </label>
             <div id="analyse-result-${i}"></div>
           </div>`;
       });
@@ -2241,14 +2245,31 @@ async function renderAnalyseSection() {
   }
 }
 
+function updateFitLabel(idx) {
+  const inp  = document.getElementById(`analyse-fit-${idx}`);
+  const name = document.getElementById(`analyse-fit-name-${idx}`);
+  if (!inp || !name) return;
+  if (inp.files && inp.files[0]) {
+    name.textContent = inp.files[0].name;
+    name.style.color = 'var(--green)';
+    name.style.borderColor = 'rgba(29,158,117,.4)';
+  } else {
+    name.textContent = 'FIT optional';
+    name.style.color = 'var(--muted2)';
+    name.style.borderColor = 'var(--border)';
+  }
+}
+
 async function analyzeWorkout(idx, workoutId, sport, title, workoutDate) {
   const btn       = document.querySelector(`#analyse-item-${idx} button`);
   const resultDiv = document.getElementById(`analyse-result-${idx}`);
+  const fitInput  = document.getElementById(`analyse-fit-${idx}`);
+  const hasFit    = fitInput && fitInput.files && fitInput.files[0];
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
   if (resultDiv) resultDiv.innerHTML = `
     <div class="analyse-loading">
       <div class="analyse-dots"><span></span><span></span><span></span></div>
-      <p class="analyse-loading-label">Trainingsdaten werden aus TP geladen…<br><span style="font-size:11px;opacity:.6">Dauert 2–5 Min</span></p>
+      <p class="analyse-loading-label">${hasFit ? 'FIT + TP-Daten werden analysiert…' : 'Trainingsdaten werden aus TP geladen…'}<br><span style="font-size:11px;opacity:.6">Dauert 2–5 Min</span></p>
     </div>`;
   try {
     const fd = new FormData();
@@ -2256,6 +2277,7 @@ async function analyzeWorkout(idx, workoutId, sport, title, workoutDate) {
     fd.append('sport',        sport       || '');
     fd.append('title',        title       || '');
     fd.append('workout_date', workoutDate || '');
+    if (hasFit) fd.append('fit_file', fitInput.files[0]);
     const r = await fetch('/api/workout/analyze', { method: 'POST', body: fd });
     if (!r.ok) throw new Error(await r.text());
     const { job_id } = await r.json();
