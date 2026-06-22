@@ -958,11 +958,11 @@ def _run_analysis_job(job_id: str, tp_url: str, key: str, prompt: str):
             system="Du bist ein erfahrener Triathlon-Coach. Antworte ausschließlich mit gültigem JSON ohne Markdown.",
             messages=[{"role": "user", "content": prompt}],
         )
+        # Take the LAST text block — earlier blocks are reasoning/narration, final block is the JSON
         raw = ""
         for block in msg.content:
             if hasattr(block, "text") and block.text:
                 raw = block.text.strip()
-                break
         if raw.startswith("```"):
             lines = raw.split("\n")
             raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
