@@ -541,10 +541,13 @@ def clean_title(title: str) -> str:
 async def tp_apply(request: Request):
     if not os.environ.get("TP_MCP_URL"):
         raise HTTPException(400, T["err_tp_url_missing"])
-    body       = await request.json()
-    operations = body.get("operations", [])  # [{workout_id, orig_title, badge}]
+    body        = await request.json()
+    operations  = body.get("operations", [])
+    day         = body.get("day", "tomorrow")
+    day_offset  = 0 if day == "today" else 1
+    target_date = (date.today() + timedelta(days=day_offset)).isoformat()
 
-    logger.info("tp_apply: %d operations", len(operations))
+    logger.info("tp_apply: %d operations for %s", len(operations), target_date)
     actions = []
     for op in operations:
         workout_id = op.get("workout_id")
@@ -554,14 +557,77 @@ async def tp_apply(request: Request):
         if badge == "GO" or not workout_id:
             continue
 
-        new_title = (T["tp_skip_renamed"] if badge in ("SKIP", "STOP") else T["tp_mod_renamed"]).format(title=clean_title(orig_title))
-        try:
-            result = await call_tp_mcp("tp_update_workout", {"workout_id": workout_id, "title": new_title})
-            actions.append({"workout_id": workout_id, "badge": badge, "status": "ok",
-                            "detail": new_title, "mcp_response": result})
-        except Exception as e:
-            logger.error("tp_apply: tp_update_workout failed for %s: %s", workout_id, e)
-            actions.append({"workout_id": workout_id, "badge": badge, "status": "error", "detail": str(e)})
+        base_title = clean_title(orig_title)
+
+        if badge in ("SKIP", "STOP"):
+            new_title = T["tp_skip_renamed"].format(title=base_title)
+            try:
+                result = await call_tp_mcp("tp_update_workout", {"workout_id": workout_id, "title": new_title})
+                actions.append({"workout_id": workout_id, "badge": badge, "status": "ok",
+                                "detail": new_title, "mcp_response": result})
+            except Exception as e:
+                logger.error("tp_apply SKIP: tp_update_workout failed for %s: %s", workout_id, e)
+                actions.append({"workout_id": workout_id, "badge": badge, "status": "error", "detail": str(e)})
+
+        elif badge == "MOD":
+            # Step 1: mark original as archived
+            renamed_title = T["tp_mod_renamed"].format(title=base_title)
+            rename_ok = False
+            try:
+                await call_tp_mcp("tp_update_workout", {"workout_id": workout_id, "title": renamed_title})
+                rename_ok = True
+                logger.info("tp_apply MOD: renamed %s → %s", workout_id, renamed_title)
+            except Exception as e:
+                logger.error("tp_apply MOD: rename failed for %s: %s", workout_id, e)
+                actions.append({"workout_id": workout_id, "badge": badge, "status": "error",
+                                "detail": f"Umbenennung fehlgeschlagen: {e}"})
+
+            if not rename_ok:
+                continue
+
+            # Step 2: create new adjusted workout
+            new_title   = T["tp_mod_new_title"].format(title=base_title)
+            sport       = op.get("sport", "")
+            description = op.get("description", "")
+            orig_dur    = op.get("duration_min")
+            orig_tss    = op.get("tss")
+
+            new_duration = new_tss = None
+            if orig_dur:
+                try:
+                    new_duration = max(1, round(float(orig_dur) * 0.75))
+                    if orig_tss:
+                        new_tss = round(float(orig_tss) * (new_duration / float(orig_dur)))
+                except (TypeError, ValueError):
+                    pass
+
+            create_args: dict = {
+                "title":        new_title,
+                "sport_type":   sport,
+                "planned_date": target_date,
+            }
+            if description:
+                create_args["description"] = description
+            if new_duration is not None:
+                create_args["duration_min"] = new_duration
+            if new_tss is not None:
+                create_args["tss"] = new_tss
+
+            logger.info("tp_apply MOD: tp_create_workout args=%s", create_args)
+            try:
+                result = await call_tp_mcp("tp_create_workout", create_args)
+                detail = new_title
+                if new_duration:
+                    detail += f" ({new_duration}min"
+                    if new_tss:
+                        detail += f" / {new_tss} TSS"
+                    detail += ")"
+                actions.append({"workout_id": workout_id, "badge": badge, "status": "ok",
+                                "detail": detail, "mcp_response": result})
+            except Exception as e:
+                logger.error("tp_apply MOD: tp_create_workout failed for %s: %s", workout_id, e)
+                actions.append({"workout_id": workout_id, "badge": badge, "status": "error",
+                                "detail": f"Neues Workout nicht erstellt: {e}"})
 
     logger.info("tp_apply done: %d actions", len(actions))
     return {"ok": True, "actions": actions}

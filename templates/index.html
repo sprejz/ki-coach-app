@@ -1691,7 +1691,15 @@ async function applyToTP() {
       const wid = w.id ?? w.workoutId ?? w.workout_id ?? w.Id ?? w.ID ?? null;
       if (!wid) { console.warn('applyToTP: no id in workout', JSON.stringify(w)); return acc; }
       const badge = sportarten[i]?.badge || 'GO';
-      if (badge !== 'GO') acc.push({ workout_id: String(wid), orig_title: w.title || w.sport || '', badge });
+      if (badge !== 'GO') acc.push({
+        workout_id:   String(wid),
+        orig_title:   w.title || w.sport || '',
+        badge,
+        sport:        w.sport || '',
+        description:  sportarten[i]?.details || '',
+        duration_min: w.duration_min || null,
+        tss:          w.tss || null,
+      });
       return acc;
     }, []);
     console.log('applyToTP operations:', JSON.stringify(operations));

@@ -174,7 +174,7 @@ TRANSLATIONS = {
         ),
         # TP op labels
         "tp_mod_renamed":       "↩️ {title} (KI)",
-        "tp_mod_new_title":     "{title} (KI)",
+        "tp_mod_new_title":     "{title} – Angepasst (KI)",
         "tp_skip_renamed":      "❌ {title} (KI)",
         # Error messages (user-visible)
         "err_tp_url_missing":   "TP_MCP_URL nicht konfiguriert",
@@ -357,7 +357,7 @@ TRANSLATIONS = {
         ),
         # TP op labels
         "tp_mod_renamed":       "↩️ {title} (AI)",
-        "tp_mod_new_title":     "{title} (AI)",
+        "tp_mod_new_title":     "{title} – Adjusted (AI)",
         "tp_skip_renamed":      "❌ {title} (AI)",
         # Error messages (user-visible)
         "err_tp_url_missing":   "TP_MCP_URL not configured",
