@@ -1930,6 +1930,8 @@ async function refreshAll() {
   tpWorkoutsMorgen = [];
   weatherToday = null;
   weatherTomorrow = null;
+  // Cache bei manuellem Refresh leeren
+  try { localStorage.removeItem('wx_0'); localStorage.removeItem('wx_1'); } catch {}
 
   // Reset Abend TP UI
   const abendSection = document.getElementById('abend-tp-section');
@@ -2123,29 +2125,62 @@ async function fetchWeatherDirect(dayOffset) {
   } catch(e) { return null; }
 }
 
-// ── startup: alle 6 parallel mit cache:'no-store' ────────────────────────────
+// ── Wetter-Cache (localStorage, 30 min TTL) ───────────────────────────────────
+function getWeatherCache(dayOffset) {
+  try {
+    const c = JSON.parse(localStorage.getItem('wx_' + dayOffset) || 'null');
+    if (!c || Date.now() - c.ts > 30 * 60 * 1000) return null;
+    return c.data;
+  } catch { return null; }
+}
+function setWeatherCache(dayOffset, data) {
+  try { localStorage.setItem('wx_' + dayOffset, JSON.stringify({ ts: Date.now(), data })); } catch {}
+}
+
+// ── Startup: Schnelle Phase zuerst, TP im Hintergrund ────────────────────────
 async function loadStartupData() {
   const t = Date.now();
   const okJson = r => r.ok ? r.json() : null;
   erholungLoaded = false;
-  const results = await Promise.allSettled([
+
+  // Wetter sofort aus Cache zeigen (falls vorhanden) — user sieht es ohne Warten
+  const cTomorrow = getWeatherCache(1);
+  const cToday    = getWeatherCache(0);
+  if (cTomorrow) renderAbendWeather(cTomorrow);
+  if (cToday)    renderMorgenWeather(cToday);
+
+  // Phase 1 — schnell: Wetter (fresh), Sleep-History, Baseline (alles lokal oder CORS)
+  const fast = await Promise.allSettled([
     fetchWeatherDirect(1),
     fetchWeatherDirect(0),
-    fetch('/api/tp/workouts?day=tomorrow&t='+t, {cache:'no-store'}).then(okJson),
-    fetch('/api/tp/workouts?day=today&t='+t,    {cache:'no-store'}).then(okJson),
     fetch('/api/sleep/history?t='+t, {cache:'no-store'}).then(okJson),
-    fetch('/api/baseline?t='+t, {cache:'no-store'}).then(okJson),
+    fetch('/api/baseline?t='+t,      {cache:'no-store'}).then(okJson),
   ]);
   const val = r => r.status === 'fulfilled' ? r.value : null;
-  renderAbendWeather(val(results[0]));
-  renderMorgenWeather(val(results[1]));
-  renderAbendTP(val(results[2]));
-  renderMorgenTP(val(results[3]));
-  sleepHistory  = val(results[4]) || [];
-  sleepBaseline = val(results[5]) || null;
-  // If erholung tab is already active (e.g. after refresh), render it
+  const wTomorrow = val(fast[0]);
+  const wToday    = val(fast[1]);
+  if (wTomorrow) { renderAbendWeather(wTomorrow); setWeatherCache(1, wTomorrow); }
+  if (wToday)    { renderMorgenWeather(wToday);   setWeatherCache(0, wToday); }
+  sleepHistory  = val(fast[2]) || [];
+  sleepBaseline = val(fast[3]) || null;
+
   const erholungPanel = document.querySelector('[data-panel="erholung"]');
   if (erholungPanel?.classList.contains('active')) loadErholung();
+
+  // Phase 2 — TP Workouts im Hintergrund (blockiert splash NICHT)
+  loadTPInBackground(t);
+}
+
+function loadTPInBackground(t) {
+  const okJson = r => r.ok ? r.json() : null;
+  Promise.allSettled([
+    fetch('/api/tp/workouts?day=tomorrow&t='+t, {cache:'no-store'}).then(okJson),
+    fetch('/api/tp/workouts?day=today&t='+t,    {cache:'no-store'}).then(okJson),
+  ]).then(results => {
+    const val = r => r.status === 'fulfilled' ? r.value : null;
+    renderAbendTP(val(results[0]));
+    renderMorgenTP(val(results[1]));
+  });
 }
 
 async function loadTPWorkouts() {
