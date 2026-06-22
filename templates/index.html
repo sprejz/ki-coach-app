@@ -2221,20 +2221,20 @@ async function renderAnalyseSection() {
         const i = idx++;
         html += `
           <div id="analyse-item-${i}" style="margin-bottom:10px">
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-              <div>
-                <span style="font-size:13px;color:var(--text)">${esc(w.title || w.sport || 'Workout')}</span>
-                ${w.duration_min ? `<span style="font-size:11px;color:var(--muted);margin-left:6px">${w.duration_min} min</span>` : ''}
-              </div>
+            <div style="font-size:13px;color:var(--text);margin-bottom:6px">
+              ${esc(w.title || w.sport || 'Workout')}
+              ${w.duration_min ? `<span style="font-size:11px;color:var(--muted);margin-left:6px">${w.duration_min} min</span>` : ''}
+            </div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <label style="flex:1;cursor:pointer">
+                <input type="file" id="analyse-fit-${i}" accept=".fit" style="display:none" onchange="updateFitLabel(${i})">
+                <span id="analyse-fit-name-${i}" style="display:block;text-align:center;font-size:12px;padding:5px 0;border:1px dashed var(--border);border-radius:6px;color:var(--muted2)">📎 FIT</span>
+              </label>
               <button onclick="analyzeWorkout(${i},'${esc(w.id||'')}','${esc(w.sport||'')}','${esc(w.title||'')}','${day.date}')"
-                      style="flex-shrink:0;background:rgba(29,158,117,.12);border:1px solid rgba(29,158,117,.3);color:#1D9E75;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;white-space:nowrap">
+                      style="flex:2;background:rgba(29,158,117,.12);border:1px solid rgba(29,158,117,.3);color:#1D9E75;border-radius:6px;padding:6px 10px;font-size:12px;cursor:pointer">
                 Analysieren
               </button>
             </div>
-            <label id="analyse-fit-label-${i}" style="display:flex;align-items:center;gap:6px;margin-top:5px;cursor:pointer">
-              <input type="file" id="analyse-fit-${i}" accept=".fit" style="display:none" onchange="updateFitLabel(${i})">
-              <span style="font-size:11px;color:var(--muted2);padding:3px 8px;border:1px dashed var(--border);border-radius:5px" id="analyse-fit-name-${i}">FIT optional</span>
-            </label>
             <div id="analyse-result-${i}"></div>
           </div>`;
       });
