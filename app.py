@@ -952,6 +952,7 @@ async def workout_analyze(
     today = date.today().isoformat()
 
     # Step 1 — fetch actual execution data from TP via MCP
+    workout_raw = f"Sport: {sport}, Titel: {title}, Datum: {today}\nHinweis: Nur Plandaten verfügbar — keine Ist-Daten aus TP abrufbar."
     if tp_url:
         fetch_prompt = T["tp_completed_prompt"].format(
             name=athlete.get("name", "the athlete"),
@@ -960,12 +961,11 @@ async def workout_analyze(
             sport=sport or "unbekannt",
         )
         try:
-            workout_raw = call_claude_tp_mcp(fetch_prompt)
+            raw_tp = call_claude_tp_mcp(fetch_prompt)
+            if raw_tp and len(raw_tp.strip()) > 20:
+                workout_raw = raw_tp
         except Exception as e:
             logger.warning("workout_analyze: TP fetch failed: %s", e)
-            workout_raw = f"Sport: {sport}, Titel: {title} — Ist-Daten nicht verfügbar ({e})"
-    else:
-        workout_raw = f"Sport: {sport}, Titel: {title} — TP nicht konfiguriert, nur Plandaten bekannt"
 
     # Step 2 — coach analysis (plain Claude, no MCP)
     analysis_prompt = T["coach_analysis_prompt"].format(
