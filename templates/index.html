@@ -1102,6 +1102,28 @@ let sleepHistory = [];
 let sleepBaseline = null;
 let erholungLoaded = false;
 
+// ── Sleep-History localStorage (überlebt Railway-Redeploys) ──────────────────
+function getSleepHistoryLocal() {
+  try { return JSON.parse(localStorage.getItem('sleep_history') || '[]'); } catch { return []; }
+}
+function saveSleepHistoryEntry(entry) {
+  try {
+    let h = getSleepHistoryLocal().filter(x => x.date !== entry.date);
+    h.push(entry);
+    h = h.sort((a,b) => a.date < b.date ? -1 : 1).slice(-14);
+    localStorage.setItem('sleep_history', JSON.stringify(h));
+    return h;
+  } catch { return getSleepHistoryLocal(); }
+}
+
+// ── Baseline localStorage-Fallback ────────────────────────────────────────────
+function getBaselineLocal() {
+  try { return JSON.parse(localStorage.getItem('baseline') || 'null'); } catch { return null; }
+}
+function saveBaselineLocal(b) {
+  try { localStorage.setItem('baseline', JSON.stringify(b)); } catch {}
+}
+
 // ── splash ────────────────────────────────────────────────────────────────────
 function setSplashStatus(text) {
   const el = document.getElementById('splash-status');
@@ -1365,11 +1387,20 @@ async function submitMorgen(e) {
     };
     const data = await r.json();
     showResult(data, formSnapshot, 'morgen');
-    // If CSV was uploaded, refresh sleep history so Erholung tab is up to date
-    if (csvFile) {
-      fetch('/api/sleep/history', {cache:'no-store'}).then(r2 => r2.ok ? r2.json() : null).then(h => {
-        if (h) { sleepHistory = h; erholungLoaded = false; }
-      }).catch(() => {});
+    // If CSV was uploaded, save sleep data to localStorage so Erholung tab persists
+    if (csvFile && data.sleep_flags?.data) {
+      const sd = data.sleep_flags.data;
+      const today = new Date().toISOString().slice(0, 10);
+      sleepHistory = saveSleepHistoryEntry({
+        date: today,
+        schlafHRV:   sd.hrv,
+        wachBPM:     sd.wach_bpm,
+        schlafBPM:   sd.schlaf_bpm,
+        atmung:      sd.atmung,
+        effizienz:   sd.effizienz,
+        schlafDauer: sd.schlaf_stunden,
+      });
+      erholungLoaded = false;
     }
   } catch(err) {
     showError(err.message || String(err));
@@ -1674,14 +1705,13 @@ async function loadErholung() {
   if (!card) return;
   try {
     if (!erholungLoaded) {
-      // Use already-fetched data if available, otherwise re-fetch
-      if (!sleepHistory.length) {
-        const r = await fetch('/api/sleep/history', {cache:'no-store'});
-        sleepHistory = r.ok ? await r.json() : [];
-      }
+      sleepHistory = getSleepHistoryLocal();
       if (!sleepBaseline) {
-        const r = await fetch('/api/baseline', {cache:'no-store'});
-        sleepBaseline = r.ok ? await r.json() : null;
+        try {
+          const r = await fetch('/api/baseline', {cache:'no-store'});
+          if (r.ok) { sleepBaseline = await r.json(); saveBaselineLocal(sleepBaseline); }
+        } catch {}
+        if (!sleepBaseline) sleepBaseline = getBaselineLocal();
       }
     }
     card.innerHTML = renderErholungContent(sleepHistory, sleepBaseline);
@@ -1876,6 +1906,7 @@ function renderErholungContent(history, baseline) {
   if (!history.length) {
     h += `<p class="section-title" style="border-bottom:none;margin-bottom:0">Erholung</p>`;
     h += `<p style="color:var(--muted);font-size:13px;margin-top:12px">${esc(T.erholung_no_data)}</p>`;
+    h += `<button onclick="document.querySelector('[data-tab=morgen]').click()" style="margin-top:12px;background:rgba(29,158,117,.12);border:1px solid rgba(29,158,117,.3);color:#1D9E75;border-radius:8px;padding:9px 14px;font-size:13px;cursor:pointer;width:100%;text-align:left">→ Jetzt zum Morgen-Check &amp; CSV hochladen</button>`;
     if (!baseline) h += `<p style="color:var(--muted);font-size:12px;margin-top:8px">${esc(T.erholung_no_baseline)}</p>`;
     return h;
   }
@@ -2204,16 +2235,17 @@ async function loadStartupData() {
   const fast = await Promise.allSettled([
     fetchWeatherDirect(1),
     fetchWeatherDirect(0),
-    fetch('/api/sleep/history?t='+t, {cache:'no-store'}).then(okJson),
-    fetch('/api/baseline?t='+t,      {cache:'no-store'}).then(okJson),
+    fetch('/api/baseline?t='+t, {cache:'no-store'}).then(okJson),
   ]);
   const val = r => r.status === 'fulfilled' ? r.value : null;
   const wTomorrow = val(fast[0]);
   const wToday    = val(fast[1]);
   if (wTomorrow) { renderAbendWeather(wTomorrow); setWeatherCache(1, wTomorrow); }
   if (wToday)    { renderMorgenWeather(wToday);   setWeatherCache(0, wToday); }
-  sleepHistory  = val(fast[2]) || [];
-  sleepBaseline = val(fast[3]) || null;
+  const freshBaseline = val(fast[2]);
+  if (freshBaseline) { sleepBaseline = freshBaseline; saveBaselineLocal(freshBaseline); }
+  else                { sleepBaseline = getBaselineLocal(); }
+  sleepHistory = getSleepHistoryLocal();
 
   const erholungPanel = document.querySelector('[data-panel="erholung"]');
   if (erholungPanel?.classList.contains('active')) loadErholung();
