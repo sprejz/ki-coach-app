@@ -17,7 +17,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.4.19"
+APP_VERSION = "2.4.20"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -90,7 +90,8 @@ def parse_weather(raw: dict, day: int = 1) -> dict:
     daily = raw.get("daily", {})
     available = len(daily.get("time", []))
     idx = min(day, available - 1) if available > 0 else 0
-    code = (daily.get("weathercode") or [0])[idx] if idx < len(daily.get("weathercode") or []) else 0
+    wc_list = daily.get("weathercode") or daily.get("weather_code") or [0]
+    code = wc_list[idx] if idx < len(wc_list) else 0
     temp_max = (daily.get("temperature_2m_max") or [None])[idx]
     temp_min = (daily.get("temperature_2m_min") or [None])[idx]
     rain_prob = (daily.get("precipitation_probability_max") or [0])[idx] or 0

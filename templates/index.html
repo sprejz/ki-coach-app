@@ -1568,7 +1568,8 @@ function rainBadge(prob) {
   return `<span style="font-size:12px;font-weight:700;color:${fg};background:${bg};padding:3px 9px;border-radius:10px;white-space:nowrap">${prob}% Regen</span>`;
 }
 function _weatherHtml(w) {
-  const icon   = weatherIcon(w.code ?? 0);
+  const fallback = w.is_thunderstorm ? 95 : w.is_rain ? 63 : 0;
+  const icon     = weatherIcon(w.code != null ? w.code : fallback);
   const badges = [
     rainBadge(w.rain_prob),
     w.is_thunderstorm ? `<span style="font-size:12px;font-weight:700;color:var(--red);background:rgba(226,75,74,.13);padding:3px 9px;border-radius:10px">⚡ Gewitter</span>` : '',
