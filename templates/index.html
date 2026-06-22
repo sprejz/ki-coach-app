@@ -898,6 +898,14 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 
       <button type="submit" class="btn-submit">{{ T.btn_abend }}</button>
     </form>
+
+    <!-- Heutige Einheiten analysieren (erscheint sobald TP-Daten geladen) -->
+    <div id="abend-analyse-section" style="display:none;margin-top:16px">
+      <div class="form-card">
+        <p class="section-title" style="margin-bottom:12px">Heutige Einheiten analysieren</p>
+        <div id="abend-analyse-list"></div>
+      </div>
+    </div>
   </div>
 
   <!-- Morgen Form -->
@@ -2153,6 +2161,86 @@ function renderMorgenTP(data) {
   const hasSwim = data.workouts.some(w => w.sport?.toLowerCase().includes('schwimm'));
   const wasserRow = document.getElementById('wasser-row-morgen');
   if (wasserRow) wasserRow.style.display = hasSwim ? 'block' : 'none';
+  renderAnalyseSection();
+}
+
+// ── Workout-Analyse ───────────────────────────────────────────────────────────
+function renderAnalyseSection() {
+  const section = document.getElementById('abend-analyse-section');
+  const list    = document.getElementById('abend-analyse-list');
+  if (!section || !list || !tpWorkoutsMorgen.length) {
+    if (section) section.style.display = 'none';
+    return;
+  }
+  section.style.display = 'block';
+  list.innerHTML = tpWorkoutsMorgen.map((w, i) => `
+    <div id="analyse-item-${i}" style="margin-bottom:10px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <div>
+          <span style="font-size:13px;color:var(--text)">${esc(w.title || w.sport || 'Workout')}</span>
+          ${w.duration_min ? `<span style="font-size:11px;color:var(--muted);margin-left:6px">${w.duration_min} min</span>` : ''}
+        </div>
+        <button onclick="analyzeWorkout(${i})"
+                style="flex-shrink:0;background:rgba(29,158,117,.12);border:1px solid rgba(29,158,117,.3);color:#1D9E75;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;white-space:nowrap">
+          Analysieren
+        </button>
+      </div>
+      <div id="analyse-result-${i}"></div>
+    </div>
+  `).join('');
+}
+
+async function analyzeWorkout(idx) {
+  const w = tpWorkoutsMorgen[idx];
+  if (!w) return;
+  const btn       = document.querySelector(`#analyse-item-${idx} button`);
+  const resultDiv = document.getElementById(`analyse-result-${idx}`);
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  if (resultDiv) resultDiv.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:8px 0;display:flex;align-items:center;gap:8px"><div class="spinner" style="width:12px;height:12px;border-width:2px"></div> Coach analysiert… (ca. 15–20s)</div>`;
+  try {
+    const fd = new FormData();
+    fd.append('workout_id', w.id   || '');
+    fd.append('sport',      w.sport || '');
+    fd.append('title',      w.title || '');
+    const r = await fetch('/api/workout/analyze', { method: 'POST', body: fd });
+    if (!r.ok) throw new Error(await r.text());
+    const data = await r.json();
+    if (resultDiv) resultDiv.innerHTML = renderAnalysisCard(data);
+  } catch(e) {
+    if (resultDiv) resultDiv.innerHTML = `<p style="color:var(--red);font-size:12px;padding:6px 0">${esc(String(e.message || e))}</p>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Analysieren'; }
+  }
+}
+
+function renderAnalysisCard(data) {
+  const BEW = {
+    gut:                  { color: '#1D9E75', bg: 'rgba(29,158,117,.12)', label: 'Gut' },
+    ok:                   { color: '#EF9F27', bg: 'rgba(239,159,39,.12)', label: 'OK' },
+    verbesserungsbedarf:  { color: '#E24B4A', bg: 'rgba(226,75,74,.12)',  label: 'Verbesserungsbedarf' },
+  };
+  const b = BEW[data.bewertung] || BEW.ok;
+  const rows = [
+    ['Zusammenfassung',  data.zusammenfassung],
+    ['Stärken',          data.staerken],
+    ['Schwächen',        data.schwaechen],
+    ['Physiologie',      data.physiologie],
+    ['Malbork-Relevanz', data.malbork_relevanz],
+    ['Empfehlung',       data.empfehlung],
+  ];
+  return `
+    <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:14px;margin-top:6px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <span style="font-size:11px;font-weight:600;color:var(--muted2);text-transform:uppercase;letter-spacing:.06em">Coach-Analyse</span>
+        <span style="font-size:11px;font-weight:700;color:${b.color};background:${b.bg};padding:2px 9px;border-radius:4px">${b.label}</span>
+      </div>
+      ${rows.filter(([,t]) => t).map(([label, text]) => `
+        <div style="margin-bottom:10px">
+          <div style="font-size:10px;font-weight:700;color:var(--muted2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px">${label}</div>
+          <div style="font-size:13px;color:var(--text);line-height:1.5">${esc(text)}</div>
+        </div>
+      `).join('')}
+    </div>`;
 }
 
 // ── Wetter direkt im Browser von Open-Meteo laden (Railway kann es nicht) ────

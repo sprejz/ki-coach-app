@@ -231,6 +231,37 @@ TRANSLATIONS = {
             "Antworte NUR mit einem gültigen JSON-Array. Beispiel: "
             '[{{"id":"123","sport":"Rad","title":"Z2 Ausdauer","duration_min":90,"tss":65,"description":"60-70% FTP"}}]'
         ),
+        "tp_completed_prompt": (
+            "Hole die tatsächlich ausgeführten Ist-Daten für das Workout von {name} am {date}. "
+            "Workout-ID (geplant): {workout_id}. Sport: {sport}. "
+            "Benötigte Felder: tatsächliche Dauer (min), Distanz (km), "
+            "Herzfrequenz Ø und Max, Leistung Ø und Max (nur Rad, Watt), "
+            "Pace Ø (nur Lauf min/km oder Schwimmen min/100m), "
+            "tatsächlicher TSS, Zonenverteilung (% Zeit in Z1–Z5 falls verfügbar), Notizen/Beschreibung. "
+            "Falls keine Ist-Daten vorhanden: gib geplante Daten mit Hinweis 'geplant, nicht ausgeführt'. "
+            "Antworte NUR mit einem JSON-Objekt mit allen verfügbaren Feldern."
+        ),
+        "coach_analysis_prompt": (
+            "Du bist ein erfahrener Triathlon-Coach mit 20 Jahren Erfahrung in der Langdistanz-Vorbereitung.\n\n"
+            "Analysiere die abgeschlossene Trainingseinheit wie ein Coach — nicht als Daten-Auswertungstool.\n\n"
+            "Athleten-Kontext:\n"
+            "- Name: {name}\n"
+            "- FTP: {ftp}W | Laufschwelle: {run_threshold}/km | CSS: {css}/100m\n"
+            "- A-Rennen: {race_name} am {race_date} | Zielzeit: {race_goal}h\n"
+            "- Gewicht: {weight}kg\n\n"
+            "Einheits-Daten:\n{workout_data}\n\n"
+            "Deine Analyse:\n"
+            "1. ZUSAMMENFASSUNG: Was war das Ziel, wurde es erreicht?\n"
+            "2. STÄRKEN: Was lief gut in dieser Einheit?\n"
+            "3. SCHWÄCHEN: Was lief nicht gut, wo gibt es Verbesserungspotenzial?\n"
+            "4. PHYSIOLOGISCHE EINSCHÄTZUNG: HF-Drift, Pace/Watt-Verlauf, Zonenverteilung\n"
+            "5. MALBORK-RELEVANZ: Was bedeutet diese Einheit für das A-Rennen?\n"
+            "6. EMPFEHLUNG: Konkrete nächste Schritte (1–3 Tage)\n\n"
+            "Ton: direkt, ehrlich, motivierend. Keine Floskeln. Sprich den Athleten mit {name} an.\n"
+            "Sprache: Deutsch\n\n"
+            "Antworte NUR als JSON:\n"
+            '{{"zusammenfassung":"...","staerken":"...","schwaechen":"...","physiologie":"...","malbork_relevanz":"...","empfehlung":"...","bewertung":"gut|ok|verbesserungsbedarf"}}'
+        ),
         # TP op labels
         "tp_mod_renamed":       "↩️ {title} (KI)",
         "tp_mod_new_title":     "{title} – Angepasst (KI)",
@@ -472,6 +503,37 @@ TRANSLATIONS = {
             "List all planned workouts for {name} on {date} from TrainingPeaks. "
             "Respond ONLY with a valid JSON array. Example: "
             '[{{"id":"123","sport":"Rad","title":"Z2 Endurance","duration_min":90,"tss":65,"description":"60-70% FTP"}}]'
+        ),
+        "tp_completed_prompt": (
+            "Get the actual completed execution data for {name}'s workout on {date}. "
+            "Planned workout ID: {workout_id}. Sport: {sport}. "
+            "Required fields: actual duration (min), distance (km), "
+            "avg and max heart rate, avg and max power (bike only, watts), "
+            "avg pace (run min/km or swim min/100m only), "
+            "actual TSS, zone distribution (% time in Z1–Z5 if available), notes. "
+            "If no actual data exists: return planned data with note 'planned, not completed'. "
+            "Respond ONLY with a JSON object containing all available fields."
+        ),
+        "coach_analysis_prompt": (
+            "You are an experienced triathlon coach with 20 years of long-distance preparation experience.\n\n"
+            "Analyze the completed training session like a coach — not as a data analysis tool.\n\n"
+            "Athlete context:\n"
+            "- Name: {name}\n"
+            "- FTP: {ftp}W | Run threshold: {run_threshold}/km | CSS: {css}/100m\n"
+            "- A-race: {race_name} on {race_date} | Goal time: {race_goal}h\n"
+            "- Weight: {weight}kg\n\n"
+            "Session data:\n{workout_data}\n\n"
+            "Your analysis:\n"
+            "1. SUMMARY: What was the goal, was it achieved?\n"
+            "2. STRENGTHS: What went well?\n"
+            "3. WEAKNESSES: What didn't go well, where is there room for improvement?\n"
+            "4. PHYSIOLOGICAL ASSESSMENT: HR drift, pace/power progression, zone distribution\n"
+            "5. RACE RELEVANCE: What does this session mean for the A-race?\n"
+            "6. RECOMMENDATION: Concrete next steps (1–3 days)\n\n"
+            "Tone: direct, honest, motivating. No platitudes. Address the athlete as {name}.\n"
+            "Language: English\n\n"
+            "Respond ONLY as JSON:\n"
+            '{{"zusammenfassung":"...","staerken":"...","schwaechen":"...","physiologie":"...","malbork_relevanz":"...","empfehlung":"...","bewertung":"gut|ok|verbesserungsbedarf"}}'
         ),
         # TP op labels
         "tp_mod_renamed":       "↩️ {title} (AI)",

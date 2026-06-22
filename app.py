@@ -17,7 +17,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.5.1"
+APP_VERSION = "2.6.0"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -901,3 +901,70 @@ AutoSleep (letzte Nacht):
         raise HTTPException(500, T["err_claude_json"].format(e=e))
     except Exception as e:
         raise HTTPException(500, str(e))
+
+
+@app.post("/api/workout/analyze")
+async def workout_analyze(
+    workout_id: str = Form(""),
+    sport: str = Form(""),
+    title: str = Form(""),
+):
+    import re as _re
+    tp_url = os.environ.get("TP_MCP_URL", "")
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not key:
+        raise HTTPException(500, T["err_api_key_missing"])
+
+    athlete = load_athlete()
+    a_race = next((r for r in athlete.get("races", []) if r.get("type") == "A"), {})
+    today = date.today().isoformat()
+
+    # Step 1 — fetch actual execution data from TP via MCP
+    if tp_url:
+        fetch_prompt = T["tp_completed_prompt"].format(
+            name=athlete.get("name", "the athlete"),
+            date=today,
+            workout_id=workout_id or "unbekannt",
+            sport=sport or "unbekannt",
+        )
+        try:
+            workout_raw = call_claude_tp_mcp(fetch_prompt)
+        except Exception as e:
+            logger.warning("workout_analyze: TP fetch failed: %s", e)
+            workout_raw = f"Sport: {sport}, Titel: {title} — Ist-Daten nicht verfügbar ({e})"
+    else:
+        workout_raw = f"Sport: {sport}, Titel: {title} — TP nicht konfiguriert, nur Plandaten bekannt"
+
+    # Step 2 — coach analysis (plain Claude, no MCP)
+    analysis_prompt = T["coach_analysis_prompt"].format(
+        name=athlete.get("name", "Hendrik"),
+        ftp=athlete.get("ftp_watt", 286),
+        run_threshold=athlete.get("run_threshold_pace", "5:20"),
+        css=athlete.get("css_per_100m", "2:20"),
+        race_name=a_race.get("name", "Castle Triathlon Malbork"),
+        race_date=a_race.get("date", "2026-09-06"),
+        race_goal=a_race.get("goal_total", "10:50"),
+        weight=athlete.get("weight_kg", 84),
+        workout_data=workout_raw,
+    )
+    c = anthropic.Anthropic(api_key=key)
+    msg = c.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=1500,
+        system="Du bist ein erfahrener Triathlon-Coach. Antworte ausschließlich mit gültigem JSON, ohne Markdown.",
+        messages=[{"role": "user", "content": analysis_prompt}],
+    )
+    raw = msg.content[0].text.strip()
+    if raw.startswith("```"):
+        lines = raw.split("\n")
+        raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+    try:
+        result = json.loads(raw)
+    except json.JSONDecodeError:
+        m = _re.search(r'\{.*\}', raw, _re.DOTALL)
+        if m:
+            result = json.loads(m.group())
+        else:
+            raise HTTPException(500, f"Ungültiges JSON von Claude: {raw[:200]}")
+    logger.info("workout_analyze ok: bewertung=%s", result.get("bewertung"))
+    return JSONResponse(result, headers=_NO_CACHE)
