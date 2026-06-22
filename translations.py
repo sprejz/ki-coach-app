@@ -239,14 +239,14 @@ TRANSLATIONS = {
             "Nur Tage mit Workouts einbeziehen. Älteste Tage zuerst."
         ),
         "tp_completed_prompt": (
-            "Hole die tatsächlich ausgeführten Ist-Daten für das Workout von {name} am {date}. "
-            "Workout-ID (geplant): {workout_id}. Sport: {sport}. "
-            "Benötigte Felder: tatsächliche Dauer (min), Distanz (km), "
-            "Herzfrequenz Ø und Max, Leistung Ø und Max (nur Rad, Watt), "
-            "Pace Ø (nur Lauf min/km oder Schwimmen min/100m), "
-            "tatsächlicher TSS, Zonenverteilung (% Zeit in Z1–Z5 falls verfügbar), Notizen/Beschreibung. "
-            "Falls keine Ist-Daten vorhanden: gib geplante Daten mit Hinweis 'geplant, nicht ausgeführt'. "
-            "Antworte NUR mit einem JSON-Objekt mit allen verfügbaren Feldern."
+            "Rufe mit den verfügbaren TrainingPeaks-Tools das Workout \"{title}\" von {name} am {date} ab. "
+            "Workout-ID: {workout_id}, Sport: {sport}. "
+            "Nutze das Tool um ALLE verfügbaren Daten zu holen: geplante UND tatsächliche Ist-Daten. "
+            "Gib danach eine detaillierte Zusammenfassung aller Felder aus, die das Tool geliefert hat: "
+            "Dauer (geplant/tatsächlich), Distanz, Herzfrequenz (Ø, Max), "
+            "Leistung (Ø, Max, nur Rad), Pace (Ø, nur Lauf/Schwimmen), TSS (geplant/tatsächlich), "
+            "Zonenverteilung, Notizen, Status (abgeschlossen/geplant). "
+            "Schreibe die rohen Tool-Daten vollständig auf Deutsch heraus — kein JSON, nur Fließtext mit allen Werten."
         ),
         "coach_analysis_prompt": (
             "Du bist ein erfahrener Triathlon-Coach mit 20 Jahren Erfahrung in der Langdistanz-Vorbereitung.\n\n"
@@ -524,14 +524,14 @@ TRANSLATIONS = {
             "Only include days that have workouts. Oldest date first."
         ),
         "tp_completed_prompt": (
-            "Get the actual completed execution data for {name}'s workout on {date}. "
-            "Planned workout ID: {workout_id}. Sport: {sport}. "
-            "Required fields: actual duration (min), distance (km), "
-            "avg and max heart rate, avg and max power (bike only, watts), "
-            "avg pace (run min/km or swim min/100m only), "
-            "actual TSS, zone distribution (% time in Z1–Z5 if available), notes. "
-            "If no actual data exists: return planned data with note 'planned, not completed'. "
-            "Respond ONLY with a JSON object containing all available fields."
+            "Use the available TrainingPeaks tools to retrieve the workout \"{title}\" for {name} on {date}. "
+            "Workout ID: {workout_id}, Sport: {sport}. "
+            "Use the tool to fetch ALL available data: both planned and actual execution data. "
+            "Then output a detailed summary of all fields the tool returned: "
+            "duration (planned/actual), distance, heart rate (avg, max), "
+            "power (avg, max, cycling only), pace (avg, run/swim only), TSS (planned/actual), "
+            "zone distribution, notes, status (completed/planned). "
+            "Write out the raw tool data completely in plain text with all values — no JSON."
         ),
         "coach_analysis_prompt": (
             "You are an experienced triathlon coach with 20 years of long-distance preparation experience.\n\n"

@@ -194,6 +194,22 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 .mud-btn[data-value="4"].active,
 .mud-btn[data-value="5"].active { background: rgba(239,159,39,.15); border-color: var(--orange); color: var(--orange); }
 
+/* ── Läufer-Animation (Workout-Analyse) ───────────────────────────────────── */
+.runner-anim { text-align:center; padding:20px 0 16px; }
+.runner-icon { font-size:28px; display:inline-block;
+  animation: runBounce 0.38s ease-in-out infinite alternate; }
+@keyframes runBounce {
+  from { transform: translateY(0px) rotate(-6deg) scaleY(1); }
+  to   { transform: translateY(-8px) rotate(6deg) scaleY(0.93); }
+}
+.runner-track { width:110px; height:2px; background:rgba(29,158,117,.15);
+  border-radius:1px; margin:8px auto 0; overflow:hidden; position:relative; }
+.runner-track::after { content:''; position:absolute; top:0; left:-35%; width:35%; height:100%;
+  background:#1D9E75; border-radius:1px;
+  animation: trackGlide 1.4s ease-in-out infinite; }
+@keyframes trackGlide { 0%{left:-35%} 100%{left:135%} }
+.runner-label { font-size:12px; color:var(--muted); margin-top:10px; line-height:1.5; }
+
 /* pill groups */
 .pill-group {
   display: flex;
@@ -2216,7 +2232,7 @@ async function renderAnalyseSection() {
                 <span style="font-size:13px;color:var(--text)">${esc(w.title || w.sport || 'Workout')}</span>
                 ${w.duration_min ? `<span style="font-size:11px;color:var(--muted);margin-left:6px">${w.duration_min} min</span>` : ''}
               </div>
-              <button onclick="analyzeWorkout(${i},'${esc(w.id||'')}','${esc(w.sport||'')}','${esc(w.title||'')}')"
+              <button onclick="analyzeWorkout(${i},'${esc(w.id||'')}','${esc(w.sport||'')}','${esc(w.title||'')}','${day.date}')"
                       style="flex-shrink:0;background:rgba(29,158,117,.12);border:1px solid rgba(29,158,117,.3);color:#1D9E75;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;white-space:nowrap">
                 Analysieren
               </button>
@@ -2231,16 +2247,22 @@ async function renderAnalyseSection() {
   }
 }
 
-async function analyzeWorkout(idx, workoutId, sport, title) {
+async function analyzeWorkout(idx, workoutId, sport, title, workoutDate) {
   const btn       = document.querySelector(`#analyse-item-${idx} button`);
   const resultDiv = document.getElementById(`analyse-result-${idx}`);
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
-  if (resultDiv) resultDiv.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:8px 0;display:flex;align-items:center;gap:8px"><div class="spinner" style="width:12px;height:12px;border-width:2px"></div> Coach analysiert… (ca. 15–20s)</div>`;
+  if (resultDiv) resultDiv.innerHTML = `
+    <div class="runner-anim">
+      <span class="runner-icon">🏃</span>
+      <div class="runner-track"></div>
+      <p class="runner-label">Coach lädt Trainingsdaten aus TP…<br><span style="font-size:11px;opacity:.7">Kann 2–5 Min dauern</span></p>
+    </div>`;
   try {
     const fd = new FormData();
-    fd.append('workout_id', workoutId || '');
-    fd.append('sport',      sport     || '');
-    fd.append('title',      title     || '');
+    fd.append('workout_id',   workoutId   || '');
+    fd.append('sport',        sport       || '');
+    fd.append('title',        title       || '');
+    fd.append('workout_date', workoutDate || '');
     const r = await fetch('/api/workout/analyze', { method: 'POST', body: fd });
     if (!r.ok) throw new Error(await r.text());
     const data = await r.json();

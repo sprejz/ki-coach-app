@@ -940,6 +940,7 @@ async def workout_analyze(
     workout_id: str = Form(""),
     sport: str = Form(""),
     title: str = Form(""),
+    workout_date: str = Form(""),
 ):
     import re as _re
     tp_url = os.environ.get("TP_MCP_URL", "")
@@ -949,25 +950,27 @@ async def workout_analyze(
 
     athlete = load_athlete()
     a_race = next((r for r in athlete.get("races", []) if r.get("type") == "A"), {})
-    today = date.today().isoformat()
+    target_date = workout_date or date.today().isoformat()
 
-    # Step 1 — fetch actual execution data from TP via MCP
-    workout_raw = f"Sport: {sport}, Titel: {title}, Datum: {today}\nHinweis: Nur Plandaten verfügbar — keine Ist-Daten aus TP abrufbar."
+    # Step 1 — Claude+MCP holt Ist-Daten direkt aus TP
+    workout_raw = f"Sport: {sport}, Titel: {title}, Datum: {target_date}"
     if tp_url:
         fetch_prompt = T["tp_completed_prompt"].format(
             name=athlete.get("name", "the athlete"),
-            date=today,
+            date=target_date,
             workout_id=workout_id or "unbekannt",
             sport=sport or "unbekannt",
+            title=title or sport,
         )
         try:
             raw_tp = call_claude_tp_mcp(fetch_prompt)
             if raw_tp and len(raw_tp.strip()) > 20:
                 workout_raw = raw_tp
+                logger.info("workout_analyze: TP data fetched (%d chars)", len(raw_tp))
         except Exception as e:
             logger.warning("workout_analyze: TP fetch failed: %s", e)
 
-    # Step 2 — coach analysis (plain Claude, no MCP)
+    # Step 2 — Coach-Analyse (plain Claude, kein MCP)
     analysis_prompt = T["coach_analysis_prompt"].format(
         name=athlete.get("name", "Hendrik"),
         ftp=athlete.get("ftp_watt", 286),
