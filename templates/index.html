@@ -1273,15 +1273,8 @@ function buildResult(data, fd, type) {
   if (w) {
     h += `<div class="card-section">
       <div class="section-lbl">Wetter morgen — ${esc(athlete?.location?.name || '')}</div>
-      <div class="weather-row">
-        <span class="weather-temp">${w.temp_min ?? '?'}–${w.temp_max ?? '?'}°C</span>
-        <span class="weather-desc">${esc(w.description || '')}</span>
-        ${w.rain_prob > 0 ? `<span class="weather-rain">${w.rain_prob}% Regen</span>` : ''}
-        ${w.is_thunderstorm ? `<span class="weather-thunder">⚡ Gewitter</span>` : ''}
-        ${w.is_hot ? `<span class="weather-rain" style="color:var(--red)">Hitze</span>` : ''}
-      </div>
-      ${w.hourly?.length ? buildRainTimeline(w.hourly) : ''}
-      ${data.wetter_hinweis ? `<p class="card-hint">${esc(data.wetter_hinweis)}</p>` : ''}
+      ${_weatherHtml(w)}
+      ${data.wetter_hinweis ? `<p class="card-hint" style="margin-top:4px">${esc(data.wetter_hinweis)}</p>` : ''}
     </div>`;
   } else if (data.wetter_hinweis) {
     h += `<div class="card-section"><div class="section-lbl">Wetter</div><p class="card-hint">${esc(data.wetter_hinweis)}</p></div>`;
@@ -1552,13 +1545,41 @@ async function refreshAll() {
 }
 
 // ── render helpers ────────────────────────────────────────────────────────────
+function weatherIcon(code) {
+  if (code >= 95) return '⛈️';
+  if (code >= 80) return '🌧️';
+  if (code >= 71) return '🌨️';
+  if (code >= 61) return '🌧️';
+  if (code >= 51) return '🌦️';
+  if (code >= 45) return '🌫️';
+  if (code === 3)  return '☁️';
+  if (code === 2)  return '⛅';
+  if (code === 1)  return '🌤️';
+  return '☀️';
+}
+function rainBadge(prob) {
+  if (!prob) return '';
+  const [fg, bg] = prob > 50
+    ? ['var(--red)',     'rgba(226,75,74,.13)']
+    : prob >= 20
+    ? ['var(--orange)',  'rgba(239,159,39,.13)']
+    : ['var(--green)',   'rgba(29,158,117,.13)'];
+  return `<span style="font-size:12px;font-weight:700;color:${fg};background:${bg};padding:3px 9px;border-radius:10px;white-space:nowrap">${prob}% Regen</span>`;
+}
 function _weatherHtml(w) {
-  return `<div class="weather-row">
-    <span class="weather-temp">${w.temp_min ?? '?'}–${w.temp_max ?? '?'}°C</span>
-    <span class="weather-desc">${esc(w.description || '')}</span>
-    ${w.rain_prob > 0 ? `<span class="weather-rain">${w.rain_prob}% Regen</span>` : ''}
-    ${w.is_thunderstorm ? `<span class="weather-thunder">⚡ Gewitter</span>` : ''}
-    ${w.is_hot ? `<span class="weather-rain" style="color:var(--red)">Hitze</span>` : ''}
+  const icon   = weatherIcon(w.code ?? 0);
+  const badges = [
+    rainBadge(w.rain_prob),
+    w.is_thunderstorm ? `<span style="font-size:12px;font-weight:700;color:var(--red);background:rgba(226,75,74,.13);padding:3px 9px;border-radius:10px">⚡ Gewitter</span>` : '',
+    w.is_hot          ? `<span style="font-size:12px;font-weight:700;color:var(--red);background:rgba(226,75,74,.13);padding:3px 9px;border-radius:10px">🌡️ Hitze</span>` : '',
+  ].filter(Boolean).join(' ');
+  return `<div style="display:flex;align-items:center;gap:14px;margin-bottom:8px">
+    <span style="font-size:34px;line-height:1;flex-shrink:0">${icon}</span>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:22px;font-weight:800;letter-spacing:-0.5px;line-height:1.1">${w.temp_min ?? '?'}–${w.temp_max ?? '?'}°C</div>
+      <div style="font-size:13px;color:var(--muted);margin-top:2px">${esc(w.description || '')}</div>
+    </div>
+    ${badges ? `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">${badges}</div>` : ''}
   </div>
   ${w.hourly?.length ? buildRainTimeline(w.hourly) : ''}`;
 }
@@ -1709,8 +1730,12 @@ async function applyToTP() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         operations,
-        day:      currentResultType === 'morgen' ? 'today' : 'tomorrow',
-        symptome: currentFormData?.symptome || '',
+        day:        currentResultType === 'morgen' ? 'today' : 'tomorrow',
+        symptome:   currentFormData?.symptome   || '',
+        knie:       currentFormData?.knie       ?? 0,
+        achilles_l: currentFormData?.achilles_l ?? 0,
+        achilles_r: currentFormData?.achilles_r ?? 0,
+        muedigkeit: currentFormData?.muedigkeit ?? 1,
       }),
     });
     if (!r.ok) {

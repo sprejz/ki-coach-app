@@ -17,7 +17,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.4.17"
+APP_VERSION = "2.4.18"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -575,6 +575,10 @@ async def tp_apply(request: Request):
     operations  = body.get("operations", [])
     day         = body.get("day", "tomorrow")
     symptome    = body.get("symptome", "")
+    knie        = body.get("knie",       0)
+    achilles_l  = body.get("achilles_l", 0)
+    achilles_r  = body.get("achilles_r", 0)
+    muedigkeit  = body.get("muedigkeit", 1)
     day_offset  = 0 if day == "today" else 1
     target_date = (date.today() + timedelta(days=day_offset)).isoformat()
     athlete     = load_athlete()
@@ -685,7 +689,11 @@ async def tp_apply(request: Request):
     # Kalendernotiz bei Krankheit (einmalig, unabhängig von Workout-Anzahl)
     if had_skip_stop and "neu schwer" in symptome:
         note_title = "🤧 Krank – Training gestrichen (KI)"
-        note_text  = "Symptome neu schwer. Alle Einheiten gestrichen."
+        note_text  = (
+            f"Symptome: {symptome}. Alle Einheiten gestrichen.\n"
+            f"Knie: {knie}/10, Achilles L: {achilles_l}/10, "
+            f"Achilles R: {achilles_r}/10, Müdigkeit: {muedigkeit}/5."
+        )
         logger.info("tp_apply: creating sick-note for %s", target_date)
         try:
             await call_tp_mcp("tp_create_note", {
