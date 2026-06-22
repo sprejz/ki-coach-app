@@ -1538,6 +1538,17 @@ async function refreshAll() {
   await loadStartupData();
   hideSplash();
   if (btn) btn.classList.remove('spinning');
+
+  // If a result card is currently showing, switch back to the form so fresh data is visible
+  const resultEl = document.getElementById('result-section');
+  if (resultEl && resultEl.style.display !== 'none') {
+    resultEl.style.display = 'none';
+    document.getElementById('form-section').style.display = 'block';
+    currentResult = null;
+    currentFormData = null;
+    tpWorkouts = [];
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
 }
 
 // ── render helpers ────────────────────────────────────────────────────────────
@@ -1700,13 +1711,17 @@ async function applyToTP() {
     }
     const data = await r.json();
 
-    // Build success box
-    const rows = (data.actions || []).map(a => {
-      const ok = (a.status || 'ok') !== 'error';
+    // Build result box — red border if any action failed
+    const actions = data.actions || [];
+    const anyFailed = actions.some(a => a.status === 'error');
+    const rows = actions.map(a => {
+      const ok = a.status !== 'error';
       return `<div style="font-size:12px;color:${ok ? 'var(--green)' : 'var(--red)'};line-height:1.8">${ok ? '✓' : '✗'} ${esc(a.detail || a.action || '')}</div>`;
     }).join('');
     const box = document.createElement('div');
-    box.style.cssText = 'margin-top:10px;padding:10px;background:rgba(29,158,117,.06);border-radius:8px;border:1px solid rgba(29,158,117,.2)';
+    box.style.cssText = anyFailed
+      ? 'margin-top:10px;padding:10px;background:rgba(226,75,74,.08);border-radius:8px;border:1px solid rgba(226,75,74,.25)'
+      : 'margin-top:10px;padding:10px;background:rgba(29,158,117,.06);border-radius:8px;border:1px solid rgba(29,158,117,.2)';
     box.innerHTML = rows;
 
     // Auto-reload workouts to show updated TP titles
@@ -1731,7 +1746,16 @@ async function applyToTP() {
       if (freshHtml) list.innerHTML = freshHtml;
       list.appendChild(box);
     }
-    if (btn) { btn.textContent = '✓ In TP angepasst'; }
+    if (btn) {
+      if (anyFailed) {
+        btn.disabled = false;
+        btn.textContent = '✗ Fehler beim TP Update';
+        btn.style.color = 'var(--red)';
+        btn.style.borderColor = 'rgba(226,75,74,.4)';
+      } else {
+        btn.textContent = '✓ In TP angepasst';
+      }
+    }
   } catch(err) {
     if (list) {
       list.style.display = 'block';
