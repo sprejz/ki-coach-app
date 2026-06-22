@@ -129,7 +129,11 @@ TRANSLATIONS = {
             "{pain_rules}\n"
             "SONSTIGE GRENZEN: Symptome neu schwer→Ruhe · Gewitter→kein Outdoor-Rad (Zwift 75%)\n"
             "WEICHE SIGNALE: Müdigkeit ≥4→Intensität raus · Schlafdauer ignorieren, primär HRV+WachBPM\n"
-            "Ernährung ab 90min: {carbs}g/h+{salt} Saltstick/h; Hitze>{heat_thr}°C: {fluid_heat}ml+{salt_heat}x Saltstick/h\n\n"
+            "Ernährung ab 90min: {carbs}g/h+{salt} Saltstick/h; Hitze>{heat_thr}°C: {fluid_heat}ml+{salt_heat}x Saltstick/h\n"
+            "ENTSCHEIDUNGSREGEL: Triff immer eine klare Entscheidung — GO, MOD oder STOP. "
+            "Stelle keine Fragen an den Athleten. "
+            "Wenn mehrere Optionen möglich sind, wähle die konservativere. "
+            "Bei MOD mit Knie: immer die reduzierte Version (lockeres Z1, max 30min), nicht beide Optionen nennen.\n\n"
             "Antworte NUR als JSON (kein Markdown):\n"
             '{{"status":"green","status_text":"Alles grün","sportarten":[{{"sport":"Schwimmen","badge":"GO","details":"...","ernaehrung":"..."}}],"autosleep_summary":null,"wetter_hinweis":"...","prep":"..."}}'
         ),
@@ -312,7 +316,11 @@ TRANSLATIONS = {
             "{pain_rules}\n"
             "OTHER LIMITS: symptoms new severe→rest · thunderstorm→no outdoor cycling (Zwift 75%)\n"
             "SOFT SIGNALS: fatigue ≥4→remove intensity · ignore sleep duration, use HRV+AwakeBPM\n"
-            "Nutrition from 90min: {carbs}g/h+{salt} salt/h; heat>{heat_thr}°C: {fluid_heat}ml+{salt_heat}x salt/h\n\n"
+            "Nutrition from 90min: {carbs}g/h+{salt} salt/h; heat>{heat_thr}°C: {fluid_heat}ml+{salt_heat}x salt/h\n"
+            "DECISION RULE: Always make a clear decision — GO, MOD or STOP. "
+            "Never ask the athlete questions. "
+            "When multiple options are possible, choose the more conservative one. "
+            "For MOD with knee: always choose the reduced version (easy Z1, max 30min), do not list both options.\n\n"
             "Respond ONLY as JSON (no markdown):\n"
             '{{"status":"green","status_text":"All clear","sportarten":[{{"sport":"Schwimmen","badge":"GO","details":"...","ernaehrung":"..."}}],"autosleep_summary":null,"wetter_hinweis":"...","prep":"..."}}'
         ),
