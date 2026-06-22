@@ -17,7 +17,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.4.32"
+APP_VERSION = "2.4.33"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -264,6 +264,7 @@ def build_system_prompt(athlete: dict, baseline: Optional[dict]) -> str:
         heat_thr=heat_thr,
         fluid_heat=n.get("fluid_heat_per_hour_ml", 750),
         salt_heat=n.get("salt_heat_per_hour", 2),
+        swim_min=athlete.get("swim_outdoor_min_celsius", 15),
         pain_rules=build_pain_rules(athlete.get("pain_thresholds", {})),
     )
 
