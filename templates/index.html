@@ -1709,7 +1709,8 @@ async function applyToTP() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         operations,
-        day: currentResultType === 'morgen' ? 'today' : 'tomorrow',
+        day:      currentResultType === 'morgen' ? 'today' : 'tomorrow',
+        symptome: currentFormData?.symptome || '',
       }),
     });
     if (!r.ok) {

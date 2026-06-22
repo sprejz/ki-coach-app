@@ -17,7 +17,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.4.16"
+APP_VERSION = "2.4.17"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -574,12 +574,14 @@ async def tp_apply(request: Request):
     body        = await request.json()
     operations  = body.get("operations", [])
     day         = body.get("day", "tomorrow")
+    symptome    = body.get("symptome", "")
     day_offset  = 0 if day == "today" else 1
     target_date = (date.today() + timedelta(days=day_offset)).isoformat()
     athlete     = load_athlete()
 
-    logger.info("tp_apply: %d operations for %s", len(operations), target_date)
+    logger.info("tp_apply: %d operations for %s symptome=%r", len(operations), target_date, symptome)
     actions = []
+    had_skip_stop = False
     for op in operations:
         workout_id = op.get("workout_id")
         badge      = op.get("badge", "GO")
@@ -596,6 +598,7 @@ async def tp_apply(request: Request):
                 result = await call_tp_mcp("tp_update_workout", {"workout_id": workout_id, "title": new_title})
                 actions.append({"workout_id": workout_id, "badge": badge, "status": "ok",
                                 "detail": new_title, "mcp_response": result})
+                had_skip_stop = True
             except Exception as e:
                 logger.error("tp_apply SKIP: tp_update_workout failed for %s: %s", workout_id, e)
                 actions.append({"workout_id": workout_id, "badge": badge, "status": "error", "detail": str(e)})
@@ -678,6 +681,22 @@ async def tp_apply(request: Request):
                 logger.error("tp_apply MOD: tp_create_workout failed for %s: %s", workout_id, e)
                 actions.append({"workout_id": workout_id, "badge": badge, "status": "error",
                                 "detail": f"Neues Workout nicht erstellt: {e}"})
+
+    # Kalendernotiz bei Krankheit (einmalig, unabhängig von Workout-Anzahl)
+    if had_skip_stop and "neu schwer" in symptome:
+        note_title = "🤧 Krank – Training gestrichen (KI)"
+        note_text  = "Symptome neu schwer. Alle Einheiten gestrichen."
+        logger.info("tp_apply: creating sick-note for %s", target_date)
+        try:
+            await call_tp_mcp("tp_create_note", {
+                "date":  target_date,
+                "title": note_title,
+                "text":  note_text,
+            })
+            actions.append({"badge": "NOTE", "status": "ok", "detail": note_title})
+        except Exception as e:
+            logger.error("tp_apply: tp_create_note failed: %s", e)
+            actions.append({"badge": "NOTE", "status": "error", "detail": f"Kalendernotiz fehlgeschlagen: {e}"})
 
     logger.info("tp_apply done: %d actions", len(actions))
     return {"ok": True, "actions": actions}
