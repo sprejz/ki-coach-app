@@ -17,7 +17,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.4.26"
+APP_VERSION = "2.4.27"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -27,10 +27,6 @@ app = FastAPI()
 BASE_DIR = Path(__file__).parent
 
 # ── shared HTTP clients (connection pooling) ──────────────────────────────────
-_weather_http = httpx.AsyncClient(
-    timeout=httpx.Timeout(10.0),
-    limits=httpx.Limits(max_connections=5, max_keepalive_connections=3),
-)
 _tp_http = httpx.Client(
     timeout=httpx.Timeout(15.0),
     limits=httpx.Limits(max_connections=5, max_keepalive_connections=3),
@@ -140,7 +136,8 @@ async def fetch_weather(athlete: dict, day: int = 1) -> dict:
         f"&timezone=Europe/Berlin&forecast_days=2"
     )
     logger.info("fetch_weather: day=%s lat=%s lon=%s", day, lat, lon)
-    r = await _weather_http.get(url)
+    async with httpx.AsyncClient(timeout=httpx.Timeout(15.0), follow_redirects=True) as client:
+        r = await client.get(url)
     r.raise_for_status()
     raw = r.json()
     daily_dates = raw.get("daily", {}).get("time", [])
