@@ -17,7 +17,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.4.29"
+APP_VERSION = "2.4.30"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -768,6 +768,7 @@ async def check_abend(request: Request):
 
     user_msg = (
         f"{header}\n\nFragebogen:\n"
+        f"- Waden: {data.get('waden', 0)}/10\n"
         f"- Knie: {data.get('knie', 0)}/10\n"
         f"- Achillessehne L: {data.get('achilles_l', 0)}/10\n"
         f"- Achillessehne R: {data.get('achilles_r', 0)}/10\n"

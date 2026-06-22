@@ -691,6 +691,16 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
       <p class="section-title">{{ T.sec_body_evening }}</p>
 
       <div class="form-section">
+        <!-- Waden -->
+        <div class="field-row">
+          <div class="field-label">
+            <span>{{ T.lbl_waden }}</span>
+            <span class="slider-val ok" id="waden-abend-val">0</span>
+          </div>
+          <input type="range" id="waden-abend" min="0" max="10" step="0.5" value="0">
+          <div class="scale-labels"><span>{{ T.lbl_no_pain }}</span><span>{{ T.lbl_max }}</span></div>
+        </div>
+
         <!-- Knie -->
         <div class="field-row">
           <div class="field-label">
@@ -698,7 +708,6 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
             <span class="slider-val ok" id="knie-abend-val">0</span>
           </div>
           <input type="range" id="knie-abend" min="0" max="10" step="0.5" value="0">
-          <div class="scale-labels"><span>{{ T.lbl_no_pain }}</span><span>{{ T.lbl_max }}</span></div>
         </div>
 
         <!-- Achilles L -->
@@ -1148,6 +1157,7 @@ async function submitAbend(e) {
   e.preventDefault();
   setLoading(true);
   const body = {
+    waden:              parseFloat(document.getElementById('waden-abend').value),
     knie:               parseFloat(document.getElementById('knie-abend').value),
     achilles_l:         parseFloat(document.getElementById('achilles-l-abend').value),
     achilles_r:         parseFloat(document.getElementById('achilles-r-abend').value),
@@ -1160,6 +1170,7 @@ async function submitAbend(e) {
     weather_data:       weatherTomorrow ? JSON.stringify(weatherTomorrow) : undefined,
   };
   currentFormData = {
+    waden:       body.waden,
     knie:        body.knie,
     achilles_l:  body.achilles_l,
     achilles_r:  body.achilles_r,
