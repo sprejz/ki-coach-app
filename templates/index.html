@@ -899,13 +899,6 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
       <button type="submit" class="btn-submit">{{ T.btn_abend }}</button>
     </form>
 
-    <!-- Heutige Einheiten analysieren (erscheint sobald TP-Daten geladen) -->
-    <div id="abend-analyse-section" style="display:none;margin-top:16px">
-      <div class="form-card">
-        <p class="section-title" style="margin-bottom:12px">Heutige Einheiten analysieren</p>
-        <div id="abend-analyse-list"></div>
-      </div>
-    </div>
   </div>
 
   <!-- Morgen Form -->
@@ -1017,6 +1010,12 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
   <div class="tab-panel" data-panel="erholung">
     <div class="form-card" id="erholung-card" style="border-top:none;border-radius:0 0 var(--radius) var(--radius)">
       <p style="color:var(--muted);font-size:13px">{{ T.loading }}</p>
+    </div>
+    <div id="abend-analyse-section" style="display:none;margin-top:12px">
+      <div class="form-card">
+        <p class="section-title" style="margin-bottom:12px">Heutige Einheiten analysieren</p>
+        <div id="abend-analyse-list"></div>
+      </div>
     </div>
   </div>
 
@@ -1727,6 +1726,7 @@ async function loadErholung() {
   } catch(e) {
     card.innerHTML = `<p style="color:var(--red);font-size:13px">${esc(e.message)}</p>`;
   }
+  renderAnalyseSection();
 }
 
 function markerStatus(key, value, baseline) {
