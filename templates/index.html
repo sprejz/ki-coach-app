@@ -1650,11 +1650,12 @@ function renderMorgenTP(data) {
 // ── startup: alle 4 parallel mit cache:'no-store' ────────────────────────────
 async function loadStartupData() {
   const t = Date.now();
+  const okJson = r => r.ok ? r.json() : null;
   const results = await Promise.allSettled([
-    fetch('/api/weather?day=tomorrow&t='+t,          {cache:'no-store'}).then(r=>r.json()),
-    fetch('/api/weather?day=today&t='+t,             {cache:'no-store'}).then(r=>r.json()),
-    fetch('/api/tp/workouts?day=tomorrow&t='+t,      {cache:'no-store'}).then(r=>r.json()),
-    fetch('/api/tp/workouts?day=today&t='+t,         {cache:'no-store'}).then(r=>r.json()),
+    fetch('/api/weather?day=tomorrow&t='+t,          {cache:'no-store'}).then(okJson),
+    fetch('/api/weather?day=today&t='+t,             {cache:'no-store'}).then(okJson),
+    fetch('/api/tp/workouts?day=tomorrow&t='+t,      {cache:'no-store'}).then(okJson),
+    fetch('/api/tp/workouts?day=today&t='+t,         {cache:'no-store'}).then(okJson),
   ]);
   const val = r => r.status === 'fulfilled' ? r.value : null;
   renderAbendWeather(val(results[0]));

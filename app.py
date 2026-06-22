@@ -17,7 +17,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.4.25"
+APP_VERSION = "2.4.26"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -799,17 +799,11 @@ async def check_morgen(
     baseline = load_baseline()
     system = build_system_prompt(athlete, baseline)
 
+    weather = None
     try:
         weather = await fetch_weather(athlete, day=0)
     except Exception as e:
-        weather = {
-            "description": T["err_weather_na"],
-            "temp_max": None, "temp_min": None,
-            "rain_prob": 0, "is_thunderstorm": False,
-            "is_rain": False, "is_hot": False,
-            "hourly": [],
-            "error": str(e),
-        }
+        logger.warning("check-morgen: Wetter nicht verfügbar: %s", e)
 
     sleep_text = ""
     sleep_result = None
@@ -862,7 +856,8 @@ AutoSleep (letzte Nacht):
 
     try:
         result = call_claude(system, user_msg)
-        result["weather"] = weather
+        if weather:
+            result["weather"] = weather
         if sleep_result:
             result["sleep_flags"] = sleep_result
         return result
