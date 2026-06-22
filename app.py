@@ -17,7 +17,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.4.21"
+APP_VERSION = "2.4.22"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -76,13 +76,13 @@ def next_a_race(athlete: dict) -> Optional[dict]:
 # ── weather ───────────────────────────────────────────────────────────────────
 
 WMO = {
-    0: "Klarer Himmel", 1: "Überwiegend klar", 2: "Teils bewölkt", 3: "Bedeckt",
+    0: "Sonnig", 1: "Meist klar", 2: "Teils bewölkt", 3: "Bedeckt",
     45: "Nebel", 48: "Nebel",
-    51: "Leichter Nieselregen", 53: "Nieselregen", 55: "Starker Nieselregen",
+    51: "Leichter Niesel", 53: "Nieselregen", 55: "Starker Niesel",
     61: "Leichter Regen", 63: "Regen", 65: "Starker Regen",
     71: "Leichter Schnee", 73: "Schnee", 75: "Starker Schnee",
     80: "Leichte Schauer", 81: "Schauer", 82: "Starke Schauer",
-    95: "Gewitter", 96: "Gewitter mit Hagel", 99: "Gewitter mit Starkhagel",
+    95: "Gewitter", 96: "Gewitter + Hagel", 99: "Schweres Gewitter",
 }
 
 
