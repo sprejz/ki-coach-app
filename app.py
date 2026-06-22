@@ -215,6 +215,20 @@ def flag_sleep(data: dict, baseline: Optional[dict]) -> dict:
 
 # ── Claude system prompt ──────────────────────────────────────────────────────
 
+def build_pain_rules(pt: dict) -> str:
+    k  = pt.get("knee", {})
+    a  = pt.get("achilles", {})
+    km = k.get("mod_low", 3)
+    ks = k.get("stop", 7)
+    am = a.get("mod_low", 4)
+    as_ = a.get("stop", 6)
+    return (
+        f"KNIE: 0–{km-1}→GO · {km}–{ks-3}→MOD(Distanz+Intensität↓,kein Tempo) · "
+        f"{ks-2}–{ks-1}→MOD(max 30min Z1,Rad/Aqua) · ≥{ks}→STOP\n"
+        f"ACHILLES L/R: 0–{am-1}→GO · {am}–{as_-1}→MOD(Distanz↓,kein Tempo,weich) · ≥{as_}→STOP"
+    )
+
+
 def build_system_prompt(athlete: dict, baseline: Optional[dict]) -> str:
     a = next_a_race(athlete)
     a_info = f"{a['name']}, {a['date']}, Zielzeit {a.get('goal_total', '?')}h" if a else "kein A-Rennen eingetragen"
@@ -248,6 +262,7 @@ def build_system_prompt(athlete: dict, baseline: Optional[dict]) -> str:
         heat_thr=heat_thr,
         fluid_heat=n.get("fluid_heat_per_hour_ml", 750),
         salt_heat=n.get("salt_heat_per_hour", 2),
+        pain_rules=build_pain_rules(athlete.get("pain_thresholds", {})),
     )
 
 

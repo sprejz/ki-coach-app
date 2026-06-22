@@ -89,5 +89,9 @@
       }
     ]
   },
+  "pain_thresholds": {
+    "knee":     {"mod_low": 3, "mod_high": 7, "stop": 7},
+    "achilles": {"mod_low": 4, "mod_high": 6, "stop": 6}
+  },
   "updated": "2026-06-20"
 }
