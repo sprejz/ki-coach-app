@@ -2137,19 +2137,20 @@ function setWeatherCache(dayOffset, data) {
   try { localStorage.setItem('wx_' + dayOffset, JSON.stringify({ ts: Date.now(), data })); } catch {}
 }
 
-// ── Startup: Schnelle Phase zuerst, TP im Hintergrund ────────────────────────
+// ── Startup: Phase 1 schnell, Phase 2 TP mit sichtbarem Status ───────────────
 async function loadStartupData() {
   const t = Date.now();
   const okJson = r => r.ok ? r.json() : null;
   erholungLoaded = false;
 
-  // Wetter sofort aus Cache zeigen (falls vorhanden) — user sieht es ohne Warten
+  // Wetter sofort aus Cache — user sieht es ohne Warten
   const cTomorrow = getWeatherCache(1);
   const cToday    = getWeatherCache(0);
   if (cTomorrow) renderAbendWeather(cTomorrow);
   if (cToday)    renderMorgenWeather(cToday);
 
-  // Phase 1 — schnell: Wetter (fresh), Sleep-History, Baseline (alles lokal oder CORS)
+  // Phase 1 — Wetter + Schlafdaten (schnell, <1s)
+  setSplashStatus(T.loading_weather);
   const fast = await Promise.allSettled([
     fetchWeatherDirect(1),
     fetchWeatherDirect(0),
@@ -2167,20 +2168,14 @@ async function loadStartupData() {
   const erholungPanel = document.querySelector('[data-panel="erholung"]');
   if (erholungPanel?.classList.contains('active')) loadErholung();
 
-  // Phase 2 — TP Workouts im Hintergrund (blockiert splash NICHT)
-  loadTPInBackground(t);
-}
-
-function loadTPInBackground(t) {
-  const okJson = r => r.ok ? r.json() : null;
-  Promise.allSettled([
+  // Phase 2 — TP Workouts (langsam wenn TP konfiguriert, aber Splash zeigt Status)
+  setSplashStatus(T.loading_workouts);
+  const slow = await Promise.allSettled([
     fetch('/api/tp/workouts?day=tomorrow&t='+t, {cache:'no-store'}).then(okJson),
     fetch('/api/tp/workouts?day=today&t='+t,    {cache:'no-store'}).then(okJson),
-  ]).then(results => {
-    const val = r => r.status === 'fulfilled' ? r.value : null;
-    renderAbendTP(val(results[0]));
-    renderMorgenTP(val(results[1]));
-  });
+  ]);
+  renderAbendTP(val(slow[0]));
+  renderMorgenTP(val(slow[1]));
 }
 
 async function loadTPWorkouts() {
