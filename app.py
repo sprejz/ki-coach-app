@@ -17,7 +17,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.4.27"
+APP_VERSION = "2.4.28"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -82,17 +82,56 @@ WMO = {
 }
 
 
-def parse_weather(raw: dict, day: int = 1) -> dict:
-    daily = raw.get("daily", {})
-    available = len(daily.get("time", []))
-    idx = min(day, available - 1) if available > 0 else 0
-    wc_list = daily.get("weathercode") or daily.get("weather_code") or [0]
-    code = wc_list[idx] if idx < len(wc_list) else 0
-    temp_max = (daily.get("temperature_2m_max") or [None])[idx]
-    temp_min = (daily.get("temperature_2m_min") or [None])[idx]
-    rain_prob = (daily.get("precipitation_probability_max") or [0])[idx] or 0
-    datum = (daily.get("time") or ["?"])[idx]
-    return {
+WTTR_TO_WMO = {
+    113: 0,  116: 2,  119: 3,  122: 3,
+    143: 45, 176: 51, 185: 71, 200: 95,
+    227: 73, 230: 75, 248: 45, 260: 45,
+    263: 51, 266: 51, 281: 55, 284: 55,
+    293: 61, 296: 61, 299: 63, 302: 65,
+    305: 65, 308: 65, 311: 55, 314: 55,
+    317: 71, 320: 73, 323: 71, 326: 71,
+    329: 73, 332: 73, 335: 75, 338: 75,
+    350: 71, 353: 80, 356: 81, 359: 82,
+    362: 71, 365: 73, 368: 71, 371: 73,
+    386: 95, 389: 95, 392: 96, 395: 99,
+}
+
+
+async def fetch_weather(athlete: dict, day: int = 1) -> dict:
+    lat = athlete["location"]["lat"]
+    lon = athlete["location"]["lon"]
+    url = f"https://wttr.in/{lat},{lon}?format=j1"
+    logger.info("fetch_weather: day=%s lat=%s lon=%s", day, lat, lon)
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(15.0),
+        follow_redirects=True,
+        headers={"Accept": "application/json", "User-Agent": "ki-coach-app/1.0"},
+    ) as client:
+        r = await client.get(url)
+    r.raise_for_status()
+    raw = r.json()
+    weather_days = raw.get("weather", [])
+    if not weather_days or day >= len(weather_days):
+        raise ValueError(f"Keine Wetterdaten für Tag {day}")
+    day_data = weather_days[day]
+    hourly_list = day_data.get("hourly", [])
+    midday = hourly_list[4] if len(hourly_list) > 4 else (hourly_list[-1] if hourly_list else {})
+    wttr_code = int(midday.get("weatherCode", "113") or "113")
+    code = WTTR_TO_WMO.get(wttr_code, 0)
+    temp_max = float(day_data.get("maxtempC", "0") or "0")
+    temp_min = float(day_data.get("mintempC", "0") or "0")
+    rain_prob = max((int(h.get("chanceofrain", "0") or "0") for h in hourly_list), default=0)
+    datum = day_data.get("date", "")
+    hourly = []
+    for h in hourly_list:
+        hour = int(h.get("time", "0") or "0") // 100
+        if 6 <= hour <= 20:
+            hourly.append({
+                "hour": hour,
+                "rain": int(h.get("chanceofrain", "0") or "0"),
+                "temp": float(h.get("tempC", "0") or "0"),
+            })
+    result = {
         "datum": datum,
         "code": code,
         "description": WMO.get(code, f"Code {code}"),
@@ -101,51 +140,11 @@ def parse_weather(raw: dict, day: int = 1) -> dict:
         "rain_prob": rain_prob,
         "is_thunderstorm": code in [95, 96, 99],
         "is_rain": code in [51, 53, 55, 61, 63, 65, 80, 81, 82] or rain_prob > 60,
-        "is_hot": temp_max is not None and temp_max > 25,
+        "is_hot": temp_max > 25,
+        "hourly": hourly,
     }
-
-
-def parse_hourly(raw: dict, day: int = 1) -> list:
-    target = (date.today() + timedelta(days=day)).isoformat()
-    hourly = raw.get("hourly", {})
-    times = hourly.get("time", [])
-    rain_probs = hourly.get("precipitation_probability", [])
-    temps = hourly.get("temperature_2m", [])
-    result = []
-    for i, t in enumerate(times):
-        if not t.startswith(target):
-            continue
-        hour = int(t[11:13])
-        if 6 <= hour <= 20:
-            result.append({
-                "hour": hour,
-                "rain": rain_probs[i] if i < len(rain_probs) else 0,
-                "temp": round(temps[i], 1) if i < len(temps) and temps[i] is not None else None,
-            })
-    return result
-
-
-async def fetch_weather(athlete: dict, day: int = 1) -> dict:
-    lat = athlete["location"]["lat"]
-    lon = athlete["location"]["lon"]
-    url = (
-        f"https://api.open-meteo.com/v1/forecast"
-        f"?latitude={lat}&longitude={lon}"
-        f"&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code"
-        f"&hourly=precipitation_probability,temperature_2m"
-        f"&timezone=Europe/Berlin&forecast_days=2"
-    )
-    logger.info("fetch_weather: day=%s lat=%s lon=%s", day, lat, lon)
-    async with httpx.AsyncClient(timeout=httpx.Timeout(15.0), follow_redirects=True) as client:
-        r = await client.get(url)
-    r.raise_for_status()
-    raw = r.json()
-    daily_dates = raw.get("daily", {}).get("time", [])
-    logger.info("fetch_weather ok: daily_dates=%s", daily_dates)
-    result = parse_weather(raw, day=day)
-    result["hourly"] = parse_hourly(raw, day=day)
-    logger.info("fetch_weather parsed: datum=%s temp=%s-%s hourly=%d",
-                result.get("datum"), result.get("temp_min"), result.get("temp_max"), len(result.get("hourly", [])))
+    logger.info("fetch_weather ok: datum=%s temp=%s-%s code=%s hourly=%d",
+                datum, temp_min, temp_max, code, len(hourly))
     return result
 
 
