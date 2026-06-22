@@ -17,7 +17,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.4.15"
+APP_VERSION = "2.4.16"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -624,12 +624,21 @@ async def tp_apply(request: Request):
             orig_dur   = op.get("duration_min")
             orig_tss   = op.get("tss")
 
-            new_duration = new_tss = None
-            if orig_dur:
+            # Duration: parse from coach_rec first ("30min"), else 75% of original, min 20
+            import re as _re
+            new_duration: int = 20
+            new_tss: Optional[int] = None
+            rec_match = _re.search(r'\b(\d+)\s*min\b', coach_rec or "", _re.IGNORECASE)
+            if rec_match:
+                new_duration = max(20, int(rec_match.group(1)))
+            elif orig_dur:
                 try:
-                    new_duration = max(1, round(float(orig_dur) * 0.75))
-                    if orig_tss:
-                        new_tss = round(float(orig_tss) * (new_duration / float(orig_dur)))
+                    new_duration = max(20, round(float(orig_dur) * 0.75))
+                except (TypeError, ValueError):
+                    pass
+            if orig_tss and orig_dur:
+                try:
+                    new_tss = max(1, round(float(orig_tss) * (new_duration / float(orig_dur))))
                 except (TypeError, ValueError):
                     pass
 
@@ -644,14 +653,13 @@ async def tp_apply(request: Request):
                 desc_parts.append(f"ERNÄHRUNG: {nutr}")
 
             create_args: dict = {
-                "title": new_title,
-                "sport": sport,
-                "date":  target_date,
+                "title":              new_title,
+                "sport":              sport,
+                "date":               target_date,
+                "duration_minutes":   new_duration,
             }
             if desc_parts:
                 create_args["description"] = "\n\n".join(desc_parts)
-            if new_duration is not None:
-                create_args["duration_min"] = new_duration
             if new_tss is not None:
                 create_args["tss"] = new_tss
 
