@@ -14,8 +14,8 @@ TRANSLATIONS = {
         "refreshing":        "Daten werden aktualisiert…",
         "ready":             "Bereit!",
         # Tabs
-        "tab_abend":         "Abend-Check",
-        "tab_morgen":        "Morgen-Check",
+        "tab_abend":         "Abend",
+        "tab_morgen":        "Morgen",
         "tab_erholung":      "Erholung",
         "tab_profil":        "Profil",
         # Section titles
@@ -256,8 +256,8 @@ TRANSLATIONS = {
         "refreshing":        "Refreshing data…",
         "ready":             "Ready!",
         # Tabs
-        "tab_abend":         "Evening Check",
-        "tab_morgen":        "Morning Check",
+        "tab_abend":         "Evening",
+        "tab_morgen":        "Morning",
         "tab_erholung":      "Recovery",
         "tab_profil":        "Profile",
         # Section titles
