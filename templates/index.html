@@ -90,15 +90,18 @@ body {
 }
 .tab-btn {
   flex: 1;
-  padding: 11px 0;
+  padding: 10px 4px;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius) var(--radius) 0 0;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: background .15s, color .15s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .tab-btn.active { background: var(--card2); border-bottom-color: var(--card2); color: var(--text); }
 
@@ -525,6 +528,82 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
   display: none;
 }
 
+/* ── Erholung tab ────────────────────────────────────────────────────────────── */
+.erholung-marker-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.erholung-marker {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 8px;
+  text-align: center;
+}
+.erholung-marker.ok   { border-color: rgba(29,158,117,.35); }
+.erholung-marker.warn { border-color: rgba(239,159,39,.35); }
+.erholung-marker.bad  { border-color: rgba(226,75,74,.35); }
+.em-val { font-size: 15px; font-weight: 700; display: block; }
+.em-lbl { font-size: 10px; color: var(--muted); display: block; margin-top: 2px; }
+.em-dot { font-size: 10px; display: block; margin-top: 2px; }
+.erholung-marker.ok  .em-val { color: var(--green); }
+.erholung-marker.warn .em-val { color: var(--orange); }
+.erholung-marker.bad  .em-val { color: var(--red); }
+.recovery-index-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+}
+.recovery-index-num {
+  font-size: 36px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  min-width: 64px;
+}
+.recovery-bar-wrap {
+  flex: 1;
+  height: 8px;
+  background: var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.recovery-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width .4s ease;
+}
+.erholung-legend {
+  display: flex;
+  gap: 14px;
+  margin-top: 6px;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.legend-dot {
+  width: 10px;
+  height: 3px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.baseline-warning-banner {
+  background: rgba(239,159,39,.08);
+  border: 1px solid rgba(239,159,39,.25);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--orange);
+  line-height: 1.5;
+  margin-bottom: 14px;
+}
+
 /* ── refresh button ──────────────────────────────────────────────────────────── */
 #btn-refresh {
   background: none;
@@ -669,6 +748,7 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 <div class="tabs">
   <button class="tab-btn active" data-tab="abend">{{ T.tab_abend }}</button>
   <button class="tab-btn" data-tab="morgen">{{ T.tab_morgen }}</button>
+  <button class="tab-btn" data-tab="erholung">{{ T.tab_erholung }}</button>
   <button class="tab-btn" data-tab="einstellungen">{{ T.tab_profil }}</button>
 </div>
 
@@ -860,10 +940,11 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 
       <!-- AutoSleep CSV -->
       <div class="form-section">
-        <div class="field-label" style="margin-bottom:12px">
+        <div class="field-label" style="margin-bottom:6px">
           <span>{{ T.lbl_csv }}</span>
           <span style="font-size:12px;color:var(--muted)">{{ T.lbl_optional }}</span>
         </div>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.5">{{ T.csv_morgen_hint }}</p>
         <label class="upload-area" id="upload-area" for="csv-upload">
           <input type="file" id="csv-upload" accept=".csv">
           <div class="upload-icon">📊</div>
@@ -895,6 +976,13 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 
       <button type="submit" class="btn-submit">{{ T.btn_morgen }}</button>
     </form>
+  </div>
+
+  <!-- Erholung -->
+  <div class="tab-panel" data-panel="erholung">
+    <div class="form-card" id="erholung-card" style="border-top:none;border-radius:0 0 var(--radius) var(--radius)">
+      <p style="color:var(--muted);font-size:13px">{{ T.loading }}</p>
+    </div>
   </div>
 
   <!-- Einstellungen / Profil -->
@@ -941,9 +1029,10 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
       <div id="baseline-display"><p style="color:var(--muted);font-size:13px">{{ T.tp_loading_text }}</p></div>
 
       <div class="form-section" style="margin-top:20px">
+        <div class="baseline-warning-banner">{{ T.baseline_warning }}</div>
         <div class="field-label" style="margin-bottom:10px">
           <span>{{ T.sec_baseline_recalc }}</span>
-          <span style="font-size:12px;color:var(--muted)">{{ T.lbl_csv }}</span>
+          <span style="font-size:12px;color:var(--muted)" id="baseline-night-count"></span>
         </div>
         <label class="upload-area" id="baseline-upload-area" for="baseline-csv-input">
           <input type="file" id="baseline-csv-input" accept=".csv" multiple>
@@ -951,6 +1040,7 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
           <div class="upload-label"><strong>{{ T.lbl_csvs_btn }}</strong> ({{ T.lbl_csvs_hint }})</div>
           <div id="baseline-file-status" style="display:none;color:var(--green);font-size:13px;margin-top:6px"></div>
         </label>
+        <div id="baseline-nights-warn" style="display:none;margin-top:8px" class="baseline-warning-banner"></div>
       </div>
       <button type="button" class="btn-submit" onclick="recalcBaseline()">{{ T.btn_baseline }}</button>
     </div>
@@ -981,6 +1071,9 @@ let currentResultType = null;
 let currentFormData = null;
 let weatherToday = null;
 let weatherTomorrow = null;
+let sleepHistory = [];
+let sleepBaseline = null;
+let erholungLoaded = false;
 
 // ── splash ────────────────────────────────────────────────────────────────────
 function setSplashStatus(text) {
@@ -1067,6 +1160,7 @@ function initTabs() {
       const tab = btn.dataset.tab;
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.dataset.panel === tab));
+      if (tab === 'erholung' && !erholungLoaded) loadErholung();
     });
   });
 }
@@ -1225,7 +1319,14 @@ async function submitMorgen(e) {
       achilles_l: parseFloat(document.getElementById('achilles-l-morgen').value),
       achilles_r: parseFloat(document.getElementById('achilles-r-morgen').value),
     };
-    showResult(await r.json(), formSnapshot, 'morgen');
+    const data = await r.json();
+    showResult(data, formSnapshot, 'morgen');
+    // If CSV was uploaded, refresh sleep history so Erholung tab is up to date
+    if (csvFile) {
+      fetch('/api/sleep/history', {cache:'no-store'}).then(r2 => r2.ok ? r2.json() : null).then(h => {
+        if (h) { sleepHistory = h; erholungLoaded = false; }
+      }).catch(() => {});
+    }
   } catch(err) {
     showError(err.message || String(err));
   } finally {
@@ -1378,11 +1479,23 @@ function initSettings() {
   const input = document.getElementById('baseline-csv-input');
   const fileStatus = document.getElementById('baseline-file-status');
   const area = document.getElementById('baseline-upload-area');
+  const nightCount = document.getElementById('baseline-night-count');
   input?.addEventListener('change', () => {
     if (input.files.length) {
-      fileStatus.textContent = `${input.files.length} Datei(en) ausgewählt`;
+      const n = input.files.length;
+      fileStatus.textContent = `${n} Datei(en) ausgewählt`;
       fileStatus.style.display = 'block';
       area.classList.add('has-file');
+      if (nightCount) nightCount.textContent = `≈ ${n} Nächte`;
+      const warn = document.getElementById('baseline-nights-warn');
+      if (warn) {
+        if (n < 30) {
+          warn.textContent = T.baseline_nights_warn.replace('{n}', n);
+          warn.style.display = 'block';
+        } else {
+          warn.style.display = 'none';
+        }
+      }
     }
   });
 
@@ -1485,16 +1598,315 @@ async function recalcBaseline() {
   try {
     const r = await fetch('/api/baseline/calculate', { method: 'POST', body: fd });
     if (!r.ok) throw new Error(await r.text());
+    const b = await r.json();
+    sleepBaseline = b;
     await loadBaselineDisplay();
     document.getElementById('baseline-upload-area')?.classList.remove('has-file');
     const fs = document.getElementById('baseline-file-status');
     if (fs) fs.textContent = T.btn_saved + ' Baseline';
+    const warn = document.getElementById('baseline-nights-warn');
+    const nc = document.getElementById('baseline-night-count');
+    if (nc) nc.textContent = '';
+    if (warn) {
+      if ((b.nights || 0) < 30) {
+        warn.textContent = T.baseline_nights_warn.replace('{n}', b.nights || 0);
+        warn.style.display = 'block';
+      } else {
+        warn.style.display = 'none';
+      }
+    }
     input.value = '';
+    erholungLoaded = false;
   } catch(err) {
     showError(err.message || String(err));
   } finally {
     setLoading(false);
   }
+}
+
+// ── Erholung tab ─────────────────────────────────────────────────────────────
+async function loadErholung() {
+  const card = document.getElementById('erholung-card');
+  if (!card) return;
+  try {
+    if (!erholungLoaded) {
+      // Use already-fetched data if available, otherwise re-fetch
+      if (!sleepHistory.length) {
+        const r = await fetch('/api/sleep/history', {cache:'no-store'});
+        sleepHistory = r.ok ? await r.json() : [];
+      }
+      if (!sleepBaseline) {
+        const r = await fetch('/api/baseline', {cache:'no-store'});
+        sleepBaseline = r.ok ? await r.json() : null;
+      }
+    }
+    card.innerHTML = renderErholungContent(sleepHistory, sleepBaseline);
+    erholungLoaded = true;
+  } catch(e) {
+    card.innerHTML = `<p style="color:var(--red);font-size:13px">${esc(e.message)}</p>`;
+  }
+}
+
+function markerStatus(key, value, baseline) {
+  if (!baseline || value == null) return 'neutral';
+  switch(key) {
+    case 'schlafHRV': {
+      const fl = baseline.SchlafHRV?.flag_low ?? 29;
+      const med = baseline.SchlafHRV?.median ?? 35;
+      if (value >= med) return 'ok';
+      if (value <= fl)  return 'bad';
+      return 'warn';
+    }
+    case 'wachBPM': {
+      const fh = baseline.WachBPM?.flag_high ?? 60;
+      const med = baseline.WachBPM?.median ?? 55;
+      if (value <= med) return 'ok';
+      if (value >= fh)  return 'bad';
+      return 'warn';
+    }
+    case 'schlafBPM': {
+      const fh = baseline.SchlafBPM?.flag_high ?? 69;
+      const med = baseline.SchlafBPM?.median ?? 64.5;
+      if (value <= med) return 'ok';
+      if (value >= fh)  return 'bad';
+      return 'warn';
+    }
+    case 'atmung': {
+      const fh = baseline.Atmung?.flag_high ?? 17.5;
+      const med = baseline.Atmung?.median ?? 15.8;
+      if (value <= med) return 'ok';
+      if (value >= fh)  return 'bad';
+      return 'warn';
+    }
+    case 'effizienz': {
+      const fl = baseline.Effizienz?.flag_low ?? 82;
+      const med = baseline.Effizienz?.median ?? 92;
+      if (value >= med) return 'ok';
+      if (value <= fl)  return 'bad';
+      return 'warn';
+    }
+    default: return 'neutral';
+  }
+}
+
+function statusDot(st) {
+  if (st === 'ok')   return '<span class="em-dot" style="color:var(--green)">✓</span>';
+  if (st === 'warn') return '<span class="em-dot" style="color:var(--orange)">⚠</span>';
+  if (st === 'bad')  return '<span class="em-dot" style="color:var(--red)">✗</span>';
+  return '';
+}
+
+function calcRecoveryIndex(entry, baseline) {
+  if (!baseline || !entry) return null;
+  const scores = [];
+  const score01 = (v, good, bad) => {
+    const range = Math.abs(good - bad);
+    if (range === 0) return 50;
+    // good > bad → higher is better, good < bad → lower is better
+    const raw = good > bad
+      ? (v - bad) / range
+      : (bad - v) / range;
+    return Math.round(Math.min(100, Math.max(0, raw * 100)));
+  };
+  if (entry.schlafHRV != null) {
+    const fl = baseline.SchlafHRV?.flag_low ?? 29;
+    const med = baseline.SchlafHRV?.median ?? 35;
+    scores.push({ s: score01(entry.schlafHRV, med, fl), w: 40 });
+  }
+  if (entry.wachBPM != null) {
+    const fh = baseline.WachBPM?.flag_high ?? 60;
+    const med = baseline.WachBPM?.median ?? 55;
+    scores.push({ s: score01(entry.wachBPM, med, fh), w: 25 });
+  }
+  if (entry.schlafBPM != null) {
+    const fh = baseline.SchlafBPM?.flag_high ?? 69;
+    const med = baseline.SchlafBPM?.median ?? 64.5;
+    scores.push({ s: score01(entry.schlafBPM, med, fh), w: 15 });
+  }
+  if (entry.atmung != null) {
+    const fh = baseline.Atmung?.flag_high ?? 17.5;
+    const med = baseline.Atmung?.median ?? 15.8;
+    scores.push({ s: score01(entry.atmung, med, fh), w: 10 });
+  }
+  if (entry.effizienz != null) {
+    const fl = baseline.Effizienz?.flag_low ?? 82;
+    const med = baseline.Effizienz?.median ?? 92;
+    scores.push({ s: score01(entry.effizienz, med, fl), w: 10 });
+  }
+  if (!scores.length) return null;
+  const tw = scores.reduce((s, x) => s + x.w, 0);
+  return Math.round(scores.reduce((s, x) => s + x.s * x.w, 0) / tw);
+}
+
+function calcHRVTrend(history) {
+  const vals = history.map(h => h.schlafHRV).filter(v => v != null);
+  if (vals.length < 3) return 'stable';
+  const last = vals[vals.length - 1];
+  const prev = vals.slice(-4, -1);
+  const prevAvg = prev.reduce((s, v) => s + v, 0) / prev.length;
+  const delta = last - prevAvg;
+  if (delta > 3)  return 'up';
+  if (delta < -3) return 'down';
+  return 'stable';
+}
+
+function buildSleepChart(history, baseline) {
+  const data = history.slice(-7);
+  const n = data.length;
+  if (n < 2) return '';
+  const W = 320, H = 90;
+  const PL = 4, PR = 4, PT = 10, PB = 22;
+  const cW = W - PL - PR, cH = H - PT - PB;
+
+  const bHRV  = baseline?.SchlafHRV;
+  const bWach = baseline?.WachBPM;
+
+  const hrvRaw  = data.map(d => d.schlafHRV).filter(v => v != null);
+  const wachRaw = data.map(d => d.wachBPM).filter(v => v != null);
+
+  const flHRV  = bHRV?.flag_low  ?? 29;
+  const medHRV = bHRV?.median    ?? 35;
+  const fhWach = bWach?.flag_high ?? 60;
+  const medWach= bWach?.median    ?? 55;
+
+  const hrvMin  = Math.max(0,  Math.min(...hrvRaw, flHRV)  - 5);
+  const hrvMax  = Math.max(medHRV + 5, ...hrvRaw);
+  const wachMin = Math.max(30, Math.min(...wachRaw, medWach) - 3);
+  const wachMax = Math.max(fhWach + 3, ...wachRaw);
+
+  const xPos = i => PL + (n > 1 ? (i / (n - 1)) * cW : cW / 2);
+  const yH = v => PT + cH - ((v - hrvMin) / (hrvMax - hrvMin)) * cH;
+  const yW = v => PT + cH - ((v - wachMin) / (wachMax - wachMin)) * cH;
+  const fmt2 = v => Math.round(v * 10) / 10;
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px;overflow:visible;display:block">`;
+
+  // Baseline flag threshold lines (dashed)
+  if (bHRV?.flag_low != null) {
+    const y = fmt2(yH(flHRV));
+    svg += `<line x1="${PL}" y1="${y}" x2="${W-PR}" y2="${y}" stroke="rgba(29,158,117,0.3)" stroke-width="1" stroke-dasharray="5,4"/>`;
+  }
+  if (bWach?.flag_high != null) {
+    const y = fmt2(yW(fhWach));
+    svg += `<line x1="${PL}" y1="${y}" x2="${W-PR}" y2="${y}" stroke="rgba(239,159,39,0.3)" stroke-width="1" stroke-dasharray="5,4"/>`;
+  }
+
+  // HRV line + dots
+  const hrvPts = data.map((d, i) => d.schlafHRV != null ? `${fmt2(xPos(i))},${fmt2(yH(d.schlafHRV))}` : null).filter(Boolean);
+  if (hrvPts.length > 1) {
+    svg += `<polyline points="${hrvPts.join(' ')}" fill="none" stroke="#1D9E75" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`;
+  }
+  data.forEach((d, i) => {
+    if (d.schlafHRV != null) {
+      const cx = fmt2(xPos(i)), cy = fmt2(yH(d.schlafHRV));
+      svg += `<circle cx="${cx}" cy="${cy}" r="3" fill="#1D9E75" stroke="#0f0f13" stroke-width="1.5"/>`;
+    }
+  });
+
+  // WachBPM line + dots
+  const wachPts = data.map((d, i) => d.wachBPM != null ? `${fmt2(xPos(i))},${fmt2(yW(d.wachBPM))}` : null).filter(Boolean);
+  if (wachPts.length > 1) {
+    svg += `<polyline points="${wachPts.join(' ')}" fill="none" stroke="#EF9F27" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`;
+  }
+  data.forEach((d, i) => {
+    if (d.wachBPM != null) {
+      const cx = fmt2(xPos(i)), cy = fmt2(yW(d.wachBPM));
+      svg += `<circle cx="${cx}" cy="${cy}" r="3" fill="#EF9F27" stroke="#0f0f13" stroke-width="1.5"/>`;
+    }
+  });
+
+  // X labels (day.month)
+  data.forEach((d, i) => {
+    const dt = new Date((d.date || '') + 'T12:00:00');
+    const lbl = isNaN(dt) ? '' : `${dt.getDate()}.${dt.getMonth()+1}.`;
+    const x = fmt2(xPos(i));
+    svg += `<text x="${x}" y="${H-4}" font-size="8" fill="#555" text-anchor="middle">${lbl}</text>`;
+  });
+
+  svg += `</svg>`;
+  return svg;
+}
+
+function renderErholungContent(history, baseline) {
+  let h = '';
+  if (!history.length) {
+    h += `<p class="section-title" style="border-bottom:none;margin-bottom:0">Erholung</p>`;
+    h += `<p style="color:var(--muted);font-size:13px;margin-top:12px">${esc(T.erholung_no_data)}</p>`;
+    if (!baseline) h += `<p style="color:var(--muted);font-size:12px;margin-top:8px">${esc(T.erholung_no_baseline)}</p>`;
+    return h;
+  }
+
+  const last = history[history.length - 1];
+  const lastDate = last?.date ? new Date(last.date + 'T12:00:00').toLocaleDateString('de-DE', {day:'2-digit',month:'2-digit',year:'2-digit'}) : '—';
+
+  // ── Letzte Nacht ──
+  h += `<p class="section-title">${esc(T.sec_erholung_letzte)} <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0">${lastDate}</span></p>`;
+
+  // Marker grid
+  const markers = [
+    { key:'schlafHRV',  label:'HRV',        unit:'ms',   val: last?.schlafHRV },
+    { key:'wachBPM',    label:'WachBPM',     unit:'',     val: last?.wachBPM },
+    { key:'schlafBPM',  label:'SchlafBPM',   unit:'',     val: last?.schlafBPM },
+    { key:'atmung',     label:'Atmung',       unit:'/min', val: last?.atmung },
+    { key:'effizienz',  label:'Effizienz',    unit:'%',    val: last?.effizienz },
+    { key:'schlafDauer',label:'Schlafdauer',  unit:'h',    val: last?.schlafDauer },
+  ];
+  h += `<div class="erholung-marker-grid">`;
+  markers.forEach(m => {
+    if (m.val == null) return;
+    const st = m.key === 'schlafDauer' ? 'neutral' : markerStatus(m.key, m.val, baseline);
+    const valStr = m.key === 'effizienz' ? Math.round(m.val) + m.unit
+                 : m.key === 'atmung'    ? m.val.toFixed(1) + m.unit
+                 : m.key === 'schlafDauer' ? m.val.toFixed(1) + m.unit
+                 : Math.round(m.val) + m.unit;
+    h += `<div class="erholung-marker ${st}">
+      <span class="em-val">${valStr}</span>
+      <span class="em-lbl">${esc(m.label)}</span>
+      ${baseline ? statusDot(st) : ''}
+    </div>`;
+  });
+  h += `</div>`;
+
+  // Recovery Index + Trend
+  const idx = calcRecoveryIndex(last, baseline);
+  const trend = calcHRVTrend(history);
+  const trendLabel = trend === 'up' ? T.erholung_trend_up : trend === 'down' ? T.erholung_trend_down : T.erholung_trend_stable;
+  const trendColor = trend === 'up' ? 'var(--green)' : trend === 'down' ? 'var(--red)' : 'var(--muted)';
+
+  if (baseline && idx !== null) {
+    const idxColor = idx >= 80 ? 'var(--green)' : idx >= 55 ? 'var(--orange)' : 'var(--red)';
+    const barColor = idx >= 80 ? '#1D9E75' : idx >= 55 ? '#EF9F27' : '#E24B4A';
+    h += `<div class="recovery-index-row">
+      <div>
+        <span class="recovery-index-num" style="color:${idxColor}">${idx}</span>
+        <span style="font-size:11px;color:var(--muted);display:block;margin-top:-2px">${esc(T.erholung_index)}</span>
+      </div>
+      <div style="flex:1">
+        <div class="recovery-bar-wrap"><div class="recovery-bar-fill" style="width:${idx}%;background:${barColor}"></div></div>
+        <div style="font-size:12px;color:${trendColor};margin-top:6px;font-weight:600">${esc(trendLabel)}</div>
+      </div>
+    </div>`;
+  } else if (!baseline) {
+    h += `<p style="font-size:12px;color:var(--muted2);margin-top:4px;margin-bottom:8px">${esc(T.erholung_no_baseline)}</p>`;
+  }
+
+  // ── 7-Tage-Verlauf ──
+  h += `<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">`;
+  h += `<p class="section-title" style="border-bottom:none;margin-bottom:10px">${esc(T.sec_erholung_verlauf)}</p>`;
+  const chart = buildSleepChart(history, baseline);
+  if (chart) {
+    h += chart;
+    h += `<div class="erholung-legend" style="margin-top:8px">
+      <div class="legend-item"><div class="legend-dot" style="background:#1D9E75"></div>${esc(T.erholung_legend_hrv)}</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#EF9F27"></div>${esc(T.erholung_legend_wach)}</div>
+      ${baseline ? `<div class="legend-item"><div class="legend-dot" style="background:var(--border);border-top:1px dashed var(--muted2);height:0;margin-top:1px"></div>${esc(T.erholung_legend_ref)}</div>` : ''}
+    </div>`;
+  } else {
+    h += `<p style="color:var(--muted);font-size:13px">Mindestens 2 Nächte für Verlauf nötig.</p>`;
+  }
+  h += `</div>`;
+
+  return h;
 }
 
 // ── rain timeline ─────────────────────────────────────────────────────────────
@@ -1711,21 +2123,29 @@ async function fetchWeatherDirect(dayOffset) {
   } catch(e) { return null; }
 }
 
-// ── startup: alle 4 parallel mit cache:'no-store' ────────────────────────────
+// ── startup: alle 6 parallel mit cache:'no-store' ────────────────────────────
 async function loadStartupData() {
   const t = Date.now();
   const okJson = r => r.ok ? r.json() : null;
+  erholungLoaded = false;
   const results = await Promise.allSettled([
     fetchWeatherDirect(1),
     fetchWeatherDirect(0),
     fetch('/api/tp/workouts?day=tomorrow&t='+t, {cache:'no-store'}).then(okJson),
     fetch('/api/tp/workouts?day=today&t='+t,    {cache:'no-store'}).then(okJson),
+    fetch('/api/sleep/history?t='+t, {cache:'no-store'}).then(okJson),
+    fetch('/api/baseline?t='+t, {cache:'no-store'}).then(okJson),
   ]);
   const val = r => r.status === 'fulfilled' ? r.value : null;
   renderAbendWeather(val(results[0]));
   renderMorgenWeather(val(results[1]));
   renderAbendTP(val(results[2]));
   renderMorgenTP(val(results[3]));
+  sleepHistory  = val(results[4]) || [];
+  sleepBaseline = val(results[5]) || null;
+  // If erholung tab is already active (e.g. after refresh), render it
+  const erholungPanel = document.querySelector('[data-panel="erholung"]');
+  if (erholungPanel?.classList.contains('active')) loadErholung();
 }
 
 async function loadTPWorkouts() {

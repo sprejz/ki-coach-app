@@ -17,7 +17,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.4.33"
+APP_VERSION = "2.5.0"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -33,6 +33,7 @@ _tp_http = httpx.Client(
 )
 ATHLETE_FILE = BASE_DIR / "athlete.json"
 BASELINE_FILE = BASE_DIR / "baseline.json"
+SLEEP_HISTORY_FILE = BASE_DIR / "sleep_history.json"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
@@ -58,6 +59,22 @@ def load_baseline() -> Optional[dict]:
         with open(BASELINE_FILE, encoding="utf-8") as f:
             return json.load(f)
     return None
+
+
+def load_sleep_history() -> list:
+    if SLEEP_HISTORY_FILE.exists():
+        with open(SLEEP_HISTORY_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+
+def append_sleep_history(entry: dict):
+    history = load_sleep_history()
+    history = [h for h in history if h.get("date") != entry.get("date")]
+    history.append(entry)
+    history = sorted(history, key=lambda h: h.get("date", ""))[-14:]
+    with open(SLEEP_HISTORY_FILE, "w", encoding="utf-8") as fh:
+        json.dump(history, fh, indent=2, ensure_ascii=False)
 
 
 def next_a_race(athlete: dict) -> Optional[dict]:
@@ -442,6 +459,11 @@ async def get_baseline():
     return b
 
 
+@app.get("/api/sleep/history")
+async def get_sleep_history():
+    return load_sleep_history()
+
+
 @app.post("/api/baseline/calculate")
 async def calc_baseline(files: List[UploadFile] = File(...)):
     buckets: dict = {k: [] for k in ["SchlafBPM", "WachBPM", "SchlafHRV", "Atmung", "Effizienz"]}
@@ -821,6 +843,18 @@ AutoSleep (letzte Nacht):
 - SchlafHRV: {d.get('hrv', '?')}ms  WachBPM: {d.get('wach_bpm', '?')}  SchlafBPM: {d.get('schlaf_bpm', '?')}
 - Atmung: {d.get('atmung', '?')}  Effizienz: {d.get('effizienz', '?')}%
 - Flags: {flag_str}"""
+            try:
+                append_sleep_history({
+                    "date": date.today().isoformat(),
+                    "schlafHRV": sd.get("hrv"),
+                    "wachBPM": sd.get("wach_bpm"),
+                    "schlafBPM": sd.get("schlaf_bpm"),
+                    "atmung": sd.get("atmung"),
+                    "effizienz": sd.get("effizienz"),
+                    "schlafDauer": sd.get("schlaf_stunden"),
+                })
+            except Exception as hist_err:
+                logger.warning("sleep_history save failed: %s", hist_err)
         except Exception as e:
             sleep_text = "\n" + T["prompt_autosleep_err"].format(err=str(e))
 

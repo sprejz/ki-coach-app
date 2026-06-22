@@ -14,8 +14,9 @@ TRANSLATIONS = {
         "refreshing":        "Daten werden aktualisiert…",
         "ready":             "Bereit!",
         # Tabs
-        "tab_abend":         "Abend-Check",
-        "tab_morgen":        "Morgen-Check",
+        "tab_abend":         "Abend",
+        "tab_morgen":        "Morgen",
+        "tab_erholung":      "Erholung",
         "tab_profil":        "Profil",
         # Section titles
         "sec_tomorrow":      "Morgen",
@@ -26,6 +27,8 @@ TRANSLATIONS = {
         "sec_races":         "Rennen",
         "sec_baseline":      "Schlaf-Baseline",
         "sec_baseline_recalc": "Baseline neu berechnen",
+        "sec_erholung_letzte": "Letzte Nacht",
+        "sec_erholung_verlauf": "7-Tage-Verlauf",
         # Form labels
         "lbl_knie":          "Knie",
         "lbl_achilles_l":    "Achillessehne L",
@@ -57,6 +60,22 @@ TRANSLATIONS = {
         "tp_loading_text":   "Wird geladen…",
         # Weather
         "weather_n_a":       "Wetter nicht verfügbar",
+        # Erholung tab
+        "erholung_no_data":      "Noch keine Schlafdaten — lade eine AutoSleep CSV im Morgen-Check hoch.",
+        "erholung_no_baseline":  "Noch keine Baseline — im Profil-Tab berechnen.",
+        "erholung_index":        "Erholungsindex",
+        "erholung_trend":        "HRV-Trend",
+        "erholung_trend_up":     "↑ Steigend",
+        "erholung_trend_stable": "→ Stabil",
+        "erholung_trend_down":   "↓ Fallend",
+        "erholung_legend_hrv":   "HRV (ms)",
+        "erholung_legend_wach":  "WachBPM",
+        "erholung_legend_ref":   "Flagschwelle",
+        # Baseline warnings
+        "baseline_warning":      "⚠️ Nur für längere Zeiträume (mind. 30 Nächte). Für den täglichen Check CSV im Morgen-Check hochladen.",
+        "baseline_nights_warn":  "⚠️ Nur {n} Nächte — Baseline sollte auf mind. 30 Nächten basieren.",
+        # CSV hint
+        "csv_morgen_hint":       "Lade die CSV der letzten Nacht hoch (aus AutoSleep App exportieren)",
         # Muskelkater pills (label)
         "mk_keine":          "keine",
         "mk_waden":          "Waden",
@@ -237,8 +256,9 @@ TRANSLATIONS = {
         "refreshing":        "Refreshing data…",
         "ready":             "Ready!",
         # Tabs
-        "tab_abend":         "Evening Check",
-        "tab_morgen":        "Morning Check",
+        "tab_abend":         "Evening",
+        "tab_morgen":        "Morning",
+        "tab_erholung":      "Recovery",
         "tab_profil":        "Profile",
         # Section titles
         "sec_tomorrow":      "Tomorrow",
@@ -249,6 +269,8 @@ TRANSLATIONS = {
         "sec_races":         "Races",
         "sec_baseline":      "Sleep Baseline",
         "sec_baseline_recalc": "Recalculate Baseline",
+        "sec_erholung_letzte": "Last Night",
+        "sec_erholung_verlauf": "7-Day Trend",
         # Form labels
         "lbl_knie":          "Knee",
         "lbl_achilles_l":    "Achilles L",
@@ -280,6 +302,22 @@ TRANSLATIONS = {
         "tp_loading_text":   "Loading…",
         # Weather
         "weather_n_a":       "Weather not available",
+        # Erholung tab
+        "erholung_no_data":      "No sleep data yet — upload an AutoSleep CSV in Morning Check.",
+        "erholung_no_baseline":  "No baseline yet — calculate in Profile tab.",
+        "erholung_index":        "Recovery Index",
+        "erholung_trend":        "HRV Trend",
+        "erholung_trend_up":     "↑ Improving",
+        "erholung_trend_stable": "→ Stable",
+        "erholung_trend_down":   "↓ Declining",
+        "erholung_legend_hrv":   "HRV (ms)",
+        "erholung_legend_wach":  "AwakeBPM",
+        "erholung_legend_ref":   "Flag threshold",
+        # Baseline warnings
+        "baseline_warning":      "⚠️ For longer periods only (min. 30 nights). For daily check upload CSV in Morning Check.",
+        "baseline_nights_warn":  "⚠️ Only {n} nights — baseline should be based on at least 30 nights.",
+        # CSV hint
+        "csv_morgen_hint":       "Upload last night's CSV (export from AutoSleep app)",
         # Muskelkater pills (label)
         "mk_keine":          "none",
         "mk_waden":          "calves",
