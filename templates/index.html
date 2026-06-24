@@ -2463,9 +2463,9 @@ async function loadStartupData() {
 }
 
 async function loadTPBackground(t) {
-  const okJson = r => r.ok ? r.json() : null;
-  await fetchAndRenderTP('tomorrow', renderAbendTP);
-  await fetchAndRenderTP('today',    renderMorgenTP);
+  // Beide parallel starten — kein await
+  fetchAndRenderTP('tomorrow', renderAbendTP);
+  fetchAndRenderTP('today',    renderMorgenTP);
 }
 
 async function fetchAndRenderTP(day, renderFn, attempt) {

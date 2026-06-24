@@ -19,7 +19,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.23"
+APP_VERSION = "2.6.24"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -548,8 +548,8 @@ def call_claude_tp_mcp(user_content: str) -> str:
     c = anthropic.Anthropic(api_key=key, http_client=_tp_http_long)
     try:
         msg = c.beta.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=2000,
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1000,
             betas=["mcp-client-2025-11-20"],
             mcp_servers=[{"type": "url", "url": tp_url, "name": "trainingpeaks"}],
             tools=[{"type": "mcp_toolset", "mcp_server_name": "trainingpeaks"}],
