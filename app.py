@@ -19,13 +19,22 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.22"
+APP_VERSION = "2.6.23"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 app = FastAPI()
+
+@app.on_event("startup")
+async def _prefetch_tp():
+    """Prefetcht TP Workouts für heute + morgen im Hintergrund beim App-Start."""
+    if not os.environ.get("TP_MCP_URL"):
+        return
+    athlete = load_athlete()
+    asyncio.create_task(_tp_refresh(athlete, 0))
+    asyncio.create_task(_tp_refresh(athlete, 1))
 BASE_DIR = Path(__file__).parent
 
 # ── shared HTTP clients (connection pooling) ──────────────────────────────────
@@ -41,10 +50,12 @@ _tp_http_long = httpx.Client(
 # In-memory Job-Store für Workout-Analysen
 _analysis_jobs: dict = {}  # job_id -> {"status":"pending"|"done"|"error", "result":{}, "error":"..."}
 
-# ── TP Workout Cache ──────────────────────────────────────────────────────────
+# ── TP Workout Cache + Background Refresh ────────────────────────────────────
 import time as _time
-_tp_cache: dict = {}   # date_str -> {"data": {...}, "ts": float}
-_TP_CACHE_TTL = 1800   # 30 Minuten
+_tp_cache: dict = {}             # date_str -> {"data": {...}, "ts": float}
+_tp_refresh_busy: set = set()    # date_strs currently being fetched
+_TP_CACHE_TTL   = 3600           # 1h — serve from cache
+_TP_CACHE_STALE = 1800           # 30min — trigger background refresh
 
 def _tp_cache_get(date_str: str) -> Optional[dict]:
     entry = _tp_cache.get(date_str)
@@ -54,6 +65,26 @@ def _tp_cache_get(date_str: str) -> Optional[dict]:
 
 def _tp_cache_set(date_str: str, data: dict):
     _tp_cache[date_str] = {"data": data, "ts": _time.time()}
+
+async def _tp_refresh(athlete: dict, day_offset: int):
+    """Holt TP Workouts im Hintergrund und füllt den Cache."""
+    target = (date.today() + timedelta(days=day_offset)).isoformat()
+    if target in _tp_refresh_busy:
+        return
+    _tp_refresh_busy.add(target)
+    try:
+        prompt = T["tp_workouts_prompt"].format(name=athlete.get("name", "the athlete"), date=target)
+        raw = await asyncio.to_thread(call_claude_tp_mcp, prompt)
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+        workouts = json.loads(raw)
+        _tp_cache_set(target, {"available": True, "workouts": workouts, "date": target})
+        logger.info("_tp_refresh ok: %d workouts for %s", len(workouts), target)
+    except Exception as e:
+        logger.error("_tp_refresh error for %s: %s", target, e)
+    finally:
+        _tp_refresh_busy.discard(target)
 
 
 def parse_fit_summary(fit_bytes: bytes) -> dict:
@@ -763,30 +794,20 @@ async def tp_workouts(day: str = "tomorrow"):
         return JSONResponse({"available": False, "workouts": [], "date": None}, headers=_NO_CACHE)
     day_offset = 0 if day == "today" else 1
     target = (date.today() + timedelta(days=day_offset)).isoformat()
+    athlete = load_athlete()
     cached = _tp_cache_get(target)
     if cached:
+        # Stale-while-revalidate: im Hintergrund neu laden wenn Cache > 30min alt
+        entry = _tp_cache.get(target)
+        if entry and _time.time() - entry["ts"] > _TP_CACHE_STALE:
+            asyncio.create_task(_tp_refresh(athlete, day_offset))
         logger.info("tp_workouts cache hit: %s", target)
         return JSONResponse(cached, headers=_NO_CACHE)
-    athlete = load_athlete()
-    logger.info("tp_workouts: day=%s target=%s", day, target)
-    prompt = T["tp_workouts_prompt"].format(name=athlete.get("name", "the athlete"), date=target)
-    try:
-        raw = call_claude_tp_mcp(prompt)
-        if raw.startswith("```"):
-            lines = raw.split("\n")
-            raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-        workouts = json.loads(raw)
-        logger.info("tp_workouts ok: %d workouts for %s", len(workouts), target)
-        result = {"available": True, "workouts": workouts, "date": target}
-        _tp_cache_set(target, result)
-        return JSONResponse(result, headers=_NO_CACHE)
-    except json.JSONDecodeError:
-        logger.error("tp_workouts JSON decode error, raw=%s", raw[:300])
-        return JSONResponse({"available": True, "workouts": [], "date": target, "raw": raw[:300]}, headers=_NO_CACHE)
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(500, str(e))
+    # Cache Miss → sofort zurückgeben + Hintergrund-Fetch starten
+    logger.info("tp_workouts cache miss: %s — background fetch started", target)
+    asyncio.create_task(_tp_refresh(athlete, day_offset))
+    return JSONResponse({"available": True, "workouts": [], "date": target, "loading": True},
+                        headers=_NO_CACHE)
 
 
 @app.post("/api/debug/coach-beschreibung")

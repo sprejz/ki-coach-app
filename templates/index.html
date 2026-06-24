@@ -2464,14 +2464,23 @@ async function loadStartupData() {
 
 async function loadTPBackground(t) {
   const okJson = r => r.ok ? r.json() : null;
-  // Erst tomorrow, dann today (sequentiell → kein 429)
+  await fetchAndRenderTP('tomorrow', renderAbendTP);
+  await fetchAndRenderTP('today',    renderMorgenTP);
+}
+
+async function fetchAndRenderTP(day, renderFn, attempt) {
+  attempt = attempt || 0;
+  if (attempt > 10) return; // max ~80s warten
   try {
-    const tpTomorrow = await fetch('/api/tp/workouts?day=tomorrow&t='+t, {cache:'no-store'}).then(okJson).catch(()=>null);
-    renderAbendTP(tpTomorrow);
-  } catch(_) {}
-  try {
-    const tpToday = await fetch('/api/tp/workouts?day=today&t='+t, {cache:'no-store'}).then(okJson).catch(()=>null);
-    renderMorgenTP(tpToday);
+    const data = await fetch('/api/tp/workouts?day='+day+'&t='+Date.now(), {cache:'no-store'})
+      .then(r => r.ok ? r.json() : null).catch(() => null);
+    if (!data) return;
+    if (data.loading) {
+      // Hintergrund-Fetch läuft noch — in 8s nochmal versuchen
+      setTimeout(() => fetchAndRenderTP(day, renderFn, attempt + 1), 8000);
+      return;
+    }
+    renderFn(data);
   } catch(_) {}
 }
 
