@@ -19,7 +19,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.13"
+APP_VERSION = "2.6.14"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -537,6 +537,7 @@ async def index(request: Request):
             "T": T,
             "T_json": json.dumps(T, ensure_ascii=False),
             "LANG": APP_LANG,
+            "version": APP_VERSION,
         },
     )
 

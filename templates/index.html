@@ -784,6 +784,7 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
   <button class="tab-btn" data-tab="analyse">{{ T.tab_analyse }}</button>
   <button class="tab-btn" data-tab="erholung">{{ T.tab_erholung }}</button>
   <button class="tab-btn" data-tab="einstellungen">{{ T.tab_profil }}</button>
+  <button class="tab-btn" data-tab="about">{{ T.tab_about }}</button>
 </div>
 
 <!-- Error banner -->
@@ -1108,6 +1109,36 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
     </div>
 
   </div><!-- Einstellungen panel -->
+
+  <!-- About panel -->
+  <div class="tab-panel" data-panel="about">
+    <div class="form-card" style="text-align:center;padding:32px 20px">
+      <div style="font-size:48px;margin-bottom:12px">🏊🚴🏃</div>
+      <div style="font-size:22px;font-weight:700;color:var(--text);margin-bottom:4px">KI Coach</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:24px" id="about-version">v{{ version }}</div>
+      <div style="border-top:1px solid #2a2a38;margin-bottom:24px"></div>
+      <div style="text-align:left;font-size:13px;color:var(--muted);line-height:1.8">
+        <div style="margin-bottom:16px">
+          <div style="color:var(--text);font-weight:600;margin-bottom:4px">Athlet</div>
+          <div>Hendrik Sprejz</div>
+          <div>A-Rennen: Castle Triathlon Malbork · 6.9.2026</div>
+          <div>Zielzeit: 10:50h</div>
+        </div>
+        <div style="margin-bottom:16px">
+          <div style="color:var(--text);font-weight:600;margin-bottom:4px">Stack</div>
+          <div>Backend: Python / FastAPI</div>
+          <div>KI: Claude Sonnet (Anthropic)</div>
+          <div>Wetter: Open-Meteo</div>
+          <div>Trainingsplan: TrainingPeaks MCP</div>
+          <div>Hosting: Railway</div>
+        </div>
+        <div>
+          <div style="color:var(--text);font-weight:600;margin-bottom:4px">Entwickelt von</div>
+          <div>Hendrik Sprejz · 2025–2026</div>
+        </div>
+      </div>
+    </div>
+  </div><!-- About panel -->
 
 </div><!-- #form-section -->
 

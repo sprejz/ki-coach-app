@@ -19,6 +19,7 @@ TRANSLATIONS = {
         "tab_analyse":       "Analyse",
         "tab_erholung":      "Erholung",
         "tab_profil":        "Profil",
+        "tab_about":         "Info",
         # Section titles
         "sec_tomorrow":      "Morgen",
         "sec_today":         "Heute",
@@ -192,11 +193,13 @@ TRANSLATIONS = {
             "Bei MOD: konkrete Anpassung nennen (Distanz, Zone, Alternative), nicht beide Optionen.\n\n"
             "WORKOUT-BESCHREIBUNG für TrainingPeaks (Feld 'beschreibung'):\n"
             "Bei GO: Übernimm die originale Workout-Beschreibung aus dem TrainingPeaks-Kontext exakt so wie sie ist — kein Wort ändern.\n"
-            "Bei MOD: Nimm den EXAKTEN ORIGINALTEXT aus dem TrainingPeaks-Kontext und ändere NUR die konkreten Werte die angepasst werden müssen. "
+            "Bei MOD mit vorhandener Original-Beschreibung: Nimm den EXAKTEN ORIGINALTEXT und ändere NUR die konkreten Werte die angepasst werden müssen. "
             "Behalte Satzstruktur, Format und alle anderen Zeilen des Originals bei. "
             "Füge am Ende eine kurze Zeile mit dem Anpassungsgrund + Maßnahmen an (z.B. 'HITZE: 750ml/h, 2× Saltstick/h — Zeitpunkt ≤09:00 oder ab 19:00 Uhr').\n"
             "Beispiel: Original '35 min ganz locker (6:15–6:45/km, HF-Deckel 150 bpm)' → "
             "MOD '35 min ganz locker (6:30–7:05/km, HF-Deckel 145 bpm) [Hitze-Anpassung]'\n"
+            "Bei MOD ohne Original-Beschreibung (leeres description-Feld): Erstelle eine kurze, sinnvolle Workout-Struktur basierend auf Titel, Sport und Dauer. "
+            "NIEMALS den Text '[Original-Workout-Beschreibung nicht vorhanden]' oder ähnliche Platzhalter schreiben.\n"
             "Wenn die Anpassung so fundamental ist dass der Original-Inhalt komplett hinfällig ist "
             "(z.B. Intervall-Session → Regenerationstag): erste Zeile '⚠️ Einheit komplett umgestellt', dann neue Beschreibung.\n"
             "NIEMALS eine neue Aufwärmen/Hauptteil/Auslaufen-Struktur erfinden wenn das Original diese nicht hat.\n\n"
@@ -309,6 +312,7 @@ TRANSLATIONS = {
         "tab_analyse":       "Analysis",
         "tab_erholung":      "Recovery",
         "tab_profil":        "Profile",
+        "tab_about":         "Info",
         # Section titles
         "sec_tomorrow":      "Tomorrow",
         "sec_today":         "Today",
@@ -482,11 +486,13 @@ TRANSLATIONS = {
             "For MOD: name the concrete adjustment (distance, zone, alternative), do not list both options.\n\n"
             "WORKOUT DESCRIPTION for TrainingPeaks (field 'beschreibung'):\n"
             "For GO: Copy the original workout description from the TrainingPeaks context exactly as-is — do not change a word.\n"
-            "For MOD: Take the EXACT ORIGINAL TEXT from the TrainingPeaks context and change ONLY the specific values that need adjusting. "
+            "For MOD with original description available: Take the EXACT ORIGINAL TEXT and change ONLY the specific values that need adjusting. "
             "Keep the sentence structure, format, and all other lines of the original. "
             "Append a short line at the end with the adjustment reason + measures (e.g. 'HEAT: 750ml/h, 2× Saltstick/h — timing ≤09:00 or from 19:00').\n"
             "Example: Original '35 min very easy (6:15–6:45/km, HR cap 150 bpm)' → "
             "MOD '35 min very easy (6:30–7:05/km, HR cap 145 bpm) [heat adjustment]'\n"
+            "For MOD without original description (empty description field): Create a short, sensible workout structure based on title, sport and duration. "
+            "NEVER write '[Original workout description not available]' or similar placeholders.\n"
             "If the adjustment is so fundamental that the original content is completely obsolete "
             "(e.g. interval session → recovery day): first line '⚠️ Einheit komplett umgestellt', then new description.\n"
             "NEVER invent a new warm-up/main set/cool-down structure if the original does not have one.\n\n"
