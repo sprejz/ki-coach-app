@@ -2455,16 +2455,15 @@ async function loadStartupData() {
   const erholungPanel = document.querySelector('[data-panel="erholung"]');
   if (erholungPanel?.classList.contains('active')) loadErholung();
 
-  // Phase 2 — TP Workouts (langsam) mit kriechender Balken-Animation
+  // Phase 2 — TP Workouts sequentiell laden (vermeidet parallele API-Calls → 429)
   setSplashStatus(T.loading_workouts);
-  setSplashProgress(50, true); // Balken kriecht langsam von 50% → 86%
-  const slow = await Promise.allSettled([
-    fetch('/api/tp/workouts?day=tomorrow&t='+t, {cache:'no-store'}).then(okJson),
-    fetch('/api/tp/workouts?day=today&t='+t,    {cache:'no-store'}).then(okJson),
-  ]);
-  renderAbendTP(val(slow[0]));
-  renderMorgenTP(val(slow[1]));
-  setSplashProgress(100); // springt auf 100% wenn alles da ist
+  setSplashProgress(50, true);
+  const tpTomorrow = await fetch('/api/tp/workouts?day=tomorrow&t='+t, {cache:'no-store'}).then(okJson).catch(()=>null);
+  renderAbendTP(tpTomorrow);
+  setSplashProgress(75, true);
+  const tpToday = await fetch('/api/tp/workouts?day=today&t='+t, {cache:'no-store'}).then(okJson).catch(()=>null);
+  renderMorgenTP(tpToday);
+  setSplashProgress(100);
 }
 
 async function loadTPWorkouts() {

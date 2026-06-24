@@ -19,7 +19,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.20"
+APP_VERSION = "2.6.21"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -508,6 +508,7 @@ def call_claude_tp_mcp(user_content: str) -> str:
             betas=["mcp-client-2025-11-20"],
             mcp_servers=[{"type": "url", "url": tp_url, "name": "trainingpeaks"}],
             tools=[{"type": "mcp_toolset", "mcp_server_name": "trainingpeaks"}],
+            system="Antworte ausschließlich mit gültigem JSON. Kein Erklärungstext, keine Markdown-Blöcke, kein Text vor oder nach dem JSON.",
             messages=[{"role": "user", "content": user_content}],
         )
     except anthropic.APIStatusError as e:
