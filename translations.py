@@ -244,11 +244,9 @@ TRANSLATIONS = {
             "Use status 'ok' or 'error'."
         ),
         "tp_workouts_prompt": (
-            "Alle geplanten Workouts für {name} am {date} aus TrainingPeaks auflisten. "
-            "Wichtig: Lies für jedes Workout die vollständige Beschreibung/Notizen aus TrainingPeaks aus und füge sie ungekürzt in das Feld 'description' ein. "
+            "Alle geplanten Workouts für {name} am {date} aus TrainingPeaks auflisten, inklusive Beschreibung/Notizen. "
             "Antworte NUR mit einem gültigen JSON-Array. Beispiel: "
-            '[{{"id":"123","sport":"Rad","title":"Z2 Ausdauer","duration_min":90,"tss":65,'
-            '"description":"Vollständiger Beschreibungstext aus TrainingPeaks — ungekürzt"}}]'
+            '[{{"id":"123","sport":"Rad","title":"Z2 Ausdauer","duration_min":90,"tss":65,"description":"Text aus dem Beschreibungsfeld in TP"}}]'
         ),
         "tp_history_prompt": (
             "Liste alle Workouts (geplant und abgeschlossen) für {name} vom {start} bis {end} aus TrainingPeaks. "
@@ -539,11 +537,9 @@ TRANSLATIONS = {
             "Use status 'ok' or 'error'."
         ),
         "tp_workouts_prompt": (
-            "List all planned workouts for {name} on {date} from TrainingPeaks. "
-            "Important: Read the full description/notes for each workout from TrainingPeaks and include it unabridged in the 'description' field. "
+            "List all planned workouts for {name} on {date} from TrainingPeaks, including description/notes. "
             "Respond ONLY with a valid JSON array. Example: "
-            '[{{"id":"123","sport":"Rad","title":"Z2 Endurance","duration_min":90,"tss":65,'
-            '"description":"Full description text from TrainingPeaks — unabridged"}}]'
+            '[{{"id":"123","sport":"Rad","title":"Z2 Endurance","duration_min":90,"tss":65,"description":"Text from the description field in TP"}}]'
         ),
         "tp_history_prompt": (
             "List all workouts (planned and completed) for {name} from {start} to {end} from TrainingPeaks. "
