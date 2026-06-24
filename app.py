@@ -19,7 +19,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.17"
+APP_VERSION = "2.6.19"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -309,6 +309,48 @@ async def fetch_weather(athlete: dict, day: int = 1) -> dict:
     logger.info("fetch_weather ok: datum=%s temp=%s-%s code=%s hourly=%d",
                 datum, temp_min, temp_max, code, len(hourly))
     return result
+
+
+async def fetch_weather_for_date(athlete: dict, target_date: str) -> dict:
+    """Wetter für ein spezifisches Datum (heute oder Vergangenheit, max. 7 Tage)."""
+    today = date.today().isoformat()
+    if target_date >= today:
+        return await fetch_weather(athlete, day=0)
+    lat = athlete["location"]["lat"]
+    lon = athlete["location"]["lon"]
+    url = (
+        f"https://api.open-meteo.com/v1/forecast"
+        f"?latitude={lat}&longitude={lon}"
+        f"&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code"
+        f"&past_days=7&forecast_days=1&timezone=Europe%2FBerlin"
+    )
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        r = await client.get(url)
+    r.raise_for_status()
+    data = r.json()
+    daily = data.get("daily", {})
+    dates = daily.get("time", [])
+    if target_date not in dates:
+        raise ValueError(f"Keine Wetterdaten für {target_date}")
+    i = dates.index(target_date)
+    temp_max_v = float((daily.get("temperature_2m_max") or [0])[i] or 0)
+    temp_min_v = float((daily.get("temperature_2m_min") or [0])[i] or 0)
+    rain_prob  = int((daily.get("precipitation_probability_max") or [0])[i] or 0)
+    wcode      = int((daily.get("weather_code") or [0])[i] or 0)
+    logger.info("fetch_weather_for_date ok: date=%s temp=%s-%s code=%s", target_date, temp_min_v, temp_max_v, wcode)
+    return {
+        "datum":         target_date,
+        "code":          wcode,
+        "description":   WMO.get(wcode, f"Code {wcode}"),
+        "temp_max":      temp_max_v,
+        "temp_min":      temp_min_v,
+        "rain_prob":     rain_prob,
+        "is_thunderstorm": wcode in [95, 96, 99],
+        "is_rain":       wcode in [51, 53, 55, 61, 63, 65, 80, 81, 82] or rain_prob > 60,
+        "is_hot":        temp_max_v > 25,
+        "is_cold":       temp_max_v < 10,
+        "hourly":        [],
+    }
 
 
 # ── AutoSleep CSV ─────────────────────────────────────────────────────────────
@@ -1280,13 +1322,33 @@ async def workout_analyze(
     a_race = next((r for r in athlete.get("races", []) if r.get("type") == "A"), {})
     target_date = workout_date or date.today().isoformat()
 
+    # Wetter für das Workout-Datum in TP hinterlegen (best-effort)
+    weather_on_date: dict = {}
+    if workout_id:
+        try:
+            weather_on_date = await fetch_weather_for_date(athlete, target_date)
+            _w_icon = "🔥 " if weather_on_date.get("is_hot") else ("❄️ " if weather_on_date.get("is_cold") else "")
+            _w_line = (
+                f"🌡️ Wetter: {weather_on_date.get('description','?')}, "
+                f"{weather_on_date.get('temp_min','?')}–{weather_on_date.get('temp_max','?')}°C, "
+                f"Regen {weather_on_date.get('rain_prob',0)}%"
+            )
+            _upd: dict = {"workout_id": workout_id, "description": _w_line}
+            if _w_icon:
+                _upd["title"] = f"{_w_icon}{clean_title(title)}"
+            await call_tp_mcp("tp_update_workout", _upd)
+            logger.info("workout_analyze: weather written to TP for %s on %s", workout_id, target_date)
+        except Exception as _we:
+            logger.warning("workout_analyze: weather update skipped: %s", _we)
+
     prompt = _build_analysis_prompt(athlete, a_race, workout_id, sport, title, target_date, fit_data)
     job_id = uuid.uuid4().hex[:10]
     _analysis_jobs[job_id] = {"status": "pending", "has_fit": bool(fit_data)}
     t = threading.Thread(target=_run_analysis_job, args=(job_id, tp_url, key, prompt), daemon=True)
     t.start()
     logger.info("analysis job %s started for %s on %s (fit=%s)", job_id, title, target_date, bool(fit_data))
-    return JSONResponse({"job_id": job_id, "has_fit": bool(fit_data)}, headers=_NO_CACHE)
+    return JSONResponse({"job_id": job_id, "has_fit": bool(fit_data), "weather": weather_on_date or None},
+                        headers=_NO_CACHE)
 
 
 @app.get("/api/workout/analyze/{job_id}")
