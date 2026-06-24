@@ -779,8 +779,8 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 
 <!-- Tabs -->
 <div class="tabs">
-  <button class="tab-btn active" data-tab="abend">{{ T.tab_abend }}</button>
-  <button class="tab-btn" data-tab="morgen">{{ T.tab_morgen }}</button>
+  <button class="tab-btn active" data-tab="morgen">{{ T.tab_morgen }}</button>
+  <button class="tab-btn" data-tab="abend">{{ T.tab_abend }}</button>
   <button class="tab-btn" data-tab="analyse">{{ T.tab_analyse }}</button>
   <button class="tab-btn" data-tab="erholung">{{ T.tab_erholung }}</button>
   <button class="tab-btn" data-tab="einstellungen">{{ T.tab_profil }}</button>
@@ -793,7 +793,7 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 <div id="form-section">
 
   <!-- Abend Form -->
-  <div class="tab-panel active" data-panel="abend">
+  <div class="tab-panel" data-panel="abend">
     <form class="form-card" id="form-abend" novalidate>
 
       <!-- Wetter morgen (auto-geladen) -->
@@ -913,7 +913,7 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
   </div>
 
   <!-- Morgen Form -->
-  <div class="tab-panel" data-panel="morgen">
+  <div class="tab-panel active" data-panel="morgen">
     <form class="form-card" id="form-morgen" enctype="multipart/form-data" novalidate>
 
       <!-- Kontext: Wetter heute (auto-geladen) -->
