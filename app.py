@@ -19,7 +19,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.14"
+APP_VERSION = "2.6.15"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -717,6 +717,45 @@ async def tp_workouts(day: str = "tomorrow"):
         raise
     except Exception as e:
         raise HTTPException(500, str(e))
+
+
+@app.post("/api/debug/coach-beschreibung")
+async def debug_coach_beschreibung(request: Request):
+    """Test: schickt einen Mock-Workout durch den Coach und zeigt die generierte Beschreibung."""
+    body = await request.json()
+    athlete = load_athlete()
+    baseline = load_baseline()
+    system = build_system_prompt(athlete, baseline)
+
+    workout = body.get("workout", {
+        "id": "test-1",
+        "sport": "Laufen",
+        "title": "Lockerer aerober Lauf",
+        "duration_min": 35,
+        "tss": 28,
+        "description": "Lockerer aerober Lauf. Aktive Erholung nach dem Di-Intervall.\nSTRUKTUR:35 min ganz locker (6:15–6:45/km, HF-Deckel 150 bpm)\nKNIE-REGEL: Schmerz >3/10 → abbrechen.",
+    })
+    badge = body.get("badge", "MOD")
+    conditions = body.get("conditions", "Hitze >25°C (31°C erwartet)")
+
+    tp_ctx = "\nTrainingPeaks geplante Workouts morgen: " + json.dumps([workout], ensure_ascii=False)
+    tomorrow = (date.today() + timedelta(days=1)).strftime("%d.%m.%Y")
+    user_msg = (
+        f"Abend-Check — Plan für morgen ({tomorrow}):\n\n"
+        f"Fragebogen:\n- Waden: 0/10\n- Knie: 0/10\n- Achillessehne L: 0/10\n"
+        f"- Achillessehne R: 0/10\n- Müdigkeit: 1/5\n- Muskelkater: keine\n- Symptome: keine\n\n"
+        f"Wetter morgen: {conditions}{tp_ctx}\n\n"
+        f"Geplante Einheiten morgen: {workout['sport']}"
+    )
+    result = call_claude(system, user_msg)
+    sportarten = result.get("sportarten", [])
+    return {
+        "workout_input": workout,
+        "badge_expected": badge,
+        "coach_output": sportarten,
+        "beschreibung": sportarten[0].get("beschreibung") if sportarten else None,
+        "badge_actual": sportarten[0].get("badge") if sportarten else None,
+    }
 
 
 def clean_title(title: str) -> str:
