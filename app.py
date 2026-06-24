@@ -19,7 +19,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.19"
+APP_VERSION = "2.6.20"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -500,7 +500,7 @@ def call_claude_tp_mcp(user_content: str) -> str:
     key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not key:
         raise HTTPException(500, T["err_api_key_missing"])
-    c = anthropic.Anthropic(api_key=key, http_client=_tp_http)
+    c = anthropic.Anthropic(api_key=key, http_client=_tp_http_long)
     try:
         msg = c.beta.messages.create(
             model="claude-sonnet-4-6",
