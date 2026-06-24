@@ -19,7 +19,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.21"
+APP_VERSION = "2.6.22"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -40,6 +40,20 @@ _tp_http_long = httpx.Client(
 
 # In-memory Job-Store für Workout-Analysen
 _analysis_jobs: dict = {}  # job_id -> {"status":"pending"|"done"|"error", "result":{}, "error":"..."}
+
+# ── TP Workout Cache ──────────────────────────────────────────────────────────
+import time as _time
+_tp_cache: dict = {}   # date_str -> {"data": {...}, "ts": float}
+_TP_CACHE_TTL = 1800   # 30 Minuten
+
+def _tp_cache_get(date_str: str) -> Optional[dict]:
+    entry = _tp_cache.get(date_str)
+    if entry and _time.time() - entry["ts"] < _TP_CACHE_TTL:
+        return entry["data"]
+    return None
+
+def _tp_cache_set(date_str: str, data: dict):
+    _tp_cache[date_str] = {"data": data, "ts": _time.time()}
 
 
 def parse_fit_summary(fit_bytes: bytes) -> dict:
@@ -709,6 +723,10 @@ def _tp_call_sync(athlete: dict, day_offset: int) -> dict:
     if not tp_url:
         return {"available": False, "workouts": [], "date": None}
     target = (date.today() + timedelta(days=day_offset)).isoformat()
+    cached = _tp_cache_get(target)
+    if cached:
+        logger.info("_tp_call_sync cache hit: %s", target)
+        return cached
     prompt = T["tp_workouts_prompt"].format(name=athlete.get("name", "the athlete"), date=target)
     try:
         raw = call_claude_tp_mcp(prompt)
@@ -717,7 +735,9 @@ def _tp_call_sync(athlete: dict, day_offset: int) -> dict:
             raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
         workouts = json.loads(raw)
         logger.info("_tp_call_sync ok: %d workouts day_offset=%d", len(workouts), day_offset)
-        return {"available": True, "workouts": workouts, "date": target}
+        result = {"available": True, "workouts": workouts, "date": target}
+        _tp_cache_set(target, result)
+        return result
     except json.JSONDecodeError:
         logger.error("_tp_call_sync JSON error raw=%s", raw[:200])
         return {"available": True, "workouts": [], "date": target}
@@ -743,6 +763,10 @@ async def tp_workouts(day: str = "tomorrow"):
         return JSONResponse({"available": False, "workouts": [], "date": None}, headers=_NO_CACHE)
     day_offset = 0 if day == "today" else 1
     target = (date.today() + timedelta(days=day_offset)).isoformat()
+    cached = _tp_cache_get(target)
+    if cached:
+        logger.info("tp_workouts cache hit: %s", target)
+        return JSONResponse(cached, headers=_NO_CACHE)
     athlete = load_athlete()
     logger.info("tp_workouts: day=%s target=%s", day, target)
     prompt = T["tp_workouts_prompt"].format(name=athlete.get("name", "the athlete"), date=target)
@@ -753,7 +777,9 @@ async def tp_workouts(day: str = "tomorrow"):
             raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
         workouts = json.loads(raw)
         logger.info("tp_workouts ok: %d workouts for %s", len(workouts), target)
-        return JSONResponse({"available": True, "workouts": workouts, "date": target}, headers=_NO_CACHE)
+        result = {"available": True, "workouts": workouts, "date": target}
+        _tp_cache_set(target, result)
+        return JSONResponse(result, headers=_NO_CACHE)
     except json.JSONDecodeError:
         logger.error("tp_workouts JSON decode error, raw=%s", raw[:300])
         return JSONResponse({"available": True, "workouts": [], "date": target, "raw": raw[:300]}, headers=_NO_CACHE)

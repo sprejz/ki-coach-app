@@ -2455,15 +2455,24 @@ async function loadStartupData() {
   const erholungPanel = document.querySelector('[data-panel="erholung"]');
   if (erholungPanel?.classList.contains('active')) loadErholung();
 
-  // Phase 2 — TP Workouts sequentiell laden (vermeidet parallele API-Calls → 429)
-  setSplashStatus(T.loading_workouts);
-  setSplashProgress(50, true);
-  const tpTomorrow = await fetch('/api/tp/workouts?day=tomorrow&t='+t, {cache:'no-store'}).then(okJson).catch(()=>null);
-  renderAbendTP(tpTomorrow);
-  setSplashProgress(75, true);
-  const tpToday = await fetch('/api/tp/workouts?day=today&t='+t, {cache:'no-store'}).then(okJson).catch(()=>null);
-  renderMorgenTP(tpToday);
+  // Phase 2 — Splash sofort beenden, TP im Hintergrund laden
   setSplashProgress(100);
+
+  // TP Workouts nicht-blockierend im Hintergrund laden
+  loadTPBackground(t);
+}
+
+async function loadTPBackground(t) {
+  const okJson = r => r.ok ? r.json() : null;
+  // Erst tomorrow, dann today (sequentiell → kein 429)
+  try {
+    const tpTomorrow = await fetch('/api/tp/workouts?day=tomorrow&t='+t, {cache:'no-store'}).then(okJson).catch(()=>null);
+    renderAbendTP(tpTomorrow);
+  } catch(_) {}
+  try {
+    const tpToday = await fetch('/api/tp/workouts?day=today&t='+t, {cache:'no-store'}).then(okJson).catch(()=>null);
+    renderMorgenTP(tpToday);
+  } catch(_) {}
 }
 
 async function loadTPWorkouts() {
