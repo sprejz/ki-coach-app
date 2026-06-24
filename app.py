@@ -779,12 +779,13 @@ async def tp_apply(request: Request):
                 continue
 
             # Step 2: create new adjusted workout
-            new_title  = T["tp_mod_new_title"].format(title=base_title)
-            sport      = op.get("sport", "")
-            coach_rec  = op.get("description", "")
-            reason     = op.get("reason", "")
-            orig_dur   = op.get("duration_min")
-            orig_tss   = op.get("tss")
+            new_title    = T["tp_mod_new_title"].format(title=base_title)
+            sport        = op.get("sport", "")
+            coach_rec    = op.get("description", "")
+            reason       = op.get("reason", "")
+            orig_dur     = op.get("duration_min")
+            orig_tss     = op.get("tss")
+            orig_desc    = op.get("orig_description", "")
 
             # Duration: parse from coach_rec first ("30min"), else 75% of original, min 20
             import re as _re
@@ -804,12 +805,14 @@ async def tp_apply(request: Request):
                 except (TypeError, ValueError):
                     pass
 
-            # Structured description — no old workout notes
+            # Description: coach adaptation + original for reference
             desc_parts: list = []
             if reason:
                 desc_parts.append(f"Angepasst wegen: {reason}")
             if coach_rec:
                 desc_parts.append(coach_rec)
+            if orig_desc:
+                desc_parts.append(f"Original:\n{orig_desc}")
             nutr = nutrition_for_duration(new_duration, athlete.get("nutrition", {}))
             if nutr:
                 desc_parts.append(f"ERNÄHRUNG: {nutr}")

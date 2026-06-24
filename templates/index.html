@@ -2491,6 +2491,7 @@ async function applyToTP() {
       if (badge !== 'GO') acc.push({
         workout_id:   String(wid),
         orig_title:   w.title || w.sport || '',
+        orig_description: w.description || '',
         badge,
         sport:        w.sport || '',
         description:  sportarten[i]?.beschreibung || sportarten[i]?.details || '',
