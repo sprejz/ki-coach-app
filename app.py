@@ -19,7 +19,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.16"
+APP_VERSION = "2.6.17"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -303,6 +303,7 @@ async def fetch_weather(athlete: dict, day: int = 1) -> dict:
         "is_thunderstorm": code in [95, 96, 99],
         "is_rain": code in [51, 53, 55, 61, 63, 65, 80, 81, 82] or rain_prob > 60,
         "is_hot": temp_max > 25,
+        "is_cold": temp_max < 10,
         "hourly": hourly,
     }
     logger.info("fetch_weather ok: datum=%s temp=%s-%s code=%s hourly=%d",
@@ -779,6 +780,14 @@ async def tp_apply(request: Request):
     athlete     = load_athlete()
 
     logger.info("tp_apply: %d operations for %s symptome=%r", len(operations), target_date, symptome)
+
+    # Fetch weather once for this apply batch (best-effort)
+    weather_for_apply: dict = {}
+    try:
+        weather_for_apply = await fetch_weather(athlete, day=day_offset)
+    except Exception as _e:
+        logger.warning("tp_apply: weather fetch failed: %s", _e)
+
     actions = []
     had_skip_stop = False
     for op in operations:
@@ -786,10 +795,31 @@ async def tp_apply(request: Request):
         badge      = op.get("badge", "GO")
         orig_title = op.get("orig_title", "")
 
-        if badge == "GO" or not workout_id:
+        if not workout_id:
             continue
 
         base_title = clean_title(orig_title)
+
+        if badge == "GO":
+            # Update GO workouts with current weather (best-effort)
+            if weather_for_apply:
+                temp_min = weather_for_apply.get("temp_min", "?")
+                temp_max_v = weather_for_apply.get("temp_max", "?")
+                desc_w   = weather_for_apply.get("description", "")
+                rain     = weather_for_apply.get("rain_prob", 0)
+                weather_line = f"🌡️ Wetter: {desc_w}, {temp_min}–{temp_max_v}°C, Regen {rain}%"
+                go_update: dict = {"workout_id": workout_id, "description": weather_line}
+                if weather_for_apply.get("is_hot"):
+                    go_update["title"] = f"🔥 {base_title}"
+                elif weather_for_apply.get("is_cold"):
+                    go_update["title"] = f"❄️ {base_title}"
+                try:
+                    await call_tp_mcp("tp_update_workout", go_update)
+                    actions.append({"workout_id": workout_id, "badge": "GO", "status": "ok",
+                                    "detail": go_update.get("title", base_title)})
+                except Exception as e:
+                    logger.warning("tp_apply GO: weather update failed for %s: %s", workout_id, e)
+            continue
 
         if badge in ("SKIP", "STOP"):
             new_title = T["tp_skip_renamed"].format(title=base_title)
@@ -819,7 +849,12 @@ async def tp_apply(request: Request):
                 continue
 
             # Step 2: create new adjusted workout
-            new_title    = T["tp_mod_new_title"].format(title=base_title)
+            _weather_icon = ""
+            if weather_for_apply.get("is_hot"):
+                _weather_icon = "🔥 "
+            elif weather_for_apply.get("is_cold"):
+                _weather_icon = "❄️ "
+            new_title    = _weather_icon + T["tp_mod_new_title"].format(title=base_title)
             sport        = op.get("sport", "")
             coach_rec    = op.get("description", "")
             reason       = op.get("reason", "")
@@ -845,8 +880,14 @@ async def tp_apply(request: Request):
                 except (TypeError, ValueError):
                     pass
 
-            # Description: coach adaptation + original for reference
+            # Description: weather + coach adaptation + original for reference
             desc_parts: list = []
+            if weather_for_apply:
+                _temp_min = weather_for_apply.get("temp_min", "?")
+                _temp_max = weather_for_apply.get("temp_max", "?")
+                _desc_w   = weather_for_apply.get("description", "")
+                _rain     = weather_for_apply.get("rain_prob", 0)
+                desc_parts.append(f"🌡️ Wetter: {_desc_w}, {_temp_min}–{_temp_max}°C, Regen {_rain}%")
             if reason:
                 desc_parts.append(f"Angepasst wegen: {reason}")
             if coach_rec:
