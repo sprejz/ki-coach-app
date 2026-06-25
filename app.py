@@ -19,7 +19,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.25"
+APP_VERSION = "2.6.26"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -697,6 +697,27 @@ async def get_baseline():
 @app.get("/api/sleep/history")
 async def get_sleep_history():
     return load_sleep_history()
+
+
+@app.post("/api/sleep/history/sync")
+async def sync_sleep_history(request: Request):
+    """Nimmt Client-seitige localStorage-Einträge und merged sie in die Server-History."""
+    entries = await request.json()
+    if not isinstance(entries, list):
+        raise HTTPException(status_code=400, detail="Expected JSON array")
+    history = load_sleep_history()
+    existing_dates = {h.get("date") for h in history}
+    added = 0
+    for entry in entries:
+        if isinstance(entry, dict) and entry.get("date") and entry["date"] not in existing_dates:
+            history.append(entry)
+            existing_dates.add(entry["date"])
+            added += 1
+    if added:
+        history = sorted(history, key=lambda h: h.get("date", ""))[-14:]
+        with open(SLEEP_HISTORY_FILE, "w", encoding="utf-8") as fh:
+            json.dump(history, fh, indent=2, ensure_ascii=False)
+    return {"added": added, "total": len(history)}
 
 
 @app.post("/api/baseline/calculate")

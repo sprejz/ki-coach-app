@@ -1789,7 +1789,16 @@ async function loadErholung() {
             // Lokale Kopie aktualisieren als Offline-Fallback
             try { localStorage.setItem('sleep_history', JSON.stringify(serverHistory)); } catch {}
           } else {
-            sleepHistory = getSleepHistoryLocal();
+            // Server leer → localStorage-Daten einmalig hochladen (Migration vom alten Gerät)
+            const local = getSleepHistoryLocal();
+            if (local?.length) {
+              sleepHistory = local;
+              fetch('/api/sleep/history/sync', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(local),
+              }).catch(() => {});
+            }
           }
         } else {
           sleepHistory = getSleepHistoryLocal();
