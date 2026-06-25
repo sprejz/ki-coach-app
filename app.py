@@ -29,12 +29,11 @@ app = FastAPI()
 
 @app.on_event("startup")
 async def _prefetch_tp():
-    """Prefetcht TP Workouts für heute + morgen im Hintergrund beim App-Start."""
+    """Prefetcht TP Workouts für die nächsten 7 Tage in einem einzigen MCP-Call."""
     if not os.environ.get("TP_MCP_URL"):
         return
     athlete = load_athlete()
-    for _d in range(7):
-        asyncio.create_task(_tp_refresh(athlete, _d))
+    asyncio.create_task(_tp_refresh_range(athlete, days=7))
 BASE_DIR = Path(__file__).parent
 
 # ── shared HTTP clients (connection pooling) ──────────────────────────────────
@@ -85,6 +84,44 @@ async def _tp_refresh(athlete: dict, day_offset: int = 0, date_str: str = None):
         logger.error("_tp_refresh error for %s: %s", target, e)
     finally:
         _tp_refresh_busy.discard(target)
+
+async def _tp_refresh_range(athlete: dict, days: int = 7):
+    """Holt TP Workouts für einen Datumsbereich in einem einzigen MCP-Call."""
+    start = date.today()
+    end   = start + timedelta(days=days - 1)
+    range_key = f"range_{start.isoformat()}_{end.isoformat()}"
+    if range_key in _tp_refresh_busy:
+        return
+    _tp_refresh_busy.add(range_key)
+    try:
+        prompt = T["tp_history_prompt"].format(
+            name=athlete.get("name", "the athlete"),
+            start=start.isoformat(),
+            end=end.isoformat(),
+        )
+        raw = await asyncio.to_thread(call_claude_tp_mcp, prompt)
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+        grouped = json.loads(raw)  # [{date, workouts:[...]}, ...]
+        for entry in grouped:
+            ds = entry.get("date")
+            workouts = entry.get("workouts", [])
+            if ds:
+                _tp_cache_set(ds, {"available": True, "workouts": workouts, "date": ds})
+        # Tage ohne Workouts auch als leer cachen
+        for off in range(days):
+            ds = (start + timedelta(days=off)).isoformat()
+            if not _tp_cache_get(ds):
+                _tp_cache_set(ds, {"available": True, "workouts": [], "date": ds})
+        logger.info("_tp_refresh_range ok: %d Tage für %s–%s", len(grouped), start, end)
+    except Exception as e:
+        logger.error("_tp_refresh_range error: %s", e)
+        # Fallback: heute + morgen einzeln nachladen
+        for off in range(2):
+            asyncio.create_task(_tp_refresh(athlete, off))
+    finally:
+        _tp_refresh_busy.discard(range_key)
 
 
 def parse_fit_summary(fit_bytes: bytes) -> dict:
@@ -776,7 +813,7 @@ async def coach_chat(request: Request):
                 tp_lines.append(f"  - {label} ({ds}): {' | '.join(p for p in parts if p)}")
         elif os.environ.get("TP_MCP_URL"):
             tp_loading_labels.append(label)
-            if ds not in _tp_refresh_busy:
+            if ds not in _tp_refresh_busy and f"range_{today_str}" not in str(_tp_refresh_busy):
                 asyncio.create_task(_tp_refresh(athlete, date_str=ds))
 
     if tp_lines:
