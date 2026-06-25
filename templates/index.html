@@ -2293,13 +2293,21 @@ async function renderAnalyseSection() {
       return;
     }
     analyseLoaded = true;
+    const SPORT_OK = s => {
+      const l = (s || '').toLowerCase();
+      return l.includes('rad') || l.includes('bike') || l.includes('cycl') ||
+             l.includes('lauf') || l.includes('run') ||
+             l.includes('schwimm') || l.includes('swim');
+    };
     let html = `<p class="section-title" style="margin-bottom:12px">Einheiten analysieren</p>`;
     let idx = 0;
     data.days.slice().reverse().forEach(day => {
       if (!day.workouts?.length) return;
+      const visible = day.workouts.filter(w => SPORT_OK(w.sport) && !String(w.title||'').startsWith('❌'));
+      if (!visible.length) return;
       const dayLabel = new Date(day.date + 'T12:00:00').toLocaleDateString('de-DE', {weekday:'short',day:'2-digit',month:'2-digit'});
       html += `<div style="margin-bottom:4px;font-size:11px;font-weight:600;color:var(--muted2);text-transform:uppercase;letter-spacing:.05em">${dayLabel}</div>`;
-      day.workouts.forEach(w => {
+      visible.forEach(w => {
         const i = idx++;
         html += `
           <div id="analyse-item-${i}" style="margin-bottom:10px">
