@@ -19,7 +19,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.28"
+APP_VERSION = "2.6.29"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -736,6 +736,21 @@ async def coach_chat(request: Request):
     baseline = load_baseline()
     system = build_system_prompt(athlete, baseline)
     system += "\nDu bist im direkten Chat. Antworte auf Deutsch, direkt und konkret. Kein JSON — normaler Text."
+
+    # TP-Workouts aus Cache anhängen (heute + morgen) — kein MCP-Call nötig
+    today_str    = date.today().isoformat()
+    tomorrow_str = (date.today() + timedelta(days=1)).isoformat()
+    tp_lines = []
+    for label, ds in [("heute", today_str), ("morgen", tomorrow_str)]:
+        cached = _tp_cache_get(ds)
+        if cached and cached.get("workouts"):
+            for w in cached["workouts"]:
+                parts = [w.get("sport", "?"), w.get("title", "")]
+                if w.get("duration_min"): parts.append(f"{w['duration_min']} min")
+                if w.get("tss"):          parts.append(f"{w['tss']} TSS")
+                tp_lines.append(f"  - {label}: {' | '.join(p for p in parts if p)}")
+    if tp_lines:
+        system += "\n\nAktueller TrainingPeaks-Plan:\n" + "\n".join(tp_lines)
 
     messages = []
     for h in history[-10:]:
