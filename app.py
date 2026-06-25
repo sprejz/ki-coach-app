@@ -741,6 +741,7 @@ async def coach_chat(request: Request):
     today_str    = date.today().isoformat()
     tomorrow_str = (date.today() + timedelta(days=1)).isoformat()
     tp_lines = []
+    tp_cache_cold = False
     for label, ds in [("heute", today_str), ("morgen", tomorrow_str)]:
         cached = _tp_cache_get(ds)
         if cached and cached.get("workouts"):
@@ -749,8 +750,23 @@ async def coach_chat(request: Request):
                 if w.get("duration_min"): parts.append(f"{w['duration_min']} min")
                 if w.get("tss"):          parts.append(f"{w['tss']} TSS")
                 tp_lines.append(f"  - {label}: {' | '.join(p for p in parts if p)}")
+        elif os.environ.get("TP_MCP_URL") and ds not in _tp_refresh_busy:
+            tp_cache_cold = True
+            asyncio.create_task(_tp_refresh(athlete, 0 if ds == today_str else 1))
+
     if tp_lines:
-        system += "\n\nAktueller TrainingPeaks-Plan:\n" + "\n".join(tp_lines)
+        system += (
+            "\n\nAktueller TrainingPeaks-Plan (automatisch geladen — du HAST diese Daten, nutze sie direkt):\n"
+            + "\n".join(tp_lines)
+        )
+    elif tp_cache_cold:
+        system += (
+            "\n\nTrainingPeaks-Daten werden gerade im Hintergrund geladen (Server-Neustart). "
+            "Weise den Nutzer freundlich darauf hin, dass die TP-Workouts in ca. 1 Minute verfügbar sind "
+            "und er dann nochmal fragen kann."
+        )
+    elif os.environ.get("TP_MCP_URL"):
+        system += "\n\nTrainingPeaks: heute keine Workouts geplant."
 
     # Wetterdaten heute + morgen anhängen
     try:
