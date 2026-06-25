@@ -33,8 +33,8 @@ async def _prefetch_tp():
     if not os.environ.get("TP_MCP_URL"):
         return
     athlete = load_athlete()
-    asyncio.create_task(_tp_refresh(athlete, 0))
-    asyncio.create_task(_tp_refresh(athlete, 1))
+    for _d in range(7):
+        asyncio.create_task(_tp_refresh(athlete, _d))
 BASE_DIR = Path(__file__).parent
 
 # ── shared HTTP clients (connection pooling) ──────────────────────────────────
@@ -66,9 +66,9 @@ def _tp_cache_get(date_str: str) -> Optional[dict]:
 def _tp_cache_set(date_str: str, data: dict):
     _tp_cache[date_str] = {"data": data, "ts": _time.time()}
 
-async def _tp_refresh(athlete: dict, day_offset: int):
+async def _tp_refresh(athlete: dict, day_offset: int = 0, date_str: str = None):
     """Holt TP Workouts im Hintergrund und füllt den Cache."""
-    target = (date.today() + timedelta(days=day_offset)).isoformat()
+    target = date_str if date_str else (date.today() + timedelta(days=day_offset)).isoformat()
     if target in _tp_refresh_busy:
         return
     _tp_refresh_busy.add(target)
@@ -737,36 +737,60 @@ async def coach_chat(request: Request):
     system = build_system_prompt(athlete, baseline)
     system += "\nDu bist im direkten Chat. Antworte auf Deutsch, direkt und konkret. Kein JSON — normaler Text."
 
-    # TP-Workouts aus Cache anhängen (heute + morgen) — kein MCP-Call nötig
-    today_str    = date.today().isoformat()
-    tomorrow_str = (date.today() + timedelta(days=1)).isoformat()
+    # TP-Workouts: heute, morgen + im Text erwähnte Wochentage (bis 30 Tage voraus)
+    today_d   = date.today()
+    today_str = today_d.isoformat()
+    _DE_DAYS = {
+        "montag": 0, "dienstag": 1, "mittwoch": 2, "donnerstag": 3,
+        "freitag": 4, "samstag": 5, "sonnabend": 5, "sonntag": 6,
+    }
+    _msg_lower = message.lower()
+    dates_to_check: list = []  # list of (label, date_str, day_offset_or_none)
+    for off in range(30):
+        d = today_d + timedelta(days=off)
+        ds = d.isoformat()
+        if off == 0:
+            label = "heute"
+        elif off == 1:
+            label = "morgen"
+        elif off == 2 and "übermorgen" in _msg_lower:
+            label = "übermorgen"
+        else:
+            # Wochentag-Match: nur hinzufügen wenn im Text genannt
+            de_name = ["montag","dienstag","mittwoch","donnerstag","freitag","samstag","sonntag"][d.weekday()]
+            mentioned = de_name in _msg_lower or (de_name == "samstag" and "sonnabend" in _msg_lower)
+            if not mentioned and off >= 2:
+                continue
+            label = de_name.capitalize()
+        dates_to_check.append((label, ds, off))
+
     tp_lines = []
-    tp_cache_cold = False
-    for label, ds in [("heute", today_str), ("morgen", tomorrow_str)]:
+    tp_loading_labels = []
+    for label, ds, off in dates_to_check:
         cached = _tp_cache_get(ds)
         if cached and cached.get("workouts"):
             for w in cached["workouts"]:
                 parts = [w.get("sport", "?"), w.get("title", "")]
                 if w.get("duration_min"): parts.append(f"{w['duration_min']} min")
                 if w.get("tss"):          parts.append(f"{w['tss']} TSS")
-                tp_lines.append(f"  - {label}: {' | '.join(p for p in parts if p)}")
-        elif os.environ.get("TP_MCP_URL") and ds not in _tp_refresh_busy:
-            tp_cache_cold = True
-            asyncio.create_task(_tp_refresh(athlete, 0 if ds == today_str else 1))
+                tp_lines.append(f"  - {label} ({ds}): {' | '.join(p for p in parts if p)}")
+        elif os.environ.get("TP_MCP_URL"):
+            tp_loading_labels.append(label)
+            if ds not in _tp_refresh_busy:
+                asyncio.create_task(_tp_refresh(athlete, date_str=ds))
 
     if tp_lines:
         system += (
             "\n\nAktueller TrainingPeaks-Plan (automatisch geladen — du HAST diese Daten, nutze sie direkt):\n"
             + "\n".join(tp_lines)
         )
-    elif tp_cache_cold:
+    if tp_loading_labels:
         system += (
-            "\n\nTrainingPeaks-Daten werden gerade im Hintergrund geladen (Server-Neustart). "
-            "Weise den Nutzer freundlich darauf hin, dass die TP-Workouts in ca. 1 Minute verfügbar sind "
-            "und er dann nochmal fragen kann."
+            f"\n\nFür folgende Tage werden TP-Daten noch geladen: {', '.join(tp_loading_labels)}. "
+            "Weise den Nutzer darauf hin, dass diese in ~1 Minute verfügbar sind und er nochmal fragen kann."
         )
-    elif os.environ.get("TP_MCP_URL"):
-        system += "\n\nTrainingPeaks: heute keine Workouts geplant."
+    if not tp_lines and not tp_loading_labels and os.environ.get("TP_MCP_URL"):
+        system += "\n\nTrainingPeaks: keine Workouts für die angefragten Tage geplant."
 
     # Wetterdaten heute + morgen anhängen
     try:
