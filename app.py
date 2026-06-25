@@ -19,7 +19,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.27"
+APP_VERSION = "2.6.28"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -720,6 +720,40 @@ async def sync_sleep_history(request: Request):
     return {"added": added, "total": len(history)}
 
 
+@app.post("/api/coach/chat")
+async def coach_chat(request: Request):
+    """Freies Chat mit dem Coach — nutzt Athletenprofil als Kontext."""
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not key:
+        raise HTTPException(500, T["err_api_key_missing"])
+    body = await request.json()
+    message = str(body.get("message", "")).strip()
+    if not message:
+        raise HTTPException(400, "Nachricht fehlt")
+    history = body.get("history", [])
+
+    athlete = load_athlete()
+    baseline = load_baseline()
+    system = build_system_prompt(athlete, baseline)
+    system += "\nDu bist im direkten Chat. Antworte auf Deutsch, direkt und konkret. Kein JSON — normaler Text."
+
+    messages = []
+    for h in history[-10:]:
+        if h.get("role") in ("user", "assistant") and h.get("content"):
+            messages.append({"role": h["role"], "content": str(h["content"])})
+    messages.append({"role": "user", "content": message})
+
+    c = anthropic.Anthropic(api_key=key)
+    msg = c.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=600,
+        system=system,
+        messages=messages,
+    )
+    reply = msg.content[0].text.strip()
+    return JSONResponse({"reply": reply}, headers=_NO_CACHE)
+
+
 @app.post("/api/baseline/calculate")
 async def calc_baseline(files: List[UploadFile] = File(...)):
     buckets: dict = {k: [] for k in ["SchlafBPM", "WachBPM", "SchlafHRV", "Atmung", "Effizienz"]}
@@ -1328,8 +1362,35 @@ def _run_analysis_job(job_id: str, tp_url: str, key: str, prompt: str):
         _analysis_jobs[job_id] = {"status": "error", "error": str(e)[:300]}
 
 
+def _run_analysis_job_fast(job_id: str, key: str, prompt: str):
+    """Schneller Pfad wenn FIT-Daten vorhanden — kein MCP nötig."""
+    import re as _re
+    try:
+        c = anthropic.Anthropic(api_key=key)
+        msg = c.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=800,
+            system="Du bist ein erfahrener Triathlon-Coach. Antworte ausschließlich mit gültigem JSON ohne Markdown.",
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = msg.content[0].text.strip()
+        if raw.startswith("```"):
+            lines = raw.split("\n")
+            raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+        try:
+            result = json.loads(raw)
+        except json.JSONDecodeError:
+            m = _re.search(r'\{.*\}', raw, _re.DOTALL)
+            result = json.loads(m.group()) if m else {"bewertung": "ok", "urteil": raw[:400], "naechster_schritt": ""}
+        logger.info("analysis job %s done (fast): bewertung=%s", job_id, result.get("bewertung"))
+        _analysis_jobs[job_id] = {"status": "done", "result": result}
+    except Exception as e:
+        logger.error("analysis job %s error (fast): %s", job_id, e)
+        _analysis_jobs[job_id] = {"status": "error", "error": str(e)[:300]}
+
+
 def _build_analysis_prompt(athlete: dict, a_race: dict, workout_id: str, sport: str,
-                            title: str, target_date: str, fit_data: dict) -> str:
+                            title: str, target_date: str, fit_data: dict, weather_data: dict = None) -> str:
     base = T["coach_analysis_prompt"].format(
         name=athlete.get("name", "Hendrik"),
         ftp=athlete.get("ftp_watt", 286),
@@ -1344,6 +1405,12 @@ def _build_analysis_prompt(athlete: dict, a_race: dict, workout_id: str, sport: 
         title=title or sport,
         date=target_date,
     )
+    if weather_data and weather_data.get("description"):
+        base += (
+            f"\n\nWetter am {target_date}: {weather_data['description']}, "
+            f"{weather_data.get('temp_min','?')}–{weather_data.get('temp_max','?')}°C, "
+            f"Regen {weather_data.get('rain_prob',0)}%."
+        )
     if fit_data:
         lines = ["\n\n--- FIT-DATEI (lokale Ist-Daten) ---"]
         label_map = {
@@ -1376,7 +1443,7 @@ def _build_analysis_prompt(athlete: dict, a_race: dict, workout_id: str, sport: 
                 if "pace" in lap:
                     parts.append(f"{lap['pace']}/km")
                 lines.append("  • " + " | ".join(parts))
-        lines.append("Nutze diese FIT-Daten als primäre Ist-Daten. TrainingPeaks nur zur Ergänzung abfragen.")
+        lines.append("Nutze diese FIT-Daten als primäre Ist-Daten für die Analyse.")
         base += "\n".join(lines)
     return base
 
@@ -1429,10 +1496,13 @@ async def workout_analyze(
         except Exception as _we:
             logger.warning("workout_analyze: weather update skipped: %s", _we)
 
-    prompt = _build_analysis_prompt(athlete, a_race, workout_id, sport, title, target_date, fit_data)
+    prompt = _build_analysis_prompt(athlete, a_race, workout_id, sport, title, target_date, fit_data, weather_on_date)
     job_id = uuid.uuid4().hex[:10]
     _analysis_jobs[job_id] = {"status": "pending", "has_fit": bool(fit_data)}
-    t = threading.Thread(target=_run_analysis_job, args=(job_id, tp_url, key, prompt), daemon=True)
+    if fit_data:
+        t = threading.Thread(target=_run_analysis_job_fast, args=(job_id, key, prompt), daemon=True)
+    else:
+        t = threading.Thread(target=_run_analysis_job, args=(job_id, tp_url, key, prompt), daemon=True)
     t.start()
     logger.info("analysis job %s started for %s on %s (fit=%s)", job_id, title, target_date, bool(fit_data))
     return JSONResponse({"job_id": job_id, "has_fit": bool(fit_data), "weather": weather_on_date or None},

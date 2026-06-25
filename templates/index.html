@@ -784,6 +784,7 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
   <button class="tab-btn" data-tab="analyse">{{ T.tab_analyse }}</button>
   <button class="tab-btn" data-tab="erholung">{{ T.tab_erholung }}</button>
   <button class="tab-btn" data-tab="einstellungen">{{ T.tab_profil }}</button>
+  <button class="tab-btn" data-tab="chat">Coach Chat</button>
   <button class="tab-btn" data-tab="about">{{ T.tab_about }}</button>
 </div>
 
@@ -1113,6 +1114,16 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
   </div><!-- Einstellungen panel -->
 
   <!-- About panel -->
+  <div class="tab-panel" data-panel="chat">
+    <div class="form-card" style="border-top:none;border-radius:0 0 var(--radius) var(--radius);display:flex;flex-direction:column;gap:0;min-height:60vh">
+      <div id="chat-history" style="flex:1;overflow-y:auto;max-height:55vh;display:flex;flex-direction:column;gap:10px;padding-bottom:8px"></div>
+      <div style="display:flex;gap:8px;margin-top:12px;align-items:flex-end">
+        <textarea id="chat-input" rows="2" placeholder="Frage deinen Coach…" style="flex:1;background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:8px;padding:10px;color:var(--text);font-size:14px;resize:none;font-family:inherit;line-height:1.4"></textarea>
+        <button onclick="sendChatMessage()" id="chat-send-btn" style="background:rgba(29,158,117,.15);border:1px solid rgba(29,158,117,.4);color:#1D9E75;border-radius:8px;padding:10px 14px;font-size:18px;cursor:pointer;flex-shrink:0;height:44px">↑</button>
+      </div>
+    </div>
+  </div>
+
   <div class="tab-panel" data-panel="about">
     <div class="form-card" style="text-align:center;padding:32px 20px">
       <div style="font-size:48px;margin-bottom:12px">🏊🚴🏃</div>
@@ -2258,6 +2269,74 @@ function renderMorgenTP(data) {
   const wasserRow = document.getElementById('wasser-row-morgen');
   if (wasserRow) wasserRow.style.display = hasSwim ? 'block' : 'none';
 }
+
+// ── Coach Chat ────────────────────────────────────────────────────────────────
+let chatHistory = [];
+
+function appendChatBubble(role, text) {
+  const el = document.getElementById('chat-history');
+  if (!el) return;
+  const isUser = role === 'user';
+  const bubble = document.createElement('div');
+  bubble.style.cssText = [
+    'max-width:88%',
+    `align-self:${isUser ? 'flex-end' : 'flex-start'}`,
+    `background:${isUser ? 'rgba(29,158,117,.18)' : 'rgba(255,255,255,.06)'}`,
+    `border:1px solid ${isUser ? 'rgba(29,158,117,.35)' : 'rgba(255,255,255,.1)'}`,
+    `border-radius:${isUser ? '12px 12px 2px 12px' : '12px 12px 12px 2px'}`,
+    'padding:10px 12px',
+    'font-size:13px',
+    'color:var(--text)',
+    'line-height:1.5',
+    'white-space:pre-wrap',
+    'word-break:break-word',
+  ].join(';');
+  bubble.textContent = text;
+  el.appendChild(bubble);
+  el.scrollTop = el.scrollHeight;
+}
+
+async function sendChatMessage() {
+  const input = document.getElementById('chat-input');
+  const btn = document.getElementById('chat-send-btn');
+  const msg = (input?.value || '').trim();
+  if (!msg) return;
+  input.value = '';
+  appendChatBubble('user', msg);
+  if (btn) btn.disabled = true;
+  const typingEl = document.createElement('div');
+  typingEl.id = 'chat-typing';
+  typingEl.style.cssText = 'align-self:flex-start;color:var(--muted);font-size:12px;padding:4px 0';
+  typingEl.textContent = '…';
+  document.getElementById('chat-history')?.appendChild(typingEl);
+  document.getElementById('chat-history').scrollTop = 99999;
+  try {
+    const r = await fetch('/api/coach/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({message: msg, history: chatHistory}),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    const {reply} = await r.json();
+    chatHistory.push({role: 'user', content: msg});
+    chatHistory.push({role: 'assistant', content: reply});
+    document.getElementById('chat-typing')?.remove();
+    appendChatBubble('assistant', reply);
+  } catch(e) {
+    document.getElementById('chat-typing')?.remove();
+    appendChatBubble('assistant', '⚠️ Fehler: ' + esc(String(e.message || e)));
+  } finally {
+    if (btn) btn.disabled = false;
+    input?.focus();
+  }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey && document.activeElement?.id === 'chat-input') {
+    e.preventDefault();
+    sendChatMessage();
+  }
+});
 
 async function forceRefreshTP(day) {
   const isAbend = day === 'tomorrow';
