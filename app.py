@@ -842,7 +842,7 @@ async def coach_chat(request: Request):
             f"Regen {wx_tomorrow.get('rain_prob',0)}%."
         )
     except Exception:
-        pass
+        system += "\n\nWetterdaten aktuell nicht verfügbar. Antworte ohne Wetterdaten — keine Spekulationen."
 
     messages = []
     for h in history[-10:]:
@@ -853,7 +853,7 @@ async def coach_chat(request: Request):
     c = anthropic.Anthropic(api_key=key)
     msg = c.messages.create(
         model="claude-haiku-4-5-20251001",
-        max_tokens=600,
+        max_tokens=1200,
         system=system,
         messages=messages,
     )
