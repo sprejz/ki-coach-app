@@ -19,7 +19,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.29"
+APP_VERSION = "2.6.30"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -751,6 +751,21 @@ async def coach_chat(request: Request):
                 tp_lines.append(f"  - {label}: {' | '.join(p for p in parts if p)}")
     if tp_lines:
         system += "\n\nAktueller TrainingPeaks-Plan:\n" + "\n".join(tp_lines)
+
+    # Wetterdaten heute + morgen anhängen
+    try:
+        wx_today    = await fetch_weather(athlete, day=0)
+        wx_tomorrow = await fetch_weather(athlete, day=1)
+        system += (
+            f"\n\nWetter heute ({today_str}): {wx_today.get('description','?')}, "
+            f"{wx_today.get('temp_min','?')}–{wx_today.get('temp_max','?')}°C, "
+            f"Regen {wx_today.get('rain_prob',0)}%."
+            f"\nWetter morgen ({tomorrow_str}): {wx_tomorrow.get('description','?')}, "
+            f"{wx_tomorrow.get('temp_min','?')}–{wx_tomorrow.get('temp_max','?')}°C, "
+            f"Regen {wx_tomorrow.get('rain_prob',0)}%."
+        )
+    except Exception:
+        pass
 
     messages = []
     for h in history[-10:]:
