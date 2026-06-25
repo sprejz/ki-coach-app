@@ -2306,8 +2306,17 @@ async function sendChatMessage() {
   if (btn) btn.disabled = true;
   const typingEl = document.createElement('div');
   typingEl.id = 'chat-typing';
-  typingEl.style.cssText = 'align-self:flex-start;color:var(--muted);font-size:12px;padding:4px 0';
-  typingEl.textContent = '…';
+  typingEl.style.cssText = [
+    'align-self:flex-start',
+    'background:rgba(255,255,255,.06)',
+    'border:1px solid rgba(255,255,255,.1)',
+    'border-radius:12px 12px 12px 2px',
+    'padding:10px 14px',
+    'display:flex',
+    'gap:5px',
+    'align-items:center',
+  ].join(';');
+  typingEl.innerHTML = '<span class="analyse-dots" style="margin:0"><span></span><span></span><span></span></span>';
   document.getElementById('chat-history')?.appendChild(typingEl);
   document.getElementById('chat-history').scrollTop = 99999;
   try {
