@@ -19,7 +19,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.24"
+APP_VERSION = "2.6.25"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -808,6 +808,25 @@ async def tp_workouts(day: str = "tomorrow"):
     asyncio.create_task(_tp_refresh(athlete, day_offset))
     return JSONResponse({"available": True, "workouts": [], "date": target, "loading": True},
                         headers=_NO_CACHE)
+
+
+@app.post("/api/tp/refresh")
+async def tp_refresh_endpoint(day: str = "tomorrow"):
+    """Cache löschen und TP-Workouts sofort neu laden."""
+    tp_url = os.environ.get("TP_MCP_URL", "")
+    if not tp_url:
+        return JSONResponse({"available": False, "workouts": [], "date": None}, headers=_NO_CACHE)
+    day_offset = 0 if day == "today" else 1
+    target = (date.today() + timedelta(days=day_offset)).isoformat()
+    athlete = load_athlete()
+    # Cache-Eintrag entfernen → erzwingt Neu-Fetch
+    _tp_cache.pop(target, None)
+    _tp_refresh_busy.discard(target)
+    await _tp_refresh(athlete, day_offset)
+    cached = _tp_cache_get(target)
+    if cached:
+        return JSONResponse(cached, headers=_NO_CACHE)
+    return JSONResponse({"available": True, "workouts": [], "date": target}, headers=_NO_CACHE)
 
 
 @app.post("/api/debug/coach-beschreibung")

@@ -895,6 +895,7 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
             <span style="color:var(--muted);font-size:12px">{{ T.lbl_tp_loading }}</span>
           </span>
           <span style="font-size:12px;color:var(--muted);display:none" id="abend-tp-date"></span>
+          <button type="button" id="abend-tp-refresh-btn" onclick="forceRefreshTP('tomorrow')" title="Neu laden" style="background:none;border:none;color:var(--muted);font-size:14px;cursor:pointer;padding:0 2px;line-height:1;display:none">↺</button>
         </div>
         <div id="abend-tp-content"></div>
       </div>
@@ -1016,6 +1017,7 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
             <div class="spinner" style="width:14px;height:14px;border-width:2px"></div>
             <span style="color:var(--muted);font-size:12px">{{ T.lbl_tp_loading }}</span>
           </span>
+          <button type="button" id="morgen-tp-refresh-btn" onclick="forceRefreshTP('today')" title="Neu laden" style="background:none;border:none;color:var(--muted);font-size:14px;cursor:pointer;padding:0 2px;line-height:1;display:none">↺</button>
         </div>
         <div id="morgen-tp-content"></div>
       </div>
@@ -1777,7 +1779,24 @@ async function loadErholung() {
   if (!card) return;
   try {
     if (!erholungLoaded) {
-      sleepHistory = getSleepHistoryLocal();
+      // Server ist primäre Quelle — funktioniert geräteübergreifend
+      try {
+        const r = await fetch('/api/sleep/history', {cache:'no-store'});
+        if (r.ok) {
+          const serverHistory = await r.json();
+          if (serverHistory?.length) {
+            sleepHistory = serverHistory;
+            // Lokale Kopie aktualisieren als Offline-Fallback
+            try { localStorage.setItem('sleep_history', JSON.stringify(serverHistory)); } catch {}
+          } else {
+            sleepHistory = getSleepHistoryLocal();
+          }
+        } else {
+          sleepHistory = getSleepHistoryLocal();
+        }
+      } catch {
+        sleepHistory = getSleepHistoryLocal();
+      }
       if (!sleepBaseline) {
         try {
           const r = await fetch('/api/baseline', {cache:'no-store'});
@@ -2190,8 +2209,10 @@ function renderAbendTP(data) {
   const content  = document.getElementById('abend-tp-content');
   const loadEl   = document.getElementById('abend-tp-loading');
   const dateEl   = document.getElementById('abend-tp-date');
+  const refreshBtn = document.getElementById('abend-tp-refresh-btn');
   if (loadEl) loadEl.style.display = 'none';
   if (dateEl) dateEl.style.display = 'block';
+  if (refreshBtn) refreshBtn.style.display = 'inline';
   if (!data?.available) {
     if (content) content.innerHTML = `<p style="color:var(--muted2);font-size:12px">${T.tp_no_cfg}</p>`;
     return;
@@ -2211,7 +2232,9 @@ function renderAbendTP(data) {
 function renderMorgenTP(data) {
   const loading = document.getElementById('morgen-tp-loading');
   const tpEl    = document.getElementById('morgen-tp-content');
+  const refreshBtn = document.getElementById('morgen-tp-refresh-btn');
   if (loading) loading.style.display = 'none';
+  if (refreshBtn) refreshBtn.style.display = 'inline';
   if (!data?.available) {
     if (tpEl) tpEl.innerHTML = `<p style="color:var(--muted2);font-size:12px">${T.tp_no_cfg}</p>`;
     return;
@@ -2225,6 +2248,24 @@ function renderMorgenTP(data) {
   const hasSwim = data.workouts.some(w => w.sport?.toLowerCase().includes('schwimm'));
   const wasserRow = document.getElementById('wasser-row-morgen');
   if (wasserRow) wasserRow.style.display = hasSwim ? 'block' : 'none';
+}
+
+async function forceRefreshTP(day) {
+  const isAbend = day === 'tomorrow';
+  const btn = document.getElementById(isAbend ? 'abend-tp-refresh-btn' : 'morgen-tp-refresh-btn');
+  const loadEl = document.getElementById(isAbend ? 'abend-tp-loading' : 'morgen-tp-loading');
+  if (btn) { btn.style.display = 'none'; }
+  if (loadEl) loadEl.style.display = 'flex';
+  try {
+    const data = await fetch('/api/tp/refresh?day=' + day, {method:'POST', cache:'no-store'})
+      .then(r => r.ok ? r.json() : null).catch(() => null);
+    if (data) {
+      if (isAbend) renderAbendTP(data);
+      else renderMorgenTP(data);
+    }
+  } catch(_) {}
+  if (loadEl) loadEl.style.display = 'none';
+  if (btn) btn.style.display = 'inline';
 }
 
 // ── Workout-Analyse ───────────────────────────────────────────────────────────
