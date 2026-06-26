@@ -19,7 +19,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.30"
+APP_VERSION = "2.6.36"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -228,6 +228,20 @@ def parse_fit_summary(fit_bytes: bytes) -> dict:
         if sub_sport and str(sub_sport) not in ("generic", "None"):
             summary["sub_sport"] = str(sub_sport)
 
+        # Start- und Endzeit (UTC ISO-String)
+        st = session.get("start_time")
+        if st:
+            try:
+                summary["start_time_utc"] = st.isoformat()
+                elapsed_s = session.get("total_elapsed_time") or session.get("total_timer_time")
+                if elapsed_s:
+                    from datetime import timezone as _tz
+                    end_dt = st.replace(tzinfo=_tz.utc) if st.tzinfo is None else st
+                    end_dt = end_dt + timedelta(seconds=int(elapsed_s))
+                    summary["end_time_utc"] = end_dt.isoformat()
+            except Exception:
+                pass
+
         # Lap-Splits (max 10)
         if laps:
             lap_list = []
@@ -432,6 +446,85 @@ async def fetch_weather_for_date(athlete: dict, target_date: str) -> dict:
         "is_hot":        temp_max_v > 25,
         "is_cold":       temp_max_v < 10,
         "hourly":        [],
+    }
+
+
+async def fetch_weather_for_workout(athlete: dict, start_utc: str, end_utc: str) -> dict:
+    """Stündliche Archiv-Wetterdaten für ein konkretes Workout-Zeitfenster (UTC ISO-Strings)."""
+    from datetime import datetime as _dt, timezone as _tz
+    lat = athlete["location"]["lat"]
+    lon = athlete["location"]["lon"]
+
+    start_dt = _dt.fromisoformat(start_utc.replace("Z", "+00:00"))
+    end_dt   = _dt.fromisoformat(end_utc.replace("Z", "+00:00"))
+    # In Berliner Lokalzeit umrechnen für die Anzeige
+    berlin_offset = timedelta(hours=2)  # CEST; gut genug für Sommer
+    start_local = start_dt + berlin_offset
+    end_local   = end_dt   + berlin_offset
+
+    start_date = start_dt.date().isoformat()
+    end_date   = end_dt.date().isoformat()
+
+    url = (
+        f"https://archive-api.open-meteo.com/v1/archive"
+        f"?latitude={lat}&longitude={lon}"
+        f"&start_date={start_date}&end_date={end_date}"
+        f"&hourly=temperature_2m,precipitation,weather_code"
+        f"&timezone=Europe%2FBerlin"
+    )
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        r = await client.get(url)
+    r.raise_for_status()
+    data = r.json()
+
+    hourly = data.get("hourly", {})
+    times  = hourly.get("time", [])
+    temps  = hourly.get("temperature_2m", [])
+    precips = hourly.get("precipitation", [])
+    codes  = hourly.get("weather_code", [])
+
+    # Stunden filtern die im Workout-Fenster liegen
+    matching_temps, matching_precip, matching_codes = [], [], []
+    for i, t_str in enumerate(times):
+        t_dt = _dt.fromisoformat(t_str)
+        if t_dt.tzinfo is None:
+            t_dt = t_dt.replace(tzinfo=_tz.utc)
+        # Vergleich in Lokalzeit: t_str ist bereits in Europe/Berlin
+        if start_local.replace(tzinfo=None) <= t_dt.replace(tzinfo=None) <= end_local.replace(tzinfo=None):
+            if i < len(temps) and temps[i] is not None:
+                matching_temps.append(float(temps[i]))
+            if i < len(precips) and precips[i] is not None:
+                matching_precip.append(float(precips[i]))
+            if i < len(codes) and codes[i] is not None:
+                matching_codes.append(int(codes[i]))
+
+    if not matching_temps:
+        raise ValueError(f"Keine stündlichen Archivdaten für {start_date}")
+
+    avg_temp  = round(sum(matching_temps) / len(matching_temps), 1)
+    temp_min  = round(min(matching_temps), 1)
+    temp_max  = round(max(matching_temps), 1)
+    total_precip = round(sum(matching_precip), 1) if matching_precip else 0
+    # häufigster Wettercode im Fenster
+    dominant_code = max(set(matching_codes), key=matching_codes.count) if matching_codes else 0
+
+    start_str = start_local.strftime("%H:%M")
+    end_str   = end_local.strftime("%H:%M")
+
+    logger.info("fetch_weather_for_workout ok: %s–%s avg=%.1f°C precip=%.1fmm code=%s",
+                start_str, end_str, avg_temp, total_precip, dominant_code)
+    return {
+        "datum":       start_date,
+        "start_local": start_str,
+        "end_local":   end_str,
+        "code":        dominant_code,
+        "description": WMO.get(dominant_code, f"Code {dominant_code}"),
+        "avg_temp":    avg_temp,
+        "temp_min":    temp_min,
+        "temp_max":    temp_max,
+        "precip_mm":   total_precip,
+        "is_hot":      avg_temp > 25,
+        "is_cold":     avg_temp < 10,
     }
 
 
@@ -1079,7 +1172,9 @@ async def tp_apply(request: Request):
                 desc_w   = weather_for_apply.get("description", "")
                 rain     = weather_for_apply.get("rain_prob", 0)
                 weather_line = f"🌡️ Wetter: {desc_w}, {temp_min}–{temp_max_v}°C, Regen {rain}%"
-                go_update: dict = {"workout_id": workout_id, "description": weather_line}
+                orig_desc_go = op.get("orig_description", "")
+                go_desc = (weather_line + "\n\n" + orig_desc_go) if orig_desc_go else weather_line
+                go_update: dict = {"workout_id": workout_id, "description": go_desc}
                 if weather_for_apply.get("is_hot"):
                     go_update["title"] = f"🔥 {base_title}"
                 elif weather_for_apply.get("is_cold"):
@@ -1561,6 +1656,7 @@ async def workout_analyze(
     sport: str = Form(""),
     title: str = Form(""),
     workout_date: str = Form(""),
+    start_time: str = Form(""),
     fit_file: Optional[UploadFile] = File(None),
 ):
     tp_url = os.environ.get("TP_MCP_URL", "")
@@ -1584,22 +1680,52 @@ async def workout_analyze(
     a_race = next((r for r in athlete.get("races", []) if r.get("type") == "A"), {})
     target_date = workout_date or date.today().isoformat()
 
-    # Wetter für das Workout-Datum in TP hinterlegen (best-effort)
+    # Wetter als private_notes in TP hinterlegen (best-effort, description bleibt unangetastet)
     weather_on_date: dict = {}
     if workout_id:
         try:
-            weather_on_date = await fetch_weather_for_date(athlete, target_date)
-            _w_icon = "🔥 " if weather_on_date.get("is_hot") else ("❄️ " if weather_on_date.get("is_cold") else "")
-            _w_line = (
-                f"🌡️ Wetter: {weather_on_date.get('description','?')}, "
-                f"{weather_on_date.get('temp_min','?')}–{weather_on_date.get('temp_max','?')}°C, "
-                f"Regen {weather_on_date.get('rain_prob',0)}%"
-            )
-            _upd: dict = {"workout_id": workout_id, "description": _w_line}
-            if _w_icon:
-                _upd["title"] = f"{_w_icon}{clean_title(title)}"
-            await call_tp_mcp("tp_update_workout", _upd)
-            logger.info("workout_analyze: weather written to TP for %s on %s", workout_id, target_date)
+            # Priorität: 1) TP-Startzeit, 2) FIT-Startzeit, 3) Tages-Fallback
+            tp_start = start_time.strip() if start_time else ""
+            fit_start = fit_data.get("start_time_utc", "")
+            fit_end   = fit_data.get("end_time_utc", "")
+
+            if tp_start:
+                # Endzeit aus TP-Startzeit + duration_min berechnen
+                from datetime import datetime as _dt
+                dur_min = fit_data.get("dauer_min")
+                st_dt = _dt.fromisoformat(tp_start)
+                if dur_min:
+                    et_dt = st_dt + timedelta(minutes=float(dur_min))
+                    weather_on_date = await fetch_weather_for_workout(
+                        athlete, st_dt.isoformat(), et_dt.isoformat()
+                    )
+                else:
+                    # Kein duration — 1h annehmen
+                    et_dt = st_dt + timedelta(hours=1)
+                    weather_on_date = await fetch_weather_for_workout(
+                        athlete, st_dt.isoformat(), et_dt.isoformat()
+                    )
+            elif fit_start and fit_end:
+                weather_on_date = await fetch_weather_for_workout(athlete, fit_start, fit_end)
+            else:
+                weather_on_date = await fetch_weather_for_date(athlete, target_date)
+
+            if "avg_temp" in weather_on_date:
+                _w_note = (
+                    f"🌡️ Wetter {weather_on_date['start_local']}–{weather_on_date['end_local']}: "
+                    f"{weather_on_date.get('description','?')}, "
+                    f"Ø {weather_on_date.get('avg_temp','?')}°C "
+                    f"({weather_on_date.get('temp_min','?')}–{weather_on_date.get('temp_max','?')}°C), "
+                    f"Niederschlag {weather_on_date.get('precip_mm',0)}mm"
+                )
+            else:
+                _w_note = (
+                    f"🌡️ Wetter {target_date}: {weather_on_date.get('description','?')}, "
+                    f"{weather_on_date.get('temp_min','?')}–{weather_on_date.get('temp_max','?')}°C, "
+                    f"Regen {weather_on_date.get('rain_prob',0)}%"
+                )
+            await call_tp_mcp("tp_update_workout", {"workout_id": workout_id, "private_notes": _w_note})
+            logger.info("workout_analyze: weather private_notes written to TP for %s on %s", workout_id, target_date)
         except Exception as _we:
             logger.warning("workout_analyze: weather update skipped: %s", _we)
 

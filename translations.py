@@ -251,7 +251,8 @@ TRANSLATIONS = {
         "tp_history_prompt": (
             "Liste alle Workouts (geplant und abgeschlossen) für {name} vom {start} bis {end} aus TrainingPeaks. "
             "Gruppiere nach Datum. Antworte NUR mit einem gültigen JSON-Array. Beispiel: "
-            '[{{"date":"2026-06-20","workouts":[{{"id":"123","sport":"Rad","title":"Z2 Ausdauer","duration_min":90,"tss":65}}]}}] '
+            '[{{"date":"2026-06-20","workouts":[{{"id":"123","sport":"Rad","title":"Z2 Ausdauer","duration_min":90,"tss":65,"start_time":"2026-06-20T07:15:00"}}]}}] '
+            "start_time ist die tatsächliche Startzeit des abgeschlossenen Workouts (ISO 8601, Lokalzeit), falls verfügbar — sonst weglassen. "
             "Nur Tage mit Workouts einbeziehen. Älteste Tage zuerst."
         ),
         "tp_completed_prompt": (
@@ -544,7 +545,8 @@ TRANSLATIONS = {
         "tp_history_prompt": (
             "List all workouts (planned and completed) for {name} from {start} to {end} from TrainingPeaks. "
             "Group by date. Respond ONLY with a valid JSON array. Example: "
-            '[{{"date":"2026-06-20","workouts":[{{"id":"123","sport":"Rad","title":"Z2 Endurance","duration_min":90,"tss":65}}]}}] '
+            '[{{"date":"2026-06-20","workouts":[{{"id":"123","sport":"Rad","title":"Z2 Endurance","duration_min":90,"tss":65,"start_time":"2026-06-20T07:15:00"}}]}}] '
+            "start_time is the actual start time of the completed workout (ISO 8601, local time) if available — omit if not. "
             "Only include days that have workouts. Oldest date first."
         ),
         "tp_completed_prompt": (

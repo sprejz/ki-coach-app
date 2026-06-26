@@ -2408,7 +2408,7 @@ async function renderAnalyseSection() {
                 <input type="file" id="analyse-fit-${i}" accept=".fit" style="display:none" onchange="updateFitLabel(${i})">
                 <span id="analyse-fit-name-${i}" style="display:block;text-align:center;font-size:12px;padding:5px 0;border:1px dashed var(--border);border-radius:6px;color:var(--muted2)">📎 FIT</span>
               </label>
-              <button onclick="analyzeWorkout(${i},'${esc(w.id||'')}','${esc(w.sport||'')}','${esc(w.title||'')}','${day.date}')"
+              <button onclick="analyzeWorkout(${i},'${esc(w.id||'')}','${esc(w.sport||'')}','${esc(w.title||'')}','${day.date}','${esc(w.start_time||'')}')"
                       style="flex:2;background:rgba(29,158,117,.12);border:1px solid rgba(29,158,117,.3);color:#1D9E75;border-radius:6px;padding:6px 10px;font-size:12px;cursor:pointer">
                 Analysieren
               </button>
@@ -2438,7 +2438,7 @@ function updateFitLabel(idx) {
   }
 }
 
-async function analyzeWorkout(idx, workoutId, sport, title, workoutDate) {
+async function analyzeWorkout(idx, workoutId, sport, title, workoutDate, startTime) {
   const btn       = document.querySelector(`#analyse-item-${idx} button`);
   const resultDiv = document.getElementById(`analyse-result-${idx}`);
   const fitInput  = document.getElementById(`analyse-fit-${idx}`);
@@ -2455,6 +2455,7 @@ async function analyzeWorkout(idx, workoutId, sport, title, workoutDate) {
     fd.append('sport',        sport       || '');
     fd.append('title',        title       || '');
     fd.append('workout_date', workoutDate || '');
+    fd.append('start_time',   startTime   || '');
     if (hasFit) fd.append('fit_file', fitInput.files[0]);
     const r = await fetch('/api/workout/analyze', { method: 'POST', body: fd });
     if (!r.ok) throw new Error(await r.text());
