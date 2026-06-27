@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.46"
+APP_VERSION = "2.6.47"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -108,6 +108,38 @@ async def _enrich_workouts(workouts: list) -> list:
     return list(await asyncio.gather(*[_detail(w) for w in workouts]))
 
 
+def _map_tp_workout(w: dict) -> dict:
+    """Mapped TP-native Felder auf unser internes Format."""
+    wid   = str(w.get("workoutId") or w.get("id") or "")
+    title = w.get("title") or w.get("name") or ""
+    day   = (w.get("workoutDay") or w.get("date") or "")[:10]
+    dur_s = w.get("totalTimePlanned") or w.get("totalTime") or 0
+    dur_m = round(dur_s / 60) if dur_s else None
+    tss   = w.get("tssPlanned") or w.get("tssActual") or w.get("tss") or None
+    st    = w.get("startTimePlanned") or w.get("startTime") or ""
+    stid  = w.get("workoutTypeValueId") or w.get("sportTypeId")
+    sport = (w.get("sport") or w.get("sportType") or
+             _HISTORY_SPORT_MAP.get(stid, "") or str(stid or ""))
+    return {"id": wid, "sport": sport, "title": title,
+            "duration_min": dur_m, "tss": tss,
+            "start_time": st, "subtype_id": stid, "_day": day}
+
+
+async def _tp_fetch_direct(start: str, end: str, wtype: str = "planned") -> dict:
+    """Holt Workouts per direktem MCP-Call und gruppiert sie nach Datum."""
+    raw = await call_tp_mcp("tp_get_workouts", {
+        "start_date": start, "end_date": end, "type": wtype
+    })
+    items = raw if isinstance(raw, list) else raw.get("workouts", raw.get("items", []))
+    by_date: dict = {}
+    for w in (items or []):
+        mapped = _map_tp_workout(w)
+        day = mapped.pop("_day", "")
+        if mapped["id"] and day:
+            by_date.setdefault(day, []).append(mapped)
+    return by_date
+
+
 async def _tp_refresh(athlete: dict, day_offset: int = 0, date_str: str = None):
     """Holt TP Workouts im Hintergrund und füllt den Cache."""
     target = date_str if date_str else (date.today() + timedelta(days=day_offset)).isoformat()
@@ -115,10 +147,8 @@ async def _tp_refresh(athlete: dict, day_offset: int = 0, date_str: str = None):
         return
     _tp_refresh_busy.add(target)
     try:
-        prompt = T["tp_workouts_prompt"].format(name=athlete.get("name", "the athlete"), date=target)
-        raw = await asyncio.to_thread(call_claude_tp_mcp, prompt)
-        workouts = _extract_json(raw)
-        workouts = await _enrich_workouts(workouts)
+        by_date = await _tp_fetch_direct(target, target)
+        workouts = await _enrich_workouts(by_date.get(target, []))
         _tp_cache_set(target, {"available": True, "workouts": workouts, "date": target})
         logger.info("_tp_refresh ok: %d workouts for %s", len(workouts), target)
     except Exception as e:
@@ -127,37 +157,33 @@ async def _tp_refresh(athlete: dict, day_offset: int = 0, date_str: str = None):
         _tp_refresh_busy.discard(target)
 
 async def _tp_refresh_range(athlete: dict, days: int = 7):
-    """Holt TP Workouts für einen Datumsbereich in einem einzigen MCP-Call."""
+    """Holt TP Workouts für einen Datumsbereich direkt per MCP."""
     start = date.today()
     end   = start + timedelta(days=days - 1)
     range_key = f"range_{start.isoformat()}_{end.isoformat()}"
     if range_key in _tp_refresh_busy:
         return
     _tp_refresh_busy.add(range_key)
-    # Einzelne Tage als busy markieren → verhindert parallele Einzelcalls (429)
     date_keys = [(start + timedelta(days=i)).isoformat() for i in range(days)]
     for dk in date_keys:
         _tp_refresh_busy.add(dk)
     try:
-        prompt = T["tp_history_prompt"].format(
-            name=athlete.get("name", "the athlete"),
-            start=start.isoformat(),
-            end=end.isoformat(),
-        )
-        raw = await asyncio.to_thread(call_claude_tp_mcp, prompt)
-        grouped = _extract_json(raw)  # [{date, workouts:[...]}, ...]
-        for entry in grouped:
-            ds = entry.get("date")
-            workouts = entry.get("workouts", [])
-            if ds:
-                workouts = await _enrich_workouts(workouts)
-                _tp_cache_set(ds, {"available": True, "workouts": workouts, "date": ds})
+        by_date = await _tp_fetch_direct(start.isoformat(), end.isoformat())
+        # Alle Workouts in einem Batch parallel enrichen
+        flat = [(day, w) for day, wl in by_date.items() for w in wl]
+        if flat:
+            enriched = await _enrich_workouts([w for _, w in flat])
+            by_date = {}
+            for (day, _), w in zip(flat, enriched):
+                by_date.setdefault(day, []).append(w)
+        for day, workouts in by_date.items():
+            _tp_cache_set(day, {"available": True, "workouts": workouts, "date": day})
         # Tage ohne Workouts auch als leer cachen
-        for off in range(days):
-            ds = (start + timedelta(days=off)).isoformat()
-            if not _tp_cache_get(ds):
-                _tp_cache_set(ds, {"available": True, "workouts": [], "date": ds})
-        logger.info("_tp_refresh_range ok: %d Tage für %s–%s", len(grouped), start, end)
+        for dk in date_keys:
+            if not _tp_cache_get(dk):
+                _tp_cache_set(dk, {"available": True, "workouts": [], "date": dk})
+        logger.info("_tp_refresh_range ok: %d Tage mit Workouts für %s–%s",
+                    len(by_date), start, end)
     except Exception as e:
         logger.error("_tp_refresh_range error: %s", e)
         # Fallback: heute + morgen einzeln nachladen
