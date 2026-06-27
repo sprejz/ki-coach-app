@@ -213,8 +213,8 @@ TRANSLATIONS = {
             "Rad → primaryIntensityMetric:'percentOfFtp', Lauf/Schwimm → 'percentOfThresholdPace'\n"
             "Intensität % der Schwelle: WarmUp/CoolDown=50-60, Z1=55-65, Z2=65-75, Z3=80-90, Z4=95-105, Z5=106-120\n"
             "intensityClass-Werte: 'warmUp'|'active'|'rest'|'coolDown'\n"
-            "Einzelschritt: {\"name\":\"...\",\"duration_seconds\":N,\"intensity_min\":X,\"intensity_max\":Y,\"intensityClass\":\"active\"}\n"
-            "Wiederholungsblock: {\"type\":\"repetition\",\"reps\":N,\"steps\":[...]}\n"
+            "Einzelschritt: {{\"name\":\"...\",\"duration_seconds\":N,\"intensity_min\":X,\"intensity_max\":Y,\"intensityClass\":\"active\"}}\n"
+            "Wiederholungsblock: {{\"type\":\"repetition\",\"reps\":N,\"steps\":[...]}}\n"
             "Schwimm-MOD: Feld 'distanz_m' mit Gesamtdistanz in Metern setzen.\n\n"
             "Antworte NUR als JSON (kein Markdown):\n"
             '{{"status":"green","status_text":"Alles grün","sportarten":['
@@ -530,8 +530,8 @@ TRANSLATIONS = {
             "Bike → primaryIntensityMetric:'percentOfFtp', Run/Swim → 'percentOfThresholdPace'\n"
             "Intensity % of threshold: WarmUp/CoolDown=50-60, Z1=55-65, Z2=65-75, Z3=80-90, Z4=95-105, Z5=106-120\n"
             "intensityClass values: 'warmUp'|'active'|'rest'|'coolDown'\n"
-            "Single step: {\"name\":\"...\",\"duration_seconds\":N,\"intensity_min\":X,\"intensity_max\":Y,\"intensityClass\":\"active\"}\n"
-            "Repetition block: {\"type\":\"repetition\",\"reps\":N,\"steps\":[...]}\n"
+            "Single step: {{\"name\":\"...\",\"duration_seconds\":N,\"intensity_min\":X,\"intensity_max\":Y,\"intensityClass\":\"active\"}}\n"
+            "Repetition block: {{\"type\":\"repetition\",\"reps\":N,\"steps\":[...]}}\n"
             "Swim MOD: set field 'distanz_m' with total distance in meters.\n\n"
             "Respond ONLY as JSON (no markdown):\n"
             '{{"status":"green","status_text":"All clear","sportarten":['
