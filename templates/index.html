@@ -1595,6 +1595,7 @@ function buildResult(data, fd, type) {
   // TrainingPeaks section — show if workouts were pre-loaded (both tabs)
   const _tpWorks = type === 'abend' ? tpWorkoutsAbend : tpWorkoutsMorgen;
   if (_tpWorks.length > 0) {
+    const _hasNonGo = (data.sportarten || []).some(s => s.badge && s.badge !== 'GO');
     h += `<div class="card-section">
       <div class="section-lbl">TrainingPeaks</div>
       <div id="tp-result-list">
@@ -1605,7 +1606,7 @@ function buildResult(data, fd, type) {
           </div>`
         ).join('')}
       </div>
-      <button class="btn-tp" id="btn-tp-apply" onclick="applyToTP()">${T.btn_tp_apply}</button>
+      ${_hasNonGo ? `<button class="btn-tp" id="btn-tp-apply" onclick="applyToTP()">${T.btn_tp_apply}</button>` : ''}
     </div>`;
   } else if (type === 'abend') {
     // Fallback: manual load when TP was not pre-loaded
