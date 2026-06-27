@@ -1,6 +1,7 @@
 import asyncio
 import os
 import json
+import re
 import csv
 import io
 import logging
@@ -19,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.36"
+APP_VERSION = "2.6.37"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -65,6 +66,25 @@ def _tp_cache_get(date_str: str) -> Optional[dict]:
 def _tp_cache_set(date_str: str, data: dict):
     _tp_cache[date_str] = {"data": data, "ts": _time.time()}
 
+def _extract_json(raw: str):
+    """Extrahiert JSON aus einem String — auch wenn Modell Text darum herum schreibt."""
+    raw = raw.strip()
+    # Markdown-Fence entfernen
+    if raw.startswith("```"):
+        lines = raw.split("\n")
+        raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:]).strip()
+    # Direkt parsen
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+    # JSON-Array oder -Objekt per Regex suchen
+    m = re.search(r'(\[[\s\S]*\]|\{[\s\S]*\})', raw)
+    if m:
+        return json.loads(m.group(1))
+    raise ValueError(f"Kein JSON gefunden: {raw[:200]}")
+
+
 async def _tp_refresh(athlete: dict, day_offset: int = 0, date_str: str = None):
     """Holt TP Workouts im Hintergrund und füllt den Cache."""
     target = date_str if date_str else (date.today() + timedelta(days=day_offset)).isoformat()
@@ -74,10 +94,7 @@ async def _tp_refresh(athlete: dict, day_offset: int = 0, date_str: str = None):
     try:
         prompt = T["tp_workouts_prompt"].format(name=athlete.get("name", "the athlete"), date=target)
         raw = await asyncio.to_thread(call_claude_tp_mcp, prompt)
-        if raw.startswith("```"):
-            lines = raw.split("\n")
-            raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-        workouts = json.loads(raw)
+        workouts = _extract_json(raw)
         _tp_cache_set(target, {"available": True, "workouts": workouts, "date": target})
         logger.info("_tp_refresh ok: %d workouts for %s", len(workouts), target)
     except Exception as e:
@@ -93,6 +110,10 @@ async def _tp_refresh_range(athlete: dict, days: int = 7):
     if range_key in _tp_refresh_busy:
         return
     _tp_refresh_busy.add(range_key)
+    # Einzelne Tage als busy markieren → verhindert parallele Einzelcalls (429)
+    date_keys = [(start + timedelta(days=i)).isoformat() for i in range(days)]
+    for dk in date_keys:
+        _tp_refresh_busy.add(dk)
     try:
         prompt = T["tp_history_prompt"].format(
             name=athlete.get("name", "the athlete"),
@@ -100,10 +121,7 @@ async def _tp_refresh_range(athlete: dict, days: int = 7):
             end=end.isoformat(),
         )
         raw = await asyncio.to_thread(call_claude_tp_mcp, prompt)
-        if raw.startswith("```"):
-            lines = raw.split("\n")
-            raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-        grouped = json.loads(raw)  # [{date, workouts:[...]}, ...]
+        grouped = _extract_json(raw)  # [{date, workouts:[...]}, ...]
         for entry in grouped:
             ds = entry.get("date")
             workouts = entry.get("workouts", [])
@@ -122,6 +140,8 @@ async def _tp_refresh_range(athlete: dict, days: int = 7):
             asyncio.create_task(_tp_refresh(athlete, off))
     finally:
         _tp_refresh_busy.discard(range_key)
+        for dk in date_keys:
+            _tp_refresh_busy.discard(dk)
 
 
 def parse_fit_summary(fit_bytes: bytes) -> dict:
@@ -699,15 +719,18 @@ def call_claude_tp_mcp(user_content: str) -> str:
         raise HTTPException(502, f"TrainingPeaks MCP Fehler: {e}")
 
     mcp_errors = []
+    last_text = None
     for block in msg.content:
         if hasattr(block, "text") and block.text:
-            return block.text
+            last_text = block.text  # letzten Text-Block merken (nach Tool-Calls)
         if getattr(block, "is_error", False):
             content = getattr(block, "content", "")
             if isinstance(content, list):
                 content = " ".join(getattr(c, "text", str(c)) for c in content)
             mcp_errors.append(str(content)[:300])
 
+    if last_text:
+        return last_text
     if mcp_errors:
         raise HTTPException(502, f"TrainingPeaks Fehler: {'; '.join(mcp_errors)}")
     return ""
