@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.41"
+APP_VERSION = "2.6.42"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1252,6 +1252,7 @@ async def tp_apply(request: Request):
             orig_desc    = op.get("orig_description", "")
             tp_struktur  = op.get("tp_struktur")   # TP interval structure from Claude
             distanz_m    = op.get("distanz_m")     # total swim distance in meters
+            subtype_id   = op.get("subtype_id")    # TP sport subtype (Pool/OpenWater, Indoor/Road…)
 
             # Duration: parse from coach_rec first ("30min"), else 75% of original, min 20
             import re as _re
@@ -1299,6 +1300,8 @@ async def tp_apply(request: Request):
                 create_args["description"] = "\n\n".join(desc_parts)
             if new_tss is not None:
                 create_args["tss"] = new_tss
+            if subtype_id is not None:
+                create_args["subtype_id"] = int(subtype_id)
             if tp_struktur:
                 create_args["structure"] = tp_struktur
                 logger.info("tp_apply MOD: passing tp_struktur with %d steps", len(tp_struktur.get("steps", [])))

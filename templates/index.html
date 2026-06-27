@@ -2695,6 +2695,7 @@ async function applyToTP() {
         tss:          w.tss || null,
         tp_struktur:  sportarten[i]?.tp_struktur || null,
         distanz_m:    sportarten[i]?.distanz_m   || null,
+        subtype_id:   w.subtype_id ?? null,
       });
       return acc;
     }, []);
