@@ -202,11 +202,12 @@ TRANSLATIONS = {
             "NIEMALS den Text '[Original-Workout-Beschreibung nicht vorhanden]' oder ähnliche Platzhalter schreiben.\n"
             "Wenn die Anpassung so fundamental ist dass der Original-Inhalt komplett hinfällig ist "
             "(z.B. Intervall-Session → Regenerationstag): erste Zeile '⚠️ Einheit komplett umgestellt', dann neue Beschreibung.\n"
-            "NIEMALS eine neue Aufwärmen/Hauptteil/Auslaufen-Struktur erfinden wenn das Original diese nicht hat.\n\n"
+            "NIEMALS eine neue Aufwärmen/Hauptteil/Auslaufen-Struktur erfinden wenn das Original diese nicht hat.\n"
+            "Sportspezifische Begriffe: Schwimmen → Einschwimmen/Ausschwimmen, Rad → Einrollen/Ausrollen, Laufen → Einlaufen/Auslaufen.\n\n"
             "Antworte NUR als JSON (kein Markdown):\n"
             '{{"status":"green","status_text":"Alles grün","sportarten":[{{"sport":"Schwimmen","badge":"GO",'
             '"details":"1-2 Sätze Coach-Hinweis für den Athleten (Besonderheiten, Wetter-Tipp)",'
-            '"beschreibung":"Aufwärmen: 10min Z1\\n- Hauptteil: ...\\n- Auslaufen: 10min Z1",'
+            '"beschreibung":"Einschwimmen: 10min Z1\\n- Hauptteil: ...\\n- Ausschwimmen: 5min Z1",'
             '"ernaehrung":"..."}}],"autosleep_summary":null,"wetter_hinweis":"...","prep":"..."}}'
         ),
         "prompt_system_baseline": (
@@ -496,11 +497,12 @@ TRANSLATIONS = {
             "NEVER write '[Original workout description not available]' or similar placeholders.\n"
             "If the adjustment is so fundamental that the original content is completely obsolete "
             "(e.g. interval session → recovery day): first line '⚠️ Einheit komplett umgestellt', then new description.\n"
-            "NEVER invent a new warm-up/main set/cool-down structure if the original does not have one.\n\n"
+            "NEVER invent a new warm-up/main set/cool-down structure if the original does not have one.\n"
+            "Sport-specific terms: Swimming → Einschwimmen/Ausschwimmen, Cycling → Einrollen/Ausrollen, Running → Einlaufen/Auslaufen.\n\n"
             "Respond ONLY as JSON (no markdown):\n"
             '{{"status":"green","status_text":"All clear","sportarten":[{{"sport":"Swimming","badge":"GO",'
             '"details":"1-2 sentences coach hint for athlete (special notes, weather tip)",'
-            '"beschreibung":"Warm-up: 10min Z1\\n- Main set: ...\\n- Cool-down: 10min Z1",'
+            '"beschreibung":"Einschwimmen: 10min Z1\\n- Main set: ...\\n- Ausschwimmen: 5min Z1",'
             '"ernaehrung":"..."}}],"autosleep_summary":null,"wetter_hinweis":"...","prep":"..."}}'
         ),
         "prompt_system_baseline": (
