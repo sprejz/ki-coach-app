@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.45"
+APP_VERSION = "2.6.46"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1561,28 +1561,50 @@ AutoSleep (letzte Nacht):
         raise HTTPException(500, str(e))
 
 
+_HISTORY_SPORT_MAP = {
+    1: "Swim", 2: "Bike", 3: "Run", 4: "Brick", 5: "Swim",
+    6: "Bike", 7: "Run", 12: "Swim", 13: "Bike", 14: "Run",
+}
+
 @app.get("/api/tp/workouts/history")
 async def tp_workouts_history(days: int = 5):
     tp_url = os.environ.get("TP_MCP_URL", "")
     if not tp_url:
         return JSONResponse({"available": False, "days": []}, headers=_NO_CACHE)
-    athlete = load_athlete()
     today = date.today()
     start = (today - timedelta(days=days - 1)).isoformat()
     end = today.isoformat()
-    prompt = T["tp_history_prompt"].format(
-        name=athlete.get("name", "the athlete"),
-        start=start,
-        end=end,
-    )
     try:
-        raw = await asyncio.to_thread(call_claude_tp_mcp, prompt)
-        grouped = _extract_json(raw)  # [{date, workouts:[...]}, ...]
-        # Beschreibung + subtype_id direkt per MCP nachladen
-        for entry in grouped:
-            if entry.get("workouts"):
-                entry["workouts"] = await _enrich_workouts(entry["workouts"])
-        logger.info("tp_workouts_history ok: %d days", len(grouped))
+        # Direkt per MCP — kein Claude-Umweg, kein Timeout-Risiko
+        raw = await call_tp_mcp("tp_get_workouts", {
+            "start_date": start, "end_date": end, "type": "completed"
+        })
+        # raw ist Liste oder dict mit Liste
+        items = raw if isinstance(raw, list) else raw.get("workouts", raw.get("items", []))
+        # Pro Tag gruppieren
+        by_date: dict = {}
+        for w in (items or []):
+            wid   = str(w.get("workoutId") or w.get("id") or "")
+            title = w.get("title") or w.get("name") or ""
+            day   = (w.get("workoutDay") or w.get("date") or "")[:10]
+            dur_s = w.get("totalTime") or w.get("totalTimePlanned") or 0
+            dur_m = round(dur_s / 60) if dur_s else None
+            tss   = w.get("tssActual") or w.get("tssPlanned") or w.get("tss") or None
+            st    = w.get("startTime") or w.get("startTimePlanned") or ""
+            stid  = w.get("workoutTypeValueId") or w.get("sportTypeId")
+            sport = (w.get("sport") or w.get("sportType") or
+                     _HISTORY_SPORT_MAP.get(stid, "") or str(stid or ""))
+            if not wid or not day:
+                continue
+            by_date.setdefault(day, []).append({
+                "id": wid, "sport": sport, "title": title,
+                "duration_min": dur_m, "tss": tss,
+                "start_time": st, "subtype_id": stid,
+            })
+        grouped = [{"date": d, "workouts": ws}
+                   for d, ws in sorted(by_date.items())]
+        logger.info("tp_workouts_history ok: %d days, %d total",
+                    len(grouped), sum(len(e["workouts"]) for e in grouped))
         return JSONResponse({"available": True, "days": grouped}, headers=_NO_CACHE)
     except Exception as e:
         logger.error("tp_workouts_history error: %s", e)
