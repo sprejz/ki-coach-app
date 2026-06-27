@@ -2693,6 +2693,8 @@ async function applyToTP() {
         reason:       badge === 'MOD' ? buildModReason(currentFormData) : '',
         duration_min: w.duration_min || null,
         tss:          w.tss || null,
+        tp_struktur:  sportarten[i]?.tp_struktur || null,
+        distanz_m:    sportarten[i]?.distanz_m   || null,
       });
       return acc;
     }, []);

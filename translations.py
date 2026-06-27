@@ -209,11 +209,28 @@ TRANSLATIONS = {
             "Lauf/Rad MOD ohne Original-Beschreibung: vollständige Struktur mit Einrollen/Einlaufen, Haupteinheit "
             "(Wiederholungen × Dauer/Distanz mit konkretem Pace/Watt-Ziel), Ausrollen/Auslaufen.\n"
             "Hitze/Kälte-Anpassung: Schreibe HITZE oder KÄLTE als erstes Wort in die Zeile mit Anpassungsdetails.\n\n"
+            "TP-STRUKTUR (optionales Feld 'tp_struktur', nur bei MOD mit echten Intervall-Blöcken — NICHT bei reiner Ausdauer):\n"
+            "Rad → primaryIntensityMetric:'percentOfFtp', Lauf/Schwimm → 'percentOfThresholdPace'\n"
+            "Intensität % der Schwelle: WarmUp/CoolDown=50-60, Z1=55-65, Z2=65-75, Z3=80-90, Z4=95-105, Z5=106-120\n"
+            "intensityClass-Werte: 'warmUp'|'active'|'rest'|'coolDown'\n"
+            "Einzelschritt: {\"name\":\"...\",\"duration_seconds\":N,\"intensity_min\":X,\"intensity_max\":Y,\"intensityClass\":\"active\"}\n"
+            "Wiederholungsblock: {\"type\":\"repetition\",\"reps\":N,\"steps\":[...]}\n"
+            "Schwimm-MOD: Feld 'distanz_m' mit Gesamtdistanz in Metern setzen.\n\n"
             "Antworte NUR als JSON (kein Markdown):\n"
-            '{{"status":"green","status_text":"Alles grün","sportarten":[{{"sport":"Schwimmen","badge":"GO",'
-            '"details":"1-2 Sätze Coach-Hinweis für den Athleten (Besonderheiten, Wetter-Tipp)",'
-            '"beschreibung":"Einschwimmen: 10min Z1\\n- Hauptteil: ...\\n- Ausschwimmen: 5min Z1",'
-            '"ernaehrung":"..."}}],"autosleep_summary":null,"wetter_hinweis":"...","prep":"..."}}'
+            '{{"status":"green","status_text":"Alles grün","sportarten":['
+            '{{"sport":"Rad","badge":"MOD",'
+            '"details":"1-2 Sätze Coach-Hinweis",'
+            '"beschreibung":"Einrollen: 10min\\n- 4×8min FTP (95-105%), 2min Pause\\n- Ausrollen: 10min",'
+            '"ernaehrung":"...",'
+            '"tp_struktur":{{"steps":['
+            '{{"name":"Einrollen","duration_seconds":600,"intensity_min":50,"intensity_max":60,"intensityClass":"warmUp"}},'
+            '{{"type":"repetition","reps":4,"steps":['
+            '{{"name":"FTP","duration_seconds":480,"intensity_min":95,"intensity_max":105,"intensityClass":"active"}},'
+            '{{"name":"Pause","duration_seconds":120,"intensity_min":40,"intensity_max":50,"intensityClass":"rest"}}'
+            ']}},'
+            '{{"name":"Ausrollen","duration_seconds":600,"intensity_min":45,"intensity_max":55,"intensityClass":"coolDown"}}'
+            '],"primaryIntensityMetric":"percentOfFtp"}}'
+            '}}],"autosleep_summary":null,"wetter_hinweis":"...","prep":"..."}}'
         ),
         "prompt_system_baseline": (
             "\nBaseline ({nights} Nächte, Stand {updated}):"
@@ -509,11 +526,28 @@ TRANSLATIONS = {
             "Run/Bike MOD without original description: write complete structure with warm-up, main set "
             "(reps × duration/distance with specific pace/watt target), cool-down.\n"
             "Heat/cold adjustment: write HEAT or COLD as first word in the adjustment-detail line.\n\n"
+            "TP STRUCTURE (optional field 'tp_struktur', only for MOD with real interval blocks — NOT for pure endurance):\n"
+            "Bike → primaryIntensityMetric:'percentOfFtp', Run/Swim → 'percentOfThresholdPace'\n"
+            "Intensity % of threshold: WarmUp/CoolDown=50-60, Z1=55-65, Z2=65-75, Z3=80-90, Z4=95-105, Z5=106-120\n"
+            "intensityClass values: 'warmUp'|'active'|'rest'|'coolDown'\n"
+            "Single step: {\"name\":\"...\",\"duration_seconds\":N,\"intensity_min\":X,\"intensity_max\":Y,\"intensityClass\":\"active\"}\n"
+            "Repetition block: {\"type\":\"repetition\",\"reps\":N,\"steps\":[...]}\n"
+            "Swim MOD: set field 'distanz_m' with total distance in meters.\n\n"
             "Respond ONLY as JSON (no markdown):\n"
-            '{{"status":"green","status_text":"All clear","sportarten":[{{"sport":"Swimming","badge":"GO",'
-            '"details":"1-2 sentences coach hint for athlete (special notes, weather tip)",'
-            '"beschreibung":"Einschwimmen: 10min Z1\\n- Main set: ...\\n- Ausschwimmen: 5min Z1",'
-            '"ernaehrung":"..."}}],"autosleep_summary":null,"wetter_hinweis":"...","prep":"..."}}'
+            '{{"status":"green","status_text":"All clear","sportarten":['
+            '{{"sport":"Bike","badge":"MOD",'
+            '"details":"1-2 sentences coach hint",'
+            '"beschreibung":"Einrollen: 10min\\n- 4×8min FTP (95-105%), 2min rest\\n- Ausrollen: 10min",'
+            '"ernaehrung":"...",'
+            '"tp_struktur":{{"steps":['
+            '{{"name":"Warm-up","duration_seconds":600,"intensity_min":50,"intensity_max":60,"intensityClass":"warmUp"}},'
+            '{{"type":"repetition","reps":4,"steps":['
+            '{{"name":"FTP","duration_seconds":480,"intensity_min":95,"intensity_max":105,"intensityClass":"active"}},'
+            '{{"name":"Rest","duration_seconds":120,"intensity_min":40,"intensity_max":50,"intensityClass":"rest"}}'
+            ']}},'
+            '{{"name":"Cool-down","duration_seconds":600,"intensity_min":45,"intensity_max":55,"intensityClass":"coolDown"}}'
+            '],"primaryIntensityMetric":"percentOfFtp"}}'
+            '}}],"autosleep_summary":null,"wetter_hinweis":"...","prep":"..."}}'
         ),
         "prompt_system_baseline": (
             "\nBaseline ({nights} nights, as of {updated}):"
