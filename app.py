@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.44"
+APP_VERSION = "2.6.45"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1576,16 +1576,14 @@ async def tp_workouts_history(days: int = 5):
         end=end,
     )
     try:
-        raw = call_claude_tp_mcp(prompt)
-        if raw.startswith("```"):
-            lines = raw.split("\n")
-            raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-        result = json.loads(raw)
-        logger.info("tp_workouts_history ok: %d days", len(result))
-        return JSONResponse({"available": True, "days": result}, headers=_NO_CACHE)
-    except json.JSONDecodeError:
-        logger.error("tp_workouts_history JSON error, raw=%s", raw[:300])
-        return JSONResponse({"available": True, "days": [], "raw": raw[:300]}, headers=_NO_CACHE)
+        raw = await asyncio.to_thread(call_claude_tp_mcp, prompt)
+        grouped = _extract_json(raw)  # [{date, workouts:[...]}, ...]
+        # Beschreibung + subtype_id direkt per MCP nachladen
+        for entry in grouped:
+            if entry.get("workouts"):
+                entry["workouts"] = await _enrich_workouts(entry["workouts"])
+        logger.info("tp_workouts_history ok: %d days", len(grouped))
+        return JSONResponse({"available": True, "days": grouped}, headers=_NO_CACHE)
     except Exception as e:
         logger.error("tp_workouts_history error: %s", e)
         return JSONResponse({"available": False, "days": [], "error": str(e)[:200]}, headers=_NO_CACHE)
