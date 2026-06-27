@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.38"
+APP_VERSION = "2.6.39"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1147,7 +1147,9 @@ async def debug_coach_beschreibung(request: Request):
 
 
 def clean_title(title: str) -> str:
-    return title.replace(" (KI)", "").replace(" (AI)", "").replace("❌ ", "").replace("↩️ ", "").strip()
+    for pfx in ("❌ ", "↩️ ", "🔥 ", "❄️ ", "☀️ "):
+        title = title.replace(pfx, "")
+    return title.replace(" (KI)", "").replace(" (AI)", "").strip()
 
 
 @app.post("/api/tp/apply")
@@ -1188,16 +1190,14 @@ async def tp_apply(request: Request):
         base_title = clean_title(orig_title)
 
         if badge == "GO":
-            # Update GO workouts with current weather (best-effort)
+            # Originalbeschreibung NICHT ändern — Wetter nur in private_notes
             if weather_for_apply:
                 temp_min = weather_for_apply.get("temp_min", "?")
                 temp_max_v = weather_for_apply.get("temp_max", "?")
                 desc_w   = weather_for_apply.get("description", "")
                 rain     = weather_for_apply.get("rain_prob", 0)
-                weather_line = f"🌡️ Wetter: {desc_w}, {temp_min}–{temp_max_v}°C, Regen {rain}%"
-                orig_desc_go = op.get("orig_description", "")
-                go_desc = (weather_line + "\n\n" + orig_desc_go) if orig_desc_go else weather_line
-                go_update: dict = {"workout_id": workout_id, "description": go_desc}
+                weather_note = f"🌡️ Wetter: {desc_w}, {temp_min}–{temp_max_v}°C, Regen {rain}%"
+                go_update: dict = {"workout_id": workout_id, "private_notes": weather_note}
                 if weather_for_apply.get("is_hot"):
                     go_update["title"] = f"🔥 {base_title}"
                 elif weather_for_apply.get("is_cold"):

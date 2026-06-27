@@ -203,7 +203,12 @@ TRANSLATIONS = {
             "Wenn die Anpassung so fundamental ist dass der Original-Inhalt komplett hinfällig ist "
             "(z.B. Intervall-Session → Regenerationstag): erste Zeile '⚠️ Einheit komplett umgestellt', dann neue Beschreibung.\n"
             "NIEMALS eine neue Aufwärmen/Hauptteil/Auslaufen-Struktur erfinden wenn das Original diese nicht hat.\n"
-            "Sportspezifische Begriffe: Schwimmen → Einschwimmen/Ausschwimmen, Rad → Einrollen/Ausrollen, Laufen → Einlaufen/Auslaufen.\n\n"
+            "Sportspezifische Begriffe: Schwimmen → Einschwimmen/Ausschwimmen, Rad → Einrollen/Ausrollen, Laufen → Einlaufen/Auslaufen.\n"
+            "Schwimmeinheiten (MOD): Berechne Gesamtdistanz als Summe ALLER Blöcke (Einschwimmen + Hauptteil-Meter + Ausschwimmen). "
+            "Schreibe Gesamtdistanz als erste Zeile (z.B. 'Gesamt: ~1500m'). Alle Teilblöcke müssen zur Gesamtdistanz aufgehen.\n"
+            "Lauf/Rad MOD ohne Original-Beschreibung: vollständige Struktur mit Einrollen/Einlaufen, Haupteinheit "
+            "(Wiederholungen × Dauer/Distanz mit konkretem Pace/Watt-Ziel), Ausrollen/Auslaufen.\n"
+            "Hitze/Kälte-Anpassung: Schreibe HITZE oder KÄLTE als erstes Wort in die Zeile mit Anpassungsdetails.\n\n"
             "Antworte NUR als JSON (kein Markdown):\n"
             '{{"status":"green","status_text":"Alles grün","sportarten":[{{"sport":"Schwimmen","badge":"GO",'
             '"details":"1-2 Sätze Coach-Hinweis für den Athleten (Besonderheiten, Wetter-Tipp)",'
@@ -498,7 +503,12 @@ TRANSLATIONS = {
             "If the adjustment is so fundamental that the original content is completely obsolete "
             "(e.g. interval session → recovery day): first line '⚠️ Einheit komplett umgestellt', then new description.\n"
             "NEVER invent a new warm-up/main set/cool-down structure if the original does not have one.\n"
-            "Sport-specific terms: Swimming → Einschwimmen/Ausschwimmen, Cycling → Einrollen/Ausrollen, Running → Einlaufen/Auslaufen.\n\n"
+            "Sport-specific terms: Swimming → Einschwimmen/Ausschwimmen, Cycling → Einrollen/Ausrollen, Running → Einlaufen/Auslaufen.\n"
+            "Swim workouts (MOD): calculate total distance as sum of ALL blocks (Einschwimmen + main set meters + Ausschwimmen). "
+            "Write total as first line (e.g. 'Total: ~1500m'). All sub-blocks must add up to the total.\n"
+            "Run/Bike MOD without original description: write complete structure with warm-up, main set "
+            "(reps × duration/distance with specific pace/watt target), cool-down.\n"
+            "Heat/cold adjustment: write HEAT or COLD as first word in the adjustment-detail line.\n\n"
             "Respond ONLY as JSON (no markdown):\n"
             '{{"status":"green","status_text":"All clear","sportarten":[{{"sport":"Swimming","badge":"GO",'
             '"details":"1-2 sentences coach hint for athlete (special notes, weather tip)",'
