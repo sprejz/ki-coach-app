@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.42"
+APP_VERSION = "2.6.43"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -85,6 +85,29 @@ def _extract_json(raw: str):
     raise ValueError(f"Kein JSON gefunden: {raw[:200]}")
 
 
+async def _enrich_workouts(workouts: list) -> list:
+    """Fetcht Beschreibung + subtype_id pro Workout direkt vom TP MCP (ohne Claude)."""
+    async def _detail(w: dict) -> dict:
+        wid = w.get("id") or w.get("workoutId")
+        if not wid:
+            return w
+        try:
+            d = await call_tp_mcp("tp_get_workout", {"workout_id": str(wid)})
+            if isinstance(d, dict):
+                desc = (d.get("description") or d.get("coachComments") or
+                        d.get("workoutDescription") or "")
+                if desc:
+                    w["description"] = desc
+                subtype = (d.get("workoutTypeValueId") or d.get("subTypeValueId") or
+                           d.get("workoutSubTypeId") or d.get("subtypeId"))
+                if subtype is not None:
+                    w["subtype_id"] = subtype
+        except Exception as e:
+            logger.warning("_enrich_workouts: tp_get_workout failed for %s: %s", wid, e)
+        return w
+    return list(await asyncio.gather(*[_detail(w) for w in workouts]))
+
+
 async def _tp_refresh(athlete: dict, day_offset: int = 0, date_str: str = None):
     """Holt TP Workouts im Hintergrund und füllt den Cache."""
     target = date_str if date_str else (date.today() + timedelta(days=day_offset)).isoformat()
@@ -95,6 +118,7 @@ async def _tp_refresh(athlete: dict, day_offset: int = 0, date_str: str = None):
         prompt = T["tp_workouts_prompt"].format(name=athlete.get("name", "the athlete"), date=target)
         raw = await asyncio.to_thread(call_claude_tp_mcp, prompt)
         workouts = _extract_json(raw)
+        workouts = await _enrich_workouts(workouts)
         _tp_cache_set(target, {"available": True, "workouts": workouts, "date": target})
         logger.info("_tp_refresh ok: %d workouts for %s", len(workouts), target)
     except Exception as e:
@@ -126,6 +150,7 @@ async def _tp_refresh_range(athlete: dict, days: int = 7):
             ds = entry.get("date")
             workouts = entry.get("workouts", [])
             if ds:
+                workouts = await _enrich_workouts(workouts)
                 _tp_cache_set(ds, {"available": True, "workouts": workouts, "date": ds})
         # Tage ohne Workouts auch als leer cachen
         for off in range(days):

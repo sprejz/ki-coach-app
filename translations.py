@@ -198,8 +198,7 @@ TRANSLATIONS = {
             "Füge am Ende eine kurze Zeile mit dem Anpassungsgrund + Maßnahmen an (z.B. 'HITZE: 750ml/h, 2× Saltstick/h — Zeitpunkt ≤09:00 oder ab 19:00 Uhr').\n"
             "Beispiel: Original '35 min ganz locker (6:15–6:45/km, HF-Deckel 150 bpm)' → "
             "MOD '35 min ganz locker (6:30–7:05/km, HF-Deckel 145 bpm) [Hitze-Anpassung]'\n"
-            "Bei MOD ohne Original-Beschreibung (leeres description-Feld): Erstelle eine kurze, sinnvolle Workout-Struktur basierend auf Titel, Sport und Dauer. "
-            "NIEMALS den Text '[Original-Workout-Beschreibung nicht vorhanden]' oder ähnliche Platzhalter schreiben.\n"
+            "Bei MOD ohne Original-Beschreibung (leeres description-Feld): Erstelle eine vollständige Trainingsstruktur basierend auf Titel, Sport und Dauer — direkt umsetzbar, ohne Platzhaltertext.\n"
             "Wenn die Anpassung so fundamental ist dass der Original-Inhalt komplett hinfällig ist "
             "(z.B. Intervall-Session → Regenerationstag): erste Zeile '⚠️ Einheit komplett umgestellt', dann neue Beschreibung.\n"
             "NIEMALS eine neue Aufwärmen/Hauptteil/Auslaufen-Struktur erfinden wenn das Original diese nicht hat.\n"
@@ -268,19 +267,14 @@ TRANSLATIONS = {
         ),
         "tp_workouts_prompt": (
             "Alle geplanten Workouts für {name} am {date} aus TrainingPeaks auflisten. "
-            "Rufe für JEDES Workout zusätzlich tp_get_workout auf um vollständige Beschreibung und subtype_id zu holen — "
-            "tp_get_workouts liefert keine vollständigen Beschreibungen. "
-            "Antworte NUR mit einem gültigen JSON-Array mit diesen Feldern: "
-            "id, sport, subtype_id (Zahl aus TP, z.B. 1=Pool, 2=Freiwasser), title, duration_min, tss, description. "
-            "description MUSS den vollständigen Text aus dem Beschreibungsfeld enthalten, auch wenn er lang ist. "
+            "Antworte NUR mit einem gültigen JSON-Array mit diesen Feldern: id, sport, title, duration_min, tss. "
             "Beispiel: "
-            '[{{"id":"123","sport":"Swim","subtype_id":1,"title":"Pool Z2","duration_min":45,"tss":30,"description":"Vollständiger Beschreibungstext"}}]'
+            '[{{"id":"123","sport":"Swim","title":"Pool Z2","duration_min":45,"tss":30}}]'
         ),
         "tp_history_prompt": (
             "Liste alle Workouts (geplant und abgeschlossen) für {name} vom {start} bis {end} aus TrainingPeaks. "
             "Gruppiere nach Datum. Antworte NUR mit einem gültigen JSON-Array. Beispiel: "
-            '[{{"date":"2026-06-20","workouts":[{{"id":"123","sport":"Swim","subtype_id":1,"title":"Pool Z2","duration_min":45,"tss":30,"start_time":"2026-06-20T07:15:00"}}]}}] '
-            "subtype_id: Zahl aus TP (z.B. Pool Swim=1, Open Water=2, Indoor Cycling/Zwift=entsprechender Wert). "
+            '[{{"date":"2026-06-20","workouts":[{{"id":"123","sport":"Swim","title":"Pool Z2","duration_min":45,"tss":30,"start_time":"2026-06-20T07:15:00"}}]}}] '
             "start_time ist die tatsächliche Startzeit des abgeschlossenen Workouts (ISO 8601, Lokalzeit), falls verfügbar — sonst weglassen. "
             "Nur Tage mit Workouts einbeziehen. Älteste Tage zuerst."
         ),
@@ -521,8 +515,7 @@ TRANSLATIONS = {
             "Append a short line at the end with the adjustment reason + measures (e.g. 'HEAT: 750ml/h, 2× Saltstick/h — timing ≤09:00 or from 19:00').\n"
             "Example: Original '35 min very easy (6:15–6:45/km, HR cap 150 bpm)' → "
             "MOD '35 min very easy (6:30–7:05/km, HR cap 145 bpm) [heat adjustment]'\n"
-            "For MOD without original description (empty description field): Create a short, sensible workout structure based on title, sport and duration. "
-            "NEVER write '[Original workout description not available]' or similar placeholders.\n"
+            "For MOD without original description (empty description field): Create a complete, immediately actionable workout structure based on title, sport and duration — no placeholder text.\n"
             "If the adjustment is so fundamental that the original content is completely obsolete "
             "(e.g. interval session → recovery day): first line '⚠️ Einheit komplett umgestellt', then new description.\n"
             "NEVER invent a new warm-up/main set/cool-down structure if the original does not have one.\n"
@@ -591,19 +584,14 @@ TRANSLATIONS = {
         ),
         "tp_workouts_prompt": (
             "List all planned workouts for {name} on {date} from TrainingPeaks. "
-            "Call tp_get_workout for EACH workout to retrieve the full description and subtype_id — "
-            "tp_get_workouts does not return complete descriptions. "
-            "Respond ONLY with a valid JSON array with these fields: "
-            "id, sport, subtype_id (number from TP, e.g. 1=Pool, 2=Open Water), title, duration_min, tss, description. "
-            "description MUST contain the full text from the description field, even if long. "
+            "Respond ONLY with a valid JSON array with these fields: id, sport, title, duration_min, tss. "
             "Example: "
-            '[{{"id":"123","sport":"Swim","subtype_id":1,"title":"Pool Z2","duration_min":45,"tss":30,"description":"Full description text"}}]'
+            '[{{"id":"123","sport":"Swim","title":"Pool Z2","duration_min":45,"tss":30}}]'
         ),
         "tp_history_prompt": (
             "List all workouts (planned and completed) for {name} from {start} to {end} from TrainingPeaks. "
             "Group by date. Respond ONLY with a valid JSON array. Example: "
-            '[{{"date":"2026-06-20","workouts":[{{"id":"123","sport":"Swim","subtype_id":1,"title":"Pool Z2","duration_min":45,"tss":30,"start_time":"2026-06-20T07:15:00"}}]}}] '
-            "subtype_id: number from TP (e.g. Pool Swim=1, Open Water=2, Indoor Cycling/Zwift=corresponding value). "
+            '[{{"date":"2026-06-20","workouts":[{{"id":"123","sport":"Swim","title":"Pool Z2","duration_min":45,"tss":30,"start_time":"2026-06-20T07:15:00"}}]}}] '
             "start_time is the actual start time of the completed workout (ISO 8601, local time) if available — omit if not. "
             "Only include days that have workouts. Oldest date first."
         ),
