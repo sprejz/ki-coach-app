@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.54"
+APP_VERSION = "2.6.55"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -471,7 +471,7 @@ async def fetch_weather(athlete: dict, day: int = 1) -> dict:
         "rain_prob": rain_prob,
         "is_thunderstorm": code in [95, 96, 99],
         "is_rain": code in [51, 53, 55, 61, 63, 65, 80, 81, 82] or rain_prob > 60,
-        "is_hot": temp_max > 25,
+        "is_hot": temp_max > 28,
         "is_cold": temp_max < 10,
         "hourly": hourly,
     }
@@ -516,7 +516,7 @@ async def fetch_weather_for_date(athlete: dict, target_date: str) -> dict:
         "rain_prob":     rain_prob,
         "is_thunderstorm": wcode in [95, 96, 99],
         "is_rain":       wcode in [51, 53, 55, 61, 63, 65, 80, 81, 82] or rain_prob > 60,
-        "is_hot":        temp_max_v > 25,
+        "is_hot":        temp_max_v > 28,
         "is_cold":       temp_max_v < 10,
         "hourly":        [],
     }
@@ -596,7 +596,7 @@ async def fetch_weather_for_workout(athlete: dict, start_utc: str, end_utc: str)
         "temp_min":    temp_min,
         "temp_max":    temp_max,
         "precip_mm":   total_precip,
-        "is_hot":      avg_temp > 25,
+        "is_hot":      avg_temp > 28,
         "is_cold":     avg_temp < 10,
     }
 
@@ -1160,6 +1160,36 @@ async def tp_refresh_endpoint(day: str = "tomorrow"):
     return JSONResponse({"available": True, "workouts": [], "date": target}, headers=_NO_CACHE)
 
 
+@app.get("/api/debug/tp-update")
+async def debug_tp_update(workout_id: str, field: str = "description", value: str = "Test"):
+    """Testet tp_update_workout mit einem beliebigen Feld und gibt die Roh-Antwort zurück."""
+    if not os.environ.get("TP_MCP_URL"):
+        raise HTTPException(400, "TP_MCP_URL nicht gesetzt")
+    url = os.environ["TP_MCP_URL"]
+    payload = {
+        "jsonrpc": "2.0", "method": "tools/call",
+        "params": {"name": "tp_update_workout", "arguments": {"workout_id": workout_id, field: value}},
+        "id": 1,
+    }
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.post(url, json=payload,
+                              headers={"Content-Type": "application/json",
+                                       "Accept": "application/json, text/event-stream"})
+    return JSONResponse({"status_code": r.status_code, "raw": r.text[:2000]})
+
+
+@app.get("/api/debug/tp-get")
+async def debug_tp_get(workout_id: str):
+    """Zeigt alle Felder eines TP-Workouts."""
+    if not os.environ.get("TP_MCP_URL"):
+        raise HTTPException(400, "TP_MCP_URL nicht gesetzt")
+    try:
+        data = await call_tp_mcp("tp_get_workout", {"workout_id": workout_id})
+        return JSONResponse({"workout": data})
+    except Exception as e:
+        return JSONResponse({"error": str(e)})
+
+
 @app.post("/api/debug/coach-beschreibung")
 async def debug_coach_beschreibung(request: Request):
     """Test: schickt einen Mock-Workout durch den Coach und zeigt die generierte Beschreibung."""
@@ -1630,7 +1660,7 @@ async def _fetch_history_weather(athlete: dict, dates: list) -> dict:
                 continue
             temp_max = float((daily.get("temperature_2m_max") or [0])[i] or 0)
             temp_min = float((daily.get("temperature_2m_min") or [0])[i] or 0)
-            wx[d] = {"is_hot": temp_max > 25, "is_cold": temp_max < 10,
+            wx[d] = {"is_hot": temp_max > 28, "is_cold": temp_max < 10,
                      "temp_max": temp_max, "temp_min": temp_min}
         _history_wx_cache[range_key] = {"ts": _time.time(), "wx": wx}
         logger.info("_fetch_history_weather: %d/%d dates matched", len(wx), len(dates))
@@ -2006,7 +2036,7 @@ async def backfill_weather(days: int = 30):
             result[d] = {
                 "temp_max": tmax, "temp_min": tmin, "rain_prob": rain,
                 "description": WMO.get(code, f"Code {code}"),
-                "is_hot": tmax > 25, "is_cold": tmax < 10,
+                "is_hot": tmax > 28, "is_cold": tmax < 10,
             }
         return result
 
