@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.57"
+APP_VERSION = "2.6.58"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1301,7 +1301,7 @@ async def tp_apply(request: Request):
             is_cold = weather_for_apply.get("is_cold")
             if not is_hot and not is_cold:
                 continue
-            new_go_title = f"🔥 {base_title}" if is_hot else f"❄️ {base_title}"
+            new_go_title = f"☀️ {base_title}" if is_hot else f"❄️ {base_title}"
             try:
                 await call_tp_mcp("tp_update_workout", {"workout_id": workout_id, "title": new_go_title})
                 actions.append({"workout_id": workout_id, "badge": "GO", "status": "ok",
@@ -1342,7 +1342,7 @@ async def tp_apply(request: Request):
             _weather_icon = ""
             if not is_swim:
                 if weather_for_apply.get("is_hot"):
-                    _weather_icon = "🔥 "
+                    _weather_icon = "☀️ "
                 elif weather_for_apply.get("is_cold"):
                     _weather_icon = "❄️ "
             new_title    = _weather_icon + T["tp_mod_new_title"].format(title=base_title)
@@ -2095,7 +2095,7 @@ async def backfill_weather(days: int = 30):
             if not w_data["is_hot"] and not w_data["is_cold"]:
                 skipped += 1
                 continue
-            new_title = f"🔥 {base}" if w_data["is_hot"] else f"❄️ {base}"
+            new_title = f"☀️ {base}" if w_data["is_hot"] else f"❄️ {base}"
             try:
                 await call_tp_mcp("tp_update_workout", {"workout_id": w["id"], "title": new_title})
                 updated += 1
