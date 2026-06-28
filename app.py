@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.48"
+APP_VERSION = "2.6.49"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1491,6 +1491,7 @@ async def check_morgen(
     achilles_r: str = Form("0"),
     waden: str = Form("0"),
     muedigkeit: str = Form("1"),
+    muskelkater: str = Form("keine"),
     symptome: str = Form("keine"),
     geplante_einheiten: str = Form(""),
     weather_data: str = Form(""),
@@ -1568,6 +1569,7 @@ AutoSleep (letzte Nacht):
         f"- Achillessehne L: {achilles_l}/10\n"
         f"- Achillessehne R: {achilles_r}/10\n"
         f"- Müdigkeit: {muedigkeit}/5\n"
+        f"- Muskelkater: {muskelkater}\n"
         f"- Symptome: {symptome}"
         f"{sleep_text}\n\n"
         f"Wetter heute: {weather_summary}\n\n"

@@ -981,6 +981,19 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
         </div>
       </div>
 
+      <!-- Muskelkater -->
+      <div class="form-section">
+        <div class="field-label" style="margin-bottom:12px"><span>{{ T.lbl_muskelkater }}</span></div>
+        <div class="pill-group" id="muskelkater-morgen-group">
+          <button type="button" class="pill active" data-group="muskelkater-morgen" data-value="{{ T.mkv_keine }}">{{ T.mk_keine }}</button>
+          <button type="button" class="pill" data-group="muskelkater-morgen" data-value="{{ T.mkv_waden }}">{{ T.mk_waden }}</button>
+          <button type="button" class="pill" data-group="muskelkater-morgen" data-value="{{ T.mkv_oberschenkel }}">{{ T.mk_oberschenkel }}</button>
+          <button type="button" class="pill" data-group="muskelkater-morgen" data-value="{{ T.mkv_beine }}">{{ T.mk_beine }}</button>
+          <button type="button" class="pill" data-group="muskelkater-morgen" data-value="{{ T.mkv_oberkoerper }}">{{ T.mk_oberkoerper }}</button>
+          <button type="button" class="pill" data-group="muskelkater-morgen" data-value="{{ T.mkv_ganzkoerper }}">{{ T.mk_ganzkoerper }}</button>
+        </div>
+      </div>
+
       <!-- Symptome -->
       <div class="form-section">
         <div class="field-label" style="margin-bottom:12px"><span>{{ T.lbl_symptome }}</span></div>
@@ -1328,18 +1341,20 @@ function initSliders() {
 
 // ── pills ─────────────────────────────────────────────────────────────────────
 function initPills() {
-  // Multi-select: Muskelkater
-  document.querySelectorAll('[data-group="muskelkater"]').forEach(pill => {
-    pill.addEventListener('click', () => {
-      if (pill.dataset.value === 'keine') {
-        document.querySelectorAll('[data-group="muskelkater"]').forEach(p => p.classList.remove('active'));
-        pill.classList.add('active');
-      } else {
-        document.querySelector('[data-group="muskelkater"][data-value="keine"]')?.classList.remove('active');
-        pill.classList.toggle('active');
-        const anyActive = document.querySelectorAll('[data-group="muskelkater"].active').length;
-        if (!anyActive) document.querySelector('[data-group="muskelkater"][data-value="keine"]')?.classList.add('active');
-      }
+  // Multi-select: Muskelkater (Abend + Morgen)
+  ['muskelkater', 'muskelkater-morgen'].forEach(group => {
+    document.querySelectorAll(`[data-group="${group}"]`).forEach(pill => {
+      pill.addEventListener('click', () => {
+        if (pill.dataset.value === 'keine') {
+          document.querySelectorAll(`[data-group="${group}"]`).forEach(p => p.classList.remove('active'));
+          pill.classList.add('active');
+        } else {
+          document.querySelector(`[data-group="${group}"][data-value="keine"]`)?.classList.remove('active');
+          pill.classList.toggle('active');
+          const anyActive = document.querySelectorAll(`[data-group="${group}"].active`).length;
+          if (!anyActive) document.querySelector(`[data-group="${group}"][data-value="keine"]`)?.classList.add('active');
+        }
+      });
     });
   });
 
@@ -1446,6 +1461,7 @@ async function submitMorgen(e) {
   formData.append('achilles_l',          document.getElementById('achilles-l-morgen').value);
   formData.append('achilles_r',          document.getElementById('achilles-r-morgen').value);
   formData.append('muedigkeit',          getMuedigkeit('muedigkeit-morgen-group'));
+  formData.append('muskelkater',         getMulti('muskelkater-morgen').join(','));
   formData.append('symptome',            getRadio('symptome-morgen'));
   formData.append('geplante_einheiten',  tpWorkoutsMorgen.map(w => w.sport).join(','));
   if (weatherToday) formData.append('weather_data', JSON.stringify(weatherToday));
@@ -1456,7 +1472,7 @@ async function submitMorgen(e) {
     achilles_l:  parseFloat(document.getElementById('achilles-l-morgen').value),
     achilles_r:  parseFloat(document.getElementById('achilles-r-morgen').value),
     muedigkeit:  parseInt(getMuedigkeit('muedigkeit-morgen-group'), 10),
-    muskelkater: '-',
+    muskelkater: getMulti('muskelkater-morgen').join(', ') || '-',
     symptome:    getRadio('symptome-morgen'),
     wasser_temp: document.getElementById('wasser-temp-morgen')?.value || null,
   };
