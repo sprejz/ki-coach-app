@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.71"
+APP_VERSION = "2.6.72"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -2159,10 +2159,11 @@ async def backfill_weather(days: int = 30):
 
             update_args: dict = {"workout_id": w["id"]}
 
-            # Beschreibung nur schreiben wenn leer oder bereits von uns (beginnt mit "Wetter:")
+            # Wetter anhängen: bestehendes behalten, nur Wetter-Zeile aktualisieren
+            import re as _re
             existing = w["existing_desc"]
-            if not existing or existing.startswith("Wetter:"):
-                update_args["description"] = wx_note
+            base_desc = _re.sub(r'\n*Wetter[^\n]*', '', existing).strip()
+            update_args["description"] = (base_desc + "\n\n" + wx_note) if base_desc else wx_note
 
             # Titel-Symbol nur bei Extrem
             if d_wx["is_hot"]:
@@ -2172,9 +2173,6 @@ async def backfill_weather(days: int = 30):
             elif has_symbol:
                 update_args["title"] = base
 
-            if len(update_args) <= 1:  # nur workout_id, nichts zu tun
-                skipped += 1
-                continue
 
             try:
                 await call_tp_mcp("tp_update_workout", update_args)
