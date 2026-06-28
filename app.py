@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.70"
+APP_VERSION = "2.6.71"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -841,23 +841,6 @@ async def index(request: Request):
 async def api_version():
     return {"version": APP_VERSION}
 
-
-@app.get("/api/debug/tp-check")
-async def debug_tp_check(start: str = "2026-06-01", end: str = "2026-06-28"):
-    raw = await call_tp_mcp("tp_get_workouts", {"start_date": start, "end_date": end, "type": "completed"})
-    items = raw if isinstance(raw, list) else raw.get("workouts", raw.get("items", []))
-    out = []
-    for w in (items or []):
-        wid   = str(w.get("workoutId") or w.get("id") or "")
-        sport = w.get("sport") or w.get("sportType") or ""
-        title = w.get("title") or w.get("name") or ""
-        day   = (w.get("workoutDay") or w.get("date") or "")[:10]
-        if not wid:
-            continue
-        detail = await call_tp_mcp("tp_get_workout", {"workout_id": wid})
-        desc   = (detail.get("description") or "").strip()
-        out.append({"date": day, "sport": sport, "title": title, "description": desc})
-    return JSONResponse(out)
 
 
 
@@ -2174,7 +2157,12 @@ async def backfill_weather(days: int = 30):
                            f"{d_wx['temp_min']}–{d_wx['temp_max']}°C, "
                            f"Regen {d_wx['rain_prob']}%")
 
-            update_args: dict = {"workout_id": w["id"], "description": wx_note}
+            update_args: dict = {"workout_id": w["id"]}
+
+            # Beschreibung nur schreiben wenn leer oder bereits von uns (beginnt mit "Wetter:")
+            existing = w["existing_desc"]
+            if not existing or existing.startswith("Wetter:"):
+                update_args["description"] = wx_note
 
             # Titel-Symbol nur bei Extrem
             if d_wx["is_hot"]:
@@ -2183,6 +2171,10 @@ async def backfill_weather(days: int = 30):
                 update_args["title"] = f"❄️ {base}"
             elif has_symbol:
                 update_args["title"] = base
+
+            if len(update_args) <= 1:  # nur workout_id, nichts zu tun
+                skipped += 1
+                continue
 
             try:
                 await call_tp_mcp("tp_update_workout", update_args)
