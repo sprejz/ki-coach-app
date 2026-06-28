@@ -1610,17 +1610,20 @@ function buildResult(data, fd, type) {
 
   // TrainingPeaks section — show if workouts were pre-loaded (both tabs)
   const _tpWorks = type === 'abend' ? tpWorkoutsAbend : tpWorkoutsMorgen;
+  const _wx = type === 'abend' ? weatherTomorrow : weatherToday;
   if (_tpWorks.length > 0) {
     const _hasNonGo = (data.sportarten || []).some(s => s.badge && s.badge !== 'GO');
     h += `<div class="card-section">
       <div class="section-lbl">TrainingPeaks</div>
       <div id="tp-result-list">
-        ${_tpWorks.map(w =>
-          `<div class="tp-workout-item">
+        ${_tpWorks.map(w => {
+          const wxIcon = _wx?.is_hot ? '🔥 ' : _wx?.is_cold ? '❄️ ' : '';
+          const displayTitle = wxIcon + esc(w.title || w.sport || '?');
+          return `<div class="tp-workout-item">
             <span class="tp-sport-badge">${esc(w.sport || '?')}</span>
-            <span style="font-size:13px">${esc(w.title || w.sport || '?')}${w.duration_min ? ` · ${w.duration_min}min` : ''}${w.tss ? ` · ${w.tss} TSS` : ''}</span>
-          </div>`
-        ).join('')}
+            <span style="font-size:13px">${displayTitle}${w.duration_min ? ` · ${w.duration_min}min` : ''}${w.tss ? ` · ${w.tss} TSS` : ''}</span>
+          </div>`;
+        }).join('')}
       </div>
       ${_hasNonGo ? `<button class="btn-tp" id="btn-tp-apply" onclick="applyToTP()">${T.btn_tp_apply}</button>` : ''}
     </div>`;
@@ -2696,11 +2699,14 @@ async function applyToTP() {
   try {
     // Kein Sport-Matching — tpWorkouts[i] bekommt sportarten[i].badge (gleiche Reihenfolge)
     const sportarten = currentResult.sportarten || [];
+    const _wxApply = currentResultType === 'morgen' ? weatherToday : weatherTomorrow;
+    const _wxExtreme = _wxApply?.is_hot || _wxApply?.is_cold;
     const operations = tpWorkouts.reduce((acc, w, i) => {
       const wid = w.id ?? w.workoutId ?? w.workout_id ?? w.Id ?? w.ID ?? null;
       if (!wid) { console.warn('applyToTP: no id in workout', JSON.stringify(w)); return acc; }
       const badge = sportarten[i]?.badge || 'GO';
-      if (badge !== 'GO') acc.push({
+      // GO mit extremem Wetter ebenfalls schicken — Backend setzt Symbol im TP-Titel
+      if (badge !== 'GO' || _wxExtreme) acc.push({
         workout_id:   String(wid),
         orig_title:   w.title || w.sport || '',
         orig_description: w.description || '',
