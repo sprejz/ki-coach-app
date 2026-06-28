@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.68"
+APP_VERSION = "2.6.69"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -841,25 +841,6 @@ async def index(request: Request):
 async def api_version():
     return {"version": APP_VERSION}
 
-
-@app.get("/api/debug/tp-desc-check")
-async def debug_desc_check(start: str = "2026-04-01", end: str = "2026-05-31"):
-    """Prüft ob Beschreibungen für completed Workouts in einem Zeitraum gesetzt sind."""
-    raw = await call_tp_mcp("tp_get_workouts", {"start_date": start, "end_date": end, "type": "completed"})
-    items = raw if isinstance(raw, list) else raw.get("workouts", raw.get("items", []))
-    results = []
-    for w in (items or []):
-        wid   = str(w.get("workoutId") or w.get("id") or "")
-        sport = w.get("sport") or w.get("sportType") or ""
-        title = w.get("title") or w.get("name") or ""
-        day   = (w.get("workoutDay") or w.get("date") or "")[:10]
-        if not wid or not _is_weather_sport(sport) or _is_indoor(title):
-            continue
-        detail = await call_tp_mcp("tp_get_workout", {"workout_id": wid})
-        desc   = (detail.get("description") or "").strip()
-        results.append({"date": day, "sport": sport, "title": title,
-                         "description": desc, "ok": desc.startswith("Wetter:")})
-    return JSONResponse(results)
 
 
 
