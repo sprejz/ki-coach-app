@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.65"
+APP_VERSION = "2.6.66"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -840,6 +840,12 @@ async def index(request: Request):
 @app.get("/api/version")
 async def api_version():
     return {"version": APP_VERSION}
+
+
+@app.get("/api/debug/tp-raw/{workout_id}")
+async def debug_tp_raw(workout_id: str):
+    raw = await call_tp_mcp("tp_get_workout", {"workout_id": workout_id})
+    return JSONResponse({"id": workout_id, "title": raw.get("title"), "description": raw.get("description"), "has_private_workout_note": raw.get("has_private_workout_note")})
 
 
 
