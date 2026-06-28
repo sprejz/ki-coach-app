@@ -2566,7 +2566,7 @@ function parseWeatherRaw(raw, idx) {
     temp_max: tempMax, temp_min: tempMin, rain_prob: rainProb,
     is_thunderstorm: [95,96,99].includes(wc),
     is_rain: [51,53,55,61,63,65,80,81,82].includes(wc) || rainProb > 60,
-    is_hot: tempMax != null && tempMax > 25,
+    is_hot: tempMax != null && tempMax > 28,
     hourly,
   };
 }

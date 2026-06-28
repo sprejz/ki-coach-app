@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.58"
+APP_VERSION = "2.6.59"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -472,7 +472,7 @@ async def fetch_weather(athlete: dict, day: int = 1) -> dict:
         "is_thunderstorm": code in [95, 96, 99],
         "is_rain": code in [51, 53, 55, 61, 63, 65, 80, 81, 82] or rain_prob > 60,
         "is_hot": temp_max > 28,
-        "is_cold": temp_max < 10,
+        "is_cold": temp_max < 0,
         "hourly": hourly,
     }
     logger.info("fetch_weather ok: datum=%s temp=%s-%s code=%s hourly=%d",
@@ -517,7 +517,7 @@ async def fetch_weather_for_date(athlete: dict, target_date: str) -> dict:
         "is_thunderstorm": wcode in [95, 96, 99],
         "is_rain":       wcode in [51, 53, 55, 61, 63, 65, 80, 81, 82] or rain_prob > 60,
         "is_hot":        temp_max_v > 28,
-        "is_cold":       temp_max_v < 10,
+        "is_cold":       temp_max_v < 0,
         "hourly":        [],
     }
 
@@ -597,7 +597,7 @@ async def fetch_weather_for_workout(athlete: dict, start_utc: str, end_utc: str)
         "temp_max":    temp_max,
         "precip_mm":   total_precip,
         "is_hot":      avg_temp > 28,
-        "is_cold":     avg_temp < 10,
+        "is_cold":     avg_temp < 0,
     }
 
 
@@ -1249,7 +1249,7 @@ async def debug_coach_beschreibung(request: Request):
 
 
 def clean_title(title: str) -> str:
-    for pfx in ("❌ ", "↩️ ", "🔥 ", "❄️ ", "☀️ "):
+    for pfx in ("❌ ", "↩️ ", "🔥 ", "❄️ ", "☀️ ", "♨️ "):
         title = title.replace(pfx, "")
     return title.replace(" (KI)", "").replace(" (AI)", "").strip()
 
@@ -1301,7 +1301,7 @@ async def tp_apply(request: Request):
             is_cold = weather_for_apply.get("is_cold")
             if not is_hot and not is_cold:
                 continue
-            new_go_title = f"☀️ {base_title}" if is_hot else f"❄️ {base_title}"
+            new_go_title = f"♨️ {base_title}" if is_hot else f"❄️ {base_title}"
             try:
                 await call_tp_mcp("tp_update_workout", {"workout_id": workout_id, "title": new_go_title})
                 actions.append({"workout_id": workout_id, "badge": "GO", "status": "ok",
@@ -1342,7 +1342,7 @@ async def tp_apply(request: Request):
             _weather_icon = ""
             if not is_swim:
                 if weather_for_apply.get("is_hot"):
-                    _weather_icon = "☀️ "
+                    _weather_icon = "♨️ "
                 elif weather_for_apply.get("is_cold"):
                     _weather_icon = "❄️ "
             new_title    = _weather_icon + T["tp_mod_new_title"].format(title=base_title)
@@ -1670,7 +1670,7 @@ async def _fetch_history_weather(athlete: dict, dates: list) -> dict:
                 continue
             temp_max = float((daily.get("temperature_2m_max") or [0])[i] or 0)
             temp_min = float((daily.get("temperature_2m_min") or [0])[i] or 0)
-            wx[d] = {"is_hot": temp_max > 28, "is_cold": temp_max < 10,
+            wx[d] = {"is_hot": temp_max > 28, "is_cold": temp_max < 0,
                      "temp_max": temp_max, "temp_min": temp_min}
         _history_wx_cache[range_key] = {"ts": _time.time(), "wx": wx}
         logger.info("_fetch_history_weather: %d/%d dates matched", len(wx), len(dates))
@@ -2045,7 +2045,7 @@ async def backfill_weather(days: int = 30):
             result[d] = {
                 "temp_max": tmax, "temp_min": tmin, "rain_prob": rain,
                 "description": WMO.get(code, f"Code {code}"),
-                "is_hot": tmax > 28, "is_cold": tmax < 10,
+                "is_hot": tmax > 28, "is_cold": tmax < 0,
             }
         return result
 
@@ -2095,7 +2095,7 @@ async def backfill_weather(days: int = 30):
             if not w_data["is_hot"] and not w_data["is_cold"]:
                 skipped += 1
                 continue
-            new_title = f"☀️ {base}" if w_data["is_hot"] else f"❄️ {base}"
+            new_title = f"♨️ {base}" if w_data["is_hot"] else f"❄️ {base}"
             try:
                 await call_tp_mcp("tp_update_workout", {"workout_id": w["id"], "title": new_title})
                 updated += 1
