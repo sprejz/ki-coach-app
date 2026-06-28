@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.53"
+APP_VERSION = "2.6.54"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1937,3 +1937,139 @@ async def workout_analyze_status(job_id: str):
     if not job:
         raise HTTPException(404, "Job nicht gefunden")
     return JSONResponse(job, headers=_NO_CACHE)
+
+
+@app.post("/api/admin/backfill-weather")
+async def backfill_weather(days: int = 30):
+    """Schreibt historische Wetterdaten in private_notes vergangener TP-Workouts.
+    Aufruf: curl -X POST 'https://<railway-url>/api/admin/backfill-weather?days=30'
+    """
+    tp_url = os.environ.get("TP_MCP_URL", "")
+    if not tp_url:
+        raise HTTPException(400, T["err_tp_url_missing"])
+
+    days = max(1, min(days, 90))
+    today = date.today()
+    start = (today - timedelta(days=days - 1)).isoformat()
+    end   = today.isoformat()
+
+    # 1. TP-Workouts für den Zeitraum holen
+    try:
+        raw = await call_tp_mcp("tp_get_workouts", {
+            "start_date": start, "end_date": end, "type": "completed"
+        })
+    except Exception as e:
+        raise HTTPException(500, f"TP-Fetch fehlgeschlagen: {e}")
+
+    items = raw if isinstance(raw, list) else raw.get("workouts", raw.get("items", []))
+    by_date: dict = {}
+    for w in (items or []):
+        wid  = str(w.get("workoutId") or w.get("id") or "")
+        day  = (w.get("workoutDay") or w.get("date") or "")[:10]
+        sport = (w.get("sport") or w.get("sportType") or "")
+        title = w.get("title") or w.get("name") or ""
+        if not wid or not day:
+            continue
+        by_date.setdefault(day, []).append({"id": wid, "sport": sport, "title": title})
+
+    if not by_date:
+        return JSONResponse({"updated": 0, "skipped": 0, "errors": 0,
+                             "detail": "Keine completed Workouts gefunden"})
+
+    # 2. Historische Wetterdaten in einem Batch-Call holen
+    athlete  = load_athlete()
+    all_dates = list(by_date.keys())
+
+    # Open-Meteo archive für Daten älter als 7 Tage, forecast+past_days für neuere
+    cutoff  = (today - timedelta(days=7)).isoformat()
+    recent  = [d for d in all_dates if d > cutoff]
+    archive = [d for d in all_dates if d <= cutoff]
+
+    wx: dict = {}
+    lat = athlete.get("location", {}).get("lat", 52.30)
+    lon = athlete.get("location", {}).get("lon", 13.25)
+
+    async def _fetch_batch(url: str, dates: list) -> dict:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.get(url)
+        r.raise_for_status()
+        daily = r.json().get("daily", {})
+        date_list = daily.get("time", [])
+        result = {}
+        for i, d in enumerate(date_list):
+            if d not in dates:
+                continue
+            tmax = float((daily.get("temperature_2m_max") or [0])[i] or 0)
+            tmin = float((daily.get("temperature_2m_min") or [0])[i] or 0)
+            rain = int((daily.get("precipitation_probability_max") or [0])[i] or 0)
+            code = int((daily.get("weather_code") or [0])[i] or 0)
+            result[d] = {
+                "temp_max": tmax, "temp_min": tmin, "rain_prob": rain,
+                "description": WMO.get(code, f"Code {code}"),
+                "is_hot": tmax > 25, "is_cold": tmax < 10,
+            }
+        return result
+
+    try:
+        if recent:
+            wx.update(await _fetch_batch(
+                f"https://api.open-meteo.com/v1/forecast"
+                f"?latitude={lat}&longitude={lon}"
+                f"&daily=temperature_2m_max,temperature_2m_min,"
+                f"precipitation_probability_max,weather_code"
+                f"&past_days=7&forecast_days=1&timezone=Europe%2FBerlin",
+                recent
+            ))
+        if archive:
+            arc_start = min(archive)
+            arc_end   = max(archive)
+            wx.update(await _fetch_batch(
+                f"https://archive-api.open-meteo.com/v1/archive"
+                f"?latitude={lat}&longitude={lon}"
+                f"&daily=temperature_2m_max,temperature_2m_min,"
+                f"precipitation_probability_max,weather_code"
+                f"&start_date={arc_start}&end_date={arc_end}"
+                f"&timezone=Europe%2FBerlin",
+                archive
+            ))
+    except Exception as e:
+        raise HTTPException(500, f"Wetter-Fetch fehlgeschlagen: {e}")
+
+    # 3. Pro Workout: private_notes + ggf. Titel schreiben
+    updated = skipped = errors = 0
+    results = []
+    for day_str, workouts in sorted(by_date.items()):
+        w_data = wx.get(day_str)
+        if not w_data:
+            skipped += len(workouts)
+            results.append({"date": day_str, "status": "no_weather", "workouts": len(workouts)})
+            continue
+        note = (f"🌡️ Wetter: {w_data['description']}, "
+                f"{w_data['temp_min']}–{w_data['temp_max']}°C, "
+                f"Regen {w_data['rain_prob']}%")
+        for w in workouts:
+            is_swim = any(x in (w["sport"] or "").lower() for x in ("swim", "schwimm"))
+            if is_swim:
+                skipped += 1
+                continue
+            update: dict = {"workout_id": w["id"], "private_notes": note}
+            base = clean_title(w["title"])
+            if w_data["is_hot"]:
+                update["title"] = f"🔥 {base}"
+            elif w_data["is_cold"]:
+                update["title"] = f"❄️ {base}"
+            try:
+                await call_tp_mcp("tp_update_workout", update)
+                updated += 1
+                results.append({"date": day_str, "workout": w["title"],
+                                 "status": "ok", "note": note,
+                                 "title": update.get("title")})
+            except Exception as e:
+                errors += 1
+                results.append({"date": day_str, "workout": w["title"],
+                                 "status": "error", "error": str(e)[:100]})
+
+    logger.info("backfill-weather: %d updated, %d skipped, %d errors over %d days",
+                updated, skipped, errors, days)
+    return JSONResponse({"updated": updated, "skipped": skipped, "errors": errors,
+                         "days_searched": days, "results": results})
