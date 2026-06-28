@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.50"
+APP_VERSION = "2.6.51"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -56,6 +56,8 @@ _tp_cache: dict = {}             # date_str -> {"data": {...}, "ts": float}
 _tp_refresh_busy: set = set()    # date_strs currently being fetched
 _TP_CACHE_TTL   = 3600           # 1h — serve from cache
 _TP_CACHE_STALE = 1800           # 30min — trigger background refresh
+_history_wx_cache: dict = {}     # range_key -> {"ts": float, "wx": {date: weather_dict}}
+_HISTORY_WX_TTL = 21600          # 6h — history weather einmal pro Tag genug
 
 def _tp_cache_get(date_str: str) -> Optional[dict]:
     entry = _tp_cache.get(date_str)
@@ -1594,6 +1596,42 @@ _HISTORY_SPORT_MAP = {
     6: "Bike", 7: "Run", 12: "Swim", 13: "Bike", 14: "Run",
 }
 
+async def _fetch_history_weather(athlete: dict, dates: list) -> dict:
+    """Einmaliger Open-Meteo-Call für alle History-Daten (past_days=7). Cached 6h."""
+    range_key = ",".join(sorted(dates))
+    cached = _history_wx_cache.get(range_key)
+    if cached and (_time.time() - cached["ts"]) < _HISTORY_WX_TTL:
+        return cached["wx"]
+    lat = athlete.get("location", {}).get("lat", 52.30)
+    lon = athlete.get("location", {}).get("lon", 13.25)
+    url = (
+        f"https://api.open-meteo.com/v1/forecast"
+        f"?latitude={lat}&longitude={lon}"
+        f"&daily=temperature_2m_max,temperature_2m_min,weather_code"
+        f"&past_days=7&forecast_days=1&timezone=Europe%2FBerlin"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.get(url)
+        r.raise_for_status()
+        daily = r.json().get("daily", {})
+        date_list = daily.get("time", [])
+        wx: dict = {}
+        for i, d in enumerate(date_list):
+            if d not in dates:
+                continue
+            temp_max = float((daily.get("temperature_2m_max") or [0])[i] or 0)
+            temp_min = float((daily.get("temperature_2m_min") or [0])[i] or 0)
+            wx[d] = {"is_hot": temp_max > 25, "is_cold": temp_max < 10,
+                     "temp_max": temp_max, "temp_min": temp_min}
+        _history_wx_cache[range_key] = {"ts": _time.time(), "wx": wx}
+        logger.info("_fetch_history_weather: %d/%d dates matched", len(wx), len(dates))
+        return wx
+    except Exception as e:
+        logger.warning("_fetch_history_weather failed: %s", e)
+        return {}
+
+
 @app.get("/api/tp/workouts/history")
 async def tp_workouts_history(days: int = 5):
     tp_url = os.environ.get("TP_MCP_URL", "")
@@ -1631,8 +1669,14 @@ async def tp_workouts_history(days: int = 5):
             })
         grouped = [{"date": d, "workouts": ws}
                    for d, ws in sorted(by_date.items())]
-        logger.info("tp_workouts_history ok: %d days, %d total",
-                    len(grouped), sum(len(e["workouts"]) for e in grouped))
+        # Wetterdaten einmalig für alle vorhandenen Daten abrufen (cached 6h)
+        athlete = load_athlete()
+        all_dates = [e["date"] for e in grouped]
+        wx_by_date = await _fetch_history_weather(athlete, all_dates) if all_dates else {}
+        for entry in grouped:
+            entry["weather"] = wx_by_date.get(entry["date"])
+        logger.info("tp_workouts_history ok: %d days, %d total, %d wx",
+                    len(grouped), sum(len(e["workouts"]) for e in grouped), len(wx_by_date))
         return JSONResponse({"available": True, "days": grouped}, headers=_NO_CACHE)
     except Exception as e:
         logger.error("tp_workouts_history error: %s", e)

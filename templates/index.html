@@ -2415,12 +2415,13 @@ async function renderAnalyseSection() {
       if (!visible.length) return;
       const dayLabel = new Date(day.date + 'T12:00:00').toLocaleDateString('de-DE', {weekday:'short',day:'2-digit',month:'2-digit'});
       html += `<div style="margin-bottom:4px;font-size:11px;font-weight:600;color:var(--muted2);text-transform:uppercase;letter-spacing:.05em">${dayLabel}</div>`;
+      const wxIcon = day.weather?.is_hot ? '🔥 ' : day.weather?.is_cold ? '❄️ ' : '';
       visible.forEach(w => {
         const i = idx++;
         html += `
           <div id="analyse-item-${i}" style="margin-bottom:10px">
             <div style="font-size:13px;color:var(--text);margin-bottom:6px">
-              ${esc(w.title || w.sport || 'Workout')}
+              ${wxIcon}${esc(w.title || w.sport || 'Workout')}
               ${w.duration_min ? `<span style="font-size:11px;color:var(--muted);margin-left:6px">${w.duration_min} min</span>` : ''}
             </div>
             <div style="display:flex;align-items:center;gap:6px">
