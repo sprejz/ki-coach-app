@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.64"
+APP_VERSION = "2.6.65"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -842,12 +842,6 @@ async def api_version():
     return {"version": APP_VERSION}
 
 
-@app.get("/api/debug/tp-raw/{workout_id}")
-async def debug_tp_raw(workout_id: str):
-    """Zeigt alle rohen Felder eines TP-Workouts."""
-    raw = await call_tp_mcp("tp_get_workout", {"workout_id": workout_id})
-    return JSONResponse(raw)
-
 
 @app.get("/api/startup")
 async def startup_data():
@@ -1308,7 +1302,7 @@ async def tp_apply(request: Request):
             _tr      = weather_for_apply.get("rain_prob", 0)
             _tmin    = weather_for_apply.get("temp_min", "?")
             _tmax    = weather_for_apply.get("temp_max", "?")
-            wx_desc  = f"🌡️ {_td_desc}, {_tmin}–{_tmax}°C, Regen {_tr}%"
+            wx_desc  = f"Wetter {_td_desc}, {_tmin}–{_tmax}°C, Regen {_tr}%"
             go_args: dict = {"workout_id": workout_id, "description": wx_desc}
             if is_hot:
                 go_args["title"] = f"♨️ {base_title}"
@@ -1392,7 +1386,7 @@ async def tp_apply(request: Request):
                 _temp_max = weather_for_apply.get("temp_max", "?")
                 _desc_w   = weather_for_apply.get("description", "")
                 _rain     = weather_for_apply.get("rain_prob", 0)
-                desc_parts.append(f"🌡️ Wetter: {_desc_w}, {_temp_min}–{_temp_max}°C, Regen {_rain}%")
+                desc_parts.append(f"Wetter: {_desc_w}, {_temp_min}–{_temp_max}°C, Regen {_rain}%")
             if reason:
                 desc_parts.append(f"Angepasst wegen: {reason}")
             if coach_rec:
@@ -1942,7 +1936,7 @@ async def workout_analyze(
 
             if "avg_temp" in weather_on_date:
                 _w_note = (
-                    f"🌡️ Wetter {weather_on_date['start_local']}–{weather_on_date['end_local']}: "
+                    f"Wetter {weather_on_date['start_local']}–{weather_on_date['end_local']}: "
                     f"{weather_on_date.get('description','?')}, "
                     f"Ø {weather_on_date.get('avg_temp','?')}°C "
                     f"({weather_on_date.get('temp_min','?')}–{weather_on_date.get('temp_max','?')}°C), "
@@ -1950,7 +1944,7 @@ async def workout_analyze(
                 )
             else:
                 _w_note = (
-                    f"🌡️ Wetter {target_date}: {weather_on_date.get('description','?')}, "
+                    f"Wetter {target_date}: {weather_on_date.get('description','?')}, "
                     f"{weather_on_date.get('temp_min','?')}–{weather_on_date.get('temp_max','?')}°C, "
                     f"Regen {weather_on_date.get('rain_prob',0)}%"
                 )
@@ -2146,26 +2140,35 @@ async def backfill_weather(days: int = 30):
                     skipped += 1
                 continue
 
+            # Stündliches Wetter für das Einheits-Zeitfenster (bevorzugt)
+            h_wx = _hourly_window_weather(hourly_wx, day_str, w["start_time"], w["duration_s"])
+            if h_wx:
+                wx_note = (f"Wetter {h_wx['start_h']:02d}–{h_wx['end_h']:02d}h: "
+                           f"{h_wx['description']}, "
+                           f"{h_wx['temp_min']}–{h_wx['temp_max']}°C, "
+                           f"{h_wx['precip_total']}mm Regen")
+            else:
+                wx_note = (f"Wetter: {d_wx['description']}, "
+                           f"{d_wx['temp_min']}–{d_wx['temp_max']}°C, "
+                           f"Regen {d_wx['rain_prob']}%")
+
+            update_args: dict = {"workout_id": w["id"], "description": wx_note}
+
             # Titel-Symbol nur bei Extrem
-            update_args: dict = {"workout_id": w["id"]}
             if d_wx["is_hot"]:
                 update_args["title"] = f"♨️ {base}"
             elif d_wx["is_cold"]:
                 update_args["title"] = f"❄️ {base}"
             elif has_symbol:
-                # War mal extrem, heute nicht mehr → Symbol entfernen
                 update_args["title"] = base
-
-            if len(update_args) <= 1:
-                skipped += 1
-                continue
 
             try:
                 await call_tp_mcp("tp_update_workout", update_args)
                 updated += 1
                 results.append({
                     "date": day_str, "sport": w["sport"], "workout": w["title"],
-                    "status": "ok", "title": update_args["title"],
+                    "status": "ok", "note": wx_note,
+                    "title": update_args.get("title", "(unverändert)"),
                 })
             except Exception as e:
                 errors += 1
