@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.62"
+APP_VERSION = "2.6.63"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1206,9 +1206,14 @@ def clean_title(title: str) -> str:
 
 
 def _is_weather_sport(sport: str) -> bool:
-    """Nur Lauf, Golf und Rad bekommen Wetter-Symbol und Wetter-Beschreibung."""
+    """Nur Lauf, Golf und Rad bekommen Wetter-Symbol."""
     s = (sport or "").lower()
     return any(x in s for x in ("lauf", "run", "golf", "bike", "rad", "cycl"))
+
+
+def _is_indoor(title: str) -> bool:
+    """Zwift, Indoor-Trainer, Laufband etc. sind wetterunabhängig."""
+    return any(x in (title or "").lower() for x in ("zwift", "indoor", "laufband", "trainer"))
 
 
 def _hourly_window_weather(hourly_wx: dict, day: str, start_iso: str, duration_s: int):
@@ -1287,8 +1292,8 @@ async def tp_apply(request: Request):
         is_swim    = any(x in (op_sport or "").lower() for x in ("swim", "schwimm"))
 
         if badge == "GO":
-            # Nur Lauf, Golf, Rad bekommen Wetter-Update
-            if not _is_weather_sport(op_sport) or not weather_for_apply:
+            # Nur Lauf, Golf, Rad — und nur Outdoor
+            if not _is_weather_sport(op_sport) or _is_indoor(orig_title) or not weather_for_apply:
                 continue
             is_hot  = weather_for_apply.get("is_hot")
             is_cold = weather_for_apply.get("is_cold")
@@ -1340,7 +1345,7 @@ async def tp_apply(request: Request):
             # Step 2: create new adjusted workout
             sport        = op.get("sport", "")
             _weather_icon = ""
-            if _is_weather_sport(sport):
+            if _is_weather_sport(sport) and not _is_indoor(base_title):
                 if weather_for_apply.get("is_hot"):
                     _weather_icon = "♨️ "
                 elif weather_for_apply.get("is_cold"):
@@ -2114,37 +2119,37 @@ async def backfill_weather(days: int = 30):
             continue
 
         for w in workouts:
-            if not _is_weather_sport(w["sport"]):
-                skipped += 1
+            base = clean_title(w["title"])
+            is_relevant = _is_weather_sport(w["sport"]) and not _is_indoor(w["title"])
+            has_symbol  = w["title"] != base  # title had ♨️ or ❄️ prefix
+
+            if not is_relevant:
+                # Indoor oder falsche Sportart: Symbol ggf. entfernen (Aufräumen)
+                if has_symbol:
+                    try:
+                        await call_tp_mcp("tp_update_workout",
+                                          {"workout_id": w["id"], "title": base})
+                        updated += 1
+                        results.append({"date": day_str, "sport": w["sport"],
+                                         "workout": w["title"], "status": "cleaned",
+                                         "title": base})
+                    except Exception as e:
+                        errors += 1
+                else:
+                    skipped += 1
                 continue
 
-            # Stündliches Wetter für das Einheits-Zeitfenster (bevorzugt)
-            h_wx = _hourly_window_weather(hourly_wx, day_str, w["start_time"], w["duration_s"])
-            if h_wx:
-                wx_note = (f"🌡️ {h_wx['start_h']:02d}–{h_wx['end_h']:02d}h: "
-                           f"{h_wx['description']}, "
-                           f"{h_wx['temp_min']}–{h_wx['temp_max']}°C, "
-                           f"{h_wx['precip_total']}mm Regen")
-            else:
-                wx_note = (f"🌡️ {d_wx['description']}, "
-                           f"{d_wx['temp_min']}–{d_wx['temp_max']}°C, "
-                           f"Regen {d_wx['rain_prob']}%")
-
-            base = clean_title(w["title"])
-            update_args: dict = {"workout_id": w["id"]}
-
-            # Beschreibung: schreiben wenn leer oder bereits Wetter-Note
-            existing = w["existing_desc"]
-            if not existing or existing.startswith("🌡️"):
-                update_args["description"] = wx_note
-
             # Titel-Symbol nur bei Extrem
+            update_args: dict = {"workout_id": w["id"]}
             if d_wx["is_hot"]:
                 update_args["title"] = f"♨️ {base}"
             elif d_wx["is_cold"]:
                 update_args["title"] = f"❄️ {base}"
+            elif has_symbol:
+                # War mal extrem, heute nicht mehr → Symbol entfernen
+                update_args["title"] = base
 
-            if len(update_args) <= 1:  # nur workout_id, nichts zu tun
+            if len(update_args) <= 1:
                 skipped += 1
                 continue
 
@@ -2153,8 +2158,7 @@ async def backfill_weather(days: int = 30):
                 updated += 1
                 results.append({
                     "date": day_str, "sport": w["sport"], "workout": w["title"],
-                    "status": "ok", "note": wx_note,
-                    "title": update_args.get("title", "(unverändert)"),
+                    "status": "ok", "title": update_args["title"],
                 })
             except Exception as e:
                 errors += 1
