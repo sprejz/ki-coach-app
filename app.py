@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.60"
+APP_VERSION = "2.6.61"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1938,7 +1938,7 @@ async def backfill_weather(days: int = 30):
     if not tp_url:
         raise HTTPException(400, T["err_tp_url_missing"])
 
-    days = max(1, min(days, 90))
+    days = max(1, min(days, 365))
     today = date.today()
     start = (today - timedelta(days=days - 1)).isoformat()
     end   = today.isoformat()
