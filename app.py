@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.64"
+APP_VERSION = "2.6.63"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1200,21 +1200,9 @@ async def debug_coach_beschreibung(request: Request):
 
 
 def clean_title(title: str) -> str:
-    import re as _re
     for pfx in ("❌ ", "↩️ ", "🔥 ", "❄️ ", "☀️ ", "♨️ "):
         title = title.replace(pfx, "")
-    # Temperatur-Präfix entfernen: "34° · " oder "-2° · "
-    title = _re.sub(r'^-?\d+°\s*·\s*', '', title)
     return title.replace(" (KI)", "").replace(" (AI)", "").strip()
-
-
-def _wx_title(base: str, temp_max: float, is_hot: bool, is_cold: bool) -> str:
-    t = round(temp_max)
-    if is_hot:
-        return f"♨️ {t}° · {base}"
-    if is_cold:
-        return f"❄️ {t}° · {base}"
-    return f"{t}° · {base}"
 
 
 def _is_weather_sport(sport: str) -> bool:
@@ -1307,15 +1295,22 @@ async def tp_apply(request: Request):
             # Nur Lauf, Golf, Rad — und nur Outdoor
             if not _is_weather_sport(op_sport) or _is_indoor(orig_title) or not weather_for_apply:
                 continue
-            is_hot   = weather_for_apply.get("is_hot")
-            is_cold  = weather_for_apply.get("is_cold")
-            temp_max = weather_for_apply.get("temp_max", 0)
-            new_go_title = _wx_title(base_title, temp_max, is_hot, is_cold)
+            is_hot  = weather_for_apply.get("is_hot")
+            is_cold = weather_for_apply.get("is_cold")
+            _td_desc = weather_for_apply.get("description", "")
+            _tr      = weather_for_apply.get("rain_prob", 0)
+            _tmin    = weather_for_apply.get("temp_min", "?")
+            _tmax    = weather_for_apply.get("temp_max", "?")
+            wx_desc  = f"🌡️ {_td_desc}, {_tmin}–{_tmax}°C, Regen {_tr}%"
+            go_args: dict = {"workout_id": workout_id, "description": wx_desc}
+            if is_hot:
+                go_args["title"] = f"♨️ {base_title}"
+            elif is_cold:
+                go_args["title"] = f"❄️ {base_title}"
             try:
-                await call_tp_mcp("tp_update_workout",
-                                  {"workout_id": workout_id, "title": new_go_title})
+                await call_tp_mcp("tp_update_workout", go_args)
                 actions.append({"workout_id": workout_id, "badge": "GO", "status": "ok",
-                                "detail": new_go_title})
+                                "detail": go_args.get("title", base_title), "wx": wx_desc})
             except Exception as e:
                 logger.warning("tp_apply GO: weather update failed for %s: %s", workout_id, e)
             continue
@@ -1349,12 +1344,13 @@ async def tp_apply(request: Request):
 
             # Step 2: create new adjusted workout
             sport        = op.get("sport", "")
-            _mod_base    = T["tp_mod_new_title"].format(title=base_title)
-            if _is_weather_sport(sport) and not _is_indoor(base_title) and weather_for_apply:
-                new_title = _wx_title(_mod_base, weather_for_apply.get("temp_max", 0),
-                                      weather_for_apply.get("is_hot"), weather_for_apply.get("is_cold"))
-            else:
-                new_title = _mod_base
+            _weather_icon = ""
+            if _is_weather_sport(sport) and not _is_indoor(base_title):
+                if weather_for_apply.get("is_hot"):
+                    _weather_icon = "♨️ "
+                elif weather_for_apply.get("is_cold"):
+                    _weather_icon = "❄️ "
+            new_title    = _weather_icon + T["tp_mod_new_title"].format(title=base_title)
             coach_rec    = op.get("description", "")
             reason       = op.get("reason", "")
             orig_dur     = op.get("duration_min")
@@ -2143,9 +2139,19 @@ async def backfill_weather(days: int = 30):
                     skipped += 1
                 continue
 
-            # Immer Temperatur in Titel schreiben
-            new_title = _wx_title(base, d_wx["temp_max"], d_wx["is_hot"], d_wx["is_cold"])
-            update_args: dict = {"workout_id": w["id"], "title": new_title}
+            # Titel-Symbol nur bei Extrem
+            update_args: dict = {"workout_id": w["id"]}
+            if d_wx["is_hot"]:
+                update_args["title"] = f"♨️ {base}"
+            elif d_wx["is_cold"]:
+                update_args["title"] = f"❄️ {base}"
+            elif has_symbol:
+                # War mal extrem, heute nicht mehr → Symbol entfernen
+                update_args["title"] = base
+
+            if len(update_args) <= 1:
+                skipped += 1
+                continue
 
             try:
                 await call_tp_mcp("tp_update_workout", update_args)
