@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.59"
+APP_VERSION = "2.6.60"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1158,55 +1158,6 @@ async def tp_refresh_endpoint(day: str = "tomorrow"):
     if cached:
         return JSONResponse(cached, headers=_NO_CACHE)
     return JSONResponse({"available": True, "workouts": [], "date": target}, headers=_NO_CACHE)
-
-
-@app.get("/api/debug/tp-update-combined")
-async def debug_tp_update_combined(workout_id: str):
-    """Testet tp_update_workout mit title + private_notes gleichzeitig (wie backfill)."""
-    if not os.environ.get("TP_MCP_URL"):
-        raise HTTPException(400, "TP_MCP_URL nicht gesetzt")
-    try:
-        result = await call_tp_mcp("tp_update_workout", {
-            "workout_id": workout_id,
-            "title": "COMBINED_TEST_TITEL",
-            "private_notes": "COMBINED_TEST_NOTE",
-        })
-        after = await call_tp_mcp("tp_get_workout", {"workout_id": workout_id})
-        return JSONResponse({"mcp_result": result,
-                             "title_in_tp": after.get("title"),
-                             "description_in_tp": after.get("description")})
-    except Exception as e:
-        return JSONResponse({"error": str(e)})
-
-
-@app.get("/api/debug/tp-update")
-async def debug_tp_update(workout_id: str, field: str = "description", value: str = "Test"):
-    """Testet tp_update_workout mit einem beliebigen Feld und gibt die Roh-Antwort zurück."""
-    if not os.environ.get("TP_MCP_URL"):
-        raise HTTPException(400, "TP_MCP_URL nicht gesetzt")
-    url = os.environ["TP_MCP_URL"]
-    payload = {
-        "jsonrpc": "2.0", "method": "tools/call",
-        "params": {"name": "tp_update_workout", "arguments": {"workout_id": workout_id, field: value}},
-        "id": 1,
-    }
-    async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.post(url, json=payload,
-                              headers={"Content-Type": "application/json",
-                                       "Accept": "application/json, text/event-stream"})
-    return JSONResponse({"status_code": r.status_code, "raw": r.text[:2000]})
-
-
-@app.get("/api/debug/tp-get")
-async def debug_tp_get(workout_id: str):
-    """Zeigt alle Felder eines TP-Workouts."""
-    if not os.environ.get("TP_MCP_URL"):
-        raise HTTPException(400, "TP_MCP_URL nicht gesetzt")
-    try:
-        data = await call_tp_mcp("tp_get_workout", {"workout_id": workout_id})
-        return JSONResponse({"workout": data})
-    except Exception as e:
-        return JSONResponse({"error": str(e)})
 
 
 @app.post("/api/debug/coach-beschreibung")
