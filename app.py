@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.51"
+APP_VERSION = "2.6.52"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1241,26 +1241,25 @@ async def tp_apply(request: Request):
             continue
 
         base_title = clean_title(orig_title)
+        op_sport   = op.get("sport", "")
+        is_swim    = any(x in (op_sport or "").lower() for x in ("swim", "schwimm"))
 
         if badge == "GO":
-            # Originalbeschreibung NICHT ändern — Wetter nur in private_notes
-            if weather_for_apply:
-                temp_min = weather_for_apply.get("temp_min", "?")
-                temp_max_v = weather_for_apply.get("temp_max", "?")
-                desc_w   = weather_for_apply.get("description", "")
-                rain     = weather_for_apply.get("rain_prob", 0)
-                weather_note = f"🌡️ Wetter: {desc_w}, {temp_min}–{temp_max_v}°C, Regen {rain}%"
-                go_update: dict = {"workout_id": workout_id, "private_notes": weather_note}
-                if weather_for_apply.get("is_hot"):
-                    go_update["title"] = f"🔥 {base_title}"
-                elif weather_for_apply.get("is_cold"):
-                    go_update["title"] = f"❄️ {base_title}"
-                try:
-                    await call_tp_mcp("tp_update_workout", go_update)
-                    actions.append({"workout_id": workout_id, "badge": "GO", "status": "ok",
-                                    "detail": go_update.get("title", base_title)})
-                except Exception as e:
-                    logger.warning("tp_apply GO: weather update failed for %s: %s", workout_id, e)
+            # Schwimmen: kein Wetterupdate
+            if is_swim or not weather_for_apply:
+                continue
+            # Nur bei Extremwetter Titel ändern, sonst kein TP-Call für GO
+            is_hot  = weather_for_apply.get("is_hot")
+            is_cold = weather_for_apply.get("is_cold")
+            if not is_hot and not is_cold:
+                continue
+            new_title = f"🔥 {base_title}" if is_hot else f"❄️ {base_title}"
+            try:
+                await call_tp_mcp("tp_update_workout", {"workout_id": workout_id, "title": new_title})
+                actions.append({"workout_id": workout_id, "badge": "GO", "status": "ok",
+                                "detail": new_title})
+            except Exception as e:
+                logger.warning("tp_apply GO: weather title update failed for %s: %s", workout_id, e)
             continue
 
         if badge in ("SKIP", "STOP"):
@@ -1291,13 +1290,14 @@ async def tp_apply(request: Request):
                 continue
 
             # Step 2: create new adjusted workout
-            _weather_icon = ""
-            if weather_for_apply.get("is_hot"):
-                _weather_icon = "🔥 "
-            elif weather_for_apply.get("is_cold"):
-                _weather_icon = "❄️ "
-            new_title    = _weather_icon + T["tp_mod_new_title"].format(title=base_title)
             sport        = op.get("sport", "")
+            _weather_icon = ""
+            if not is_swim:
+                if weather_for_apply.get("is_hot"):
+                    _weather_icon = "🔥 "
+                elif weather_for_apply.get("is_cold"):
+                    _weather_icon = "❄️ "
+            new_title    = _weather_icon + T["tp_mod_new_title"].format(title=base_title)
             coach_rec    = op.get("description", "")
             reason       = op.get("reason", "")
             orig_dur     = op.get("duration_min")

@@ -1617,7 +1617,8 @@ function buildResult(data, fd, type) {
       <div class="section-lbl">TrainingPeaks</div>
       <div id="tp-result-list">
         ${_tpWorks.map(w => {
-          const wxIcon = _wx?.is_hot ? '🔥 ' : _wx?.is_cold ? '❄️ ' : '';
+          const _swim = /swim|schwimm/i.test(w.sport || '');
+          const wxIcon = (!_swim && _wx?.is_hot) ? '🔥 ' : (!_swim && _wx?.is_cold) ? '❄️ ' : '';
           const displayTitle = wxIcon + esc(w.title || w.sport || '?');
           return `<div class="tp-workout-item">
             <span class="tp-sport-badge">${esc(w.sport || '?')}</span>
@@ -2415,9 +2416,10 @@ async function renderAnalyseSection() {
       if (!visible.length) return;
       const dayLabel = new Date(day.date + 'T12:00:00').toLocaleDateString('de-DE', {weekday:'short',day:'2-digit',month:'2-digit'});
       html += `<div style="margin-bottom:4px;font-size:11px;font-weight:600;color:var(--muted2);text-transform:uppercase;letter-spacing:.05em">${dayLabel}</div>`;
-      const wxIcon = day.weather?.is_hot ? '🔥 ' : day.weather?.is_cold ? '❄️ ' : '';
       visible.forEach(w => {
         const i = idx++;
+        const _wSwim = /swim|schwimm/i.test(w.sport || '');
+        const wxIcon = (!_wSwim && day.weather?.is_hot) ? '🔥 ' : (!_wSwim && day.weather?.is_cold) ? '❄️ ' : '';
         html += `
           <div id="analyse-item-${i}" style="margin-bottom:10px">
             <div style="font-size:13px;color:var(--text);margin-bottom:6px">
