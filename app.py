@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.61"
+APP_VERSION = "2.6.62"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1205,6 +1205,48 @@ def clean_title(title: str) -> str:
     return title.replace(" (KI)", "").replace(" (AI)", "").strip()
 
 
+def _is_weather_sport(sport: str) -> bool:
+    """Nur Lauf, Golf und Rad bekommen Wetter-Symbol und Wetter-Beschreibung."""
+    s = (sport or "").lower()
+    return any(x in s for x in ("lauf", "run", "golf", "bike", "rad", "cycl"))
+
+
+def _hourly_window_weather(hourly_wx: dict, day: str, start_iso: str, duration_s: int):
+    """Stündliches Wetter für ein Workout-Zeitfenster aus vorab geladenen Batch-Daten."""
+    if not start_iso or not hourly_wx.get(day):
+        return None
+    try:
+        from datetime import datetime as _dt, timezone as _tz, timedelta as _td2
+        s = start_iso.rstrip("Z")
+        if start_iso.endswith("Z"):
+            s += "+00:00"
+        dt = _dt.fromisoformat(s)
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(_tz(_td2(hours=2)))  # CEST approx
+        start_h = dt.hour
+        dur_h   = max(1, round((duration_s or 3600) / 3600))
+        hours   = list(range(start_h, min(start_h + dur_h + 1, 24)))
+        day_data = hourly_wx[day]
+        relevant = [day_data[h] for h in hours if h in day_data]
+        if not relevant:
+            return None
+        temps   = [r["temp"]   for r in relevant]
+        precips = [r["precip"] for r in relevant]
+        codes   = [r["code"]   for r in relevant]
+        from collections import Counter as _Ctr
+        dominant = _Ctr(codes).most_common(1)[0][0]
+        return {
+            "start_h":      start_h,
+            "end_h":        start_h + dur_h,
+            "temp_min":     round(min(temps), 1),
+            "temp_max":     round(max(temps), 1),
+            "precip_total": round(sum(precips), 1),
+            "description":  WMO.get(dominant, f"Code {dominant}"),
+        }
+    except Exception:
+        return None
+
+
 @app.post("/api/tp/apply")
 async def tp_apply(request: Request):
     if not os.environ.get("TP_MCP_URL"):
@@ -1245,18 +1287,25 @@ async def tp_apply(request: Request):
         is_swim    = any(x in (op_sport or "").lower() for x in ("swim", "schwimm"))
 
         if badge == "GO":
-            # Schwimmen: kein Wetterupdate
-            if is_swim or not weather_for_apply:
+            # Nur Lauf, Golf, Rad bekommen Wetter-Update
+            if not _is_weather_sport(op_sport) or not weather_for_apply:
                 continue
             is_hot  = weather_for_apply.get("is_hot")
             is_cold = weather_for_apply.get("is_cold")
-            if not is_hot and not is_cold:
-                continue
-            new_go_title = f"♨️ {base_title}" if is_hot else f"❄️ {base_title}"
+            _td_desc = weather_for_apply.get("description", "")
+            _tr      = weather_for_apply.get("rain_prob", 0)
+            _tmin    = weather_for_apply.get("temp_min", "?")
+            _tmax    = weather_for_apply.get("temp_max", "?")
+            wx_desc  = f"🌡️ {_td_desc}, {_tmin}–{_tmax}°C, Regen {_tr}%"
+            go_args: dict = {"workout_id": workout_id, "description": wx_desc}
+            if is_hot:
+                go_args["title"] = f"♨️ {base_title}"
+            elif is_cold:
+                go_args["title"] = f"❄️ {base_title}"
             try:
-                await call_tp_mcp("tp_update_workout", {"workout_id": workout_id, "title": new_go_title})
+                await call_tp_mcp("tp_update_workout", go_args)
                 actions.append({"workout_id": workout_id, "badge": "GO", "status": "ok",
-                                "detail": new_go_title})
+                                "detail": go_args.get("title", base_title), "wx": wx_desc})
             except Exception as e:
                 logger.warning("tp_apply GO: weather update failed for %s: %s", workout_id, e)
             continue
@@ -1291,7 +1340,7 @@ async def tp_apply(request: Request):
             # Step 2: create new adjusted workout
             sport        = op.get("sport", "")
             _weather_icon = ""
-            if not is_swim:
+            if _is_weather_sport(sport):
                 if weather_for_apply.get("is_hot"):
                     _weather_icon = "♨️ "
                 elif weather_for_apply.get("is_cold"):
@@ -1931,7 +1980,9 @@ async def workout_analyze_status(job_id: str):
 
 @app.post("/api/admin/backfill-weather")
 async def backfill_weather(days: int = 30):
-    """Schreibt historische Wetterdaten in private_notes vergangener TP-Workouts.
+    """Schreibt Wetterbeschreibung + ggf. Extrem-Symbol in vergangene TP-Workouts.
+    Nur Lauf, Golf, Rad. Beschreibung immer (mit Stunden-Fenster wenn möglich).
+    Titel-Symbol nur bei >28°C (♨️) oder <0°C (❄️).
     Aufruf: curl -X POST 'https://<railway-url>/api/admin/backfill-weather?days=30'
     """
     tp_url = os.environ.get("TP_MCP_URL", "")
@@ -1943,7 +1994,7 @@ async def backfill_weather(days: int = 30):
     start = (today - timedelta(days=days - 1)).isoformat()
     end   = today.isoformat()
 
-    # 1. TP-Workouts für den Zeitraum holen
+    # 1. TP-Workouts holen (completed)
     try:
         raw = await call_tp_mcp("tp_get_workouts", {
             "start_date": start, "end_date": end, "type": "completed"
@@ -1954,45 +2005,50 @@ async def backfill_weather(days: int = 30):
     items = raw if isinstance(raw, list) else raw.get("workouts", raw.get("items", []))
     by_date: dict = {}
     for w in (items or []):
-        wid  = str(w.get("workoutId") or w.get("id") or "")
-        day  = (w.get("workoutDay") or w.get("date") or "")[:10]
-        sport = (w.get("sport") or w.get("sportType") or "")
-        title = w.get("title") or w.get("name") or ""
+        wid        = str(w.get("workoutId") or w.get("id") or "")
+        day        = (w.get("workoutDay") or w.get("date") or "")[:10]
+        sport      = (w.get("sport") or w.get("sportType") or "")
+        title      = w.get("title") or w.get("name") or ""
+        start_time = w.get("startTime") or ""
+        duration_s = int(w.get("totalTime") or 0)
+        existing_desc = (w.get("description") or w.get("notes") or "").strip()
         if not wid or not day:
             continue
-        by_date.setdefault(day, []).append({"id": wid, "sport": sport, "title": title})
+        by_date.setdefault(day, []).append({
+            "id": wid, "sport": sport, "title": title,
+            "start_time": start_time, "duration_s": duration_s,
+            "existing_desc": existing_desc,
+        })
 
     if not by_date:
         return JSONResponse({"updated": 0, "skipped": 0, "errors": 0,
                              "detail": "Keine completed Workouts gefunden"})
 
-    # 2. Historische Wetterdaten in einem Batch-Call holen
-    athlete  = load_athlete()
+    # 2. Wetterdaten in einem Batch-Call holen (täglich + stündlich)
+    athlete   = load_athlete()
     all_dates = list(by_date.keys())
-
-    # Open-Meteo archive für Daten älter als 7 Tage, forecast+past_days für neuere
-    cutoff  = (today - timedelta(days=7)).isoformat()
-    recent  = [d for d in all_dates if d > cutoff]
-    archive = [d for d in all_dates if d <= cutoff]
-
-    wx: dict = {}
+    cutoff    = (today - timedelta(days=7)).isoformat()
+    recent    = [d for d in all_dates if d > cutoff]
+    archive   = [d for d in all_dates if d <= cutoff]
     lat = athlete.get("location", {}).get("lat", 52.30)
     lon = athlete.get("location", {}).get("lon", 13.25)
 
-    async def _fetch_batch(url: str, dates: list) -> dict:
+    daily_wx: dict = {}
+    hourly_wx: dict = {}  # date -> {hour -> {temp, precip, code}}
+
+    async def _fetch_daily(url: str, dates: list) -> dict:
         async with httpx.AsyncClient(timeout=20.0) as client:
             r = await client.get(url)
         r.raise_for_status()
-        daily = r.json().get("daily", {})
-        date_list = daily.get("time", [])
+        d_data = r.json().get("daily", {})
         result = {}
-        for i, d in enumerate(date_list):
+        for i, d in enumerate(d_data.get("time", [])):
             if d not in dates:
                 continue
-            tmax = float((daily.get("temperature_2m_max") or [0])[i] or 0)
-            tmin = float((daily.get("temperature_2m_min") or [0])[i] or 0)
-            rain = int((daily.get("precipitation_probability_max") or [0])[i] or 0)
-            code = int((daily.get("weather_code") or [0])[i] or 0)
+            tmax = float((d_data.get("temperature_2m_max") or [0])[i] or 0)
+            tmin = float((d_data.get("temperature_2m_min") or [0])[i] or 0)
+            rain = int((d_data.get("precipitation_probability_max") or [0])[i] or 0)
+            code = int((d_data.get("weather_code") or [0])[i] or 0)
             result[d] = {
                 "temp_max": tmax, "temp_min": tmin, "rain_prob": rain,
                 "description": WMO.get(code, f"Code {code}"),
@@ -2000,58 +2056,106 @@ async def backfill_weather(days: int = 30):
             }
         return result
 
+    async def _fetch_hourly(url: str, dates: list) -> dict:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.get(url)
+        r.raise_for_status()
+        h_data  = r.json().get("hourly", {})
+        times   = h_data.get("time", [])
+        temps   = h_data.get("temperature_2m", [])
+        precips = h_data.get("precipitation", [])
+        codes   = h_data.get("weather_code", [])
+        result: dict = {}
+        for i, ts in enumerate(times):
+            d = ts[:10]
+            if d not in dates:
+                continue
+            h = int(ts[11:13])
+            result.setdefault(d, {})[h] = {
+                "temp":   float(temps[i]   or 0) if i < len(temps)   else 0,
+                "precip": float(precips[i] or 0) if i < len(precips) else 0,
+                "code":   int(codes[i]     or 0) if i < len(codes)   else 0,
+            }
+        return result
+
     try:
         if recent:
-            wx.update(await _fetch_batch(
-                f"https://api.open-meteo.com/v1/forecast"
-                f"?latitude={lat}&longitude={lon}"
-                f"&daily=temperature_2m_max,temperature_2m_min,"
-                f"precipitation_probability_max,weather_code"
-                f"&past_days=7&forecast_days=1&timezone=Europe%2FBerlin",
-                recent
-            ))
+            base_r = (f"https://api.open-meteo.com/v1/forecast"
+                      f"?latitude={lat}&longitude={lon}"
+                      f"&past_days=7&forecast_days=1&timezone=Europe%2FBerlin")
+            daily_wx.update(await _fetch_daily(
+                base_r + "&daily=temperature_2m_max,temperature_2m_min,"
+                         "precipitation_probability_max,weather_code", recent))
+            hourly_wx.update(await _fetch_hourly(
+                base_r + "&hourly=temperature_2m,precipitation,weather_code", recent))
         if archive:
-            arc_start = min(archive)
-            arc_end   = max(archive)
-            wx.update(await _fetch_batch(
-                f"https://archive-api.open-meteo.com/v1/archive"
-                f"?latitude={lat}&longitude={lon}"
-                f"&daily=temperature_2m_max,temperature_2m_min,"
-                f"precipitation_probability_max,weather_code"
-                f"&start_date={arc_start}&end_date={arc_end}"
-                f"&timezone=Europe%2FBerlin",
-                archive
-            ))
+            arc_s   = min(archive)
+            arc_e   = max(archive)
+            base_a  = (f"https://archive-api.open-meteo.com/v1/archive"
+                       f"?latitude={lat}&longitude={lon}"
+                       f"&start_date={arc_s}&end_date={arc_e}"
+                       f"&timezone=Europe%2FBerlin")
+            daily_wx.update(await _fetch_daily(
+                base_a + "&daily=temperature_2m_max,temperature_2m_min,"
+                         "precipitation_probability_max,weather_code", archive))
+            hourly_wx.update(await _fetch_hourly(
+                base_a + "&hourly=temperature_2m,precipitation,weather_code", archive))
     except Exception as e:
         raise HTTPException(500, f"Wetter-Fetch fehlgeschlagen: {e}")
 
-    # 3. Pro Workout: private_notes + ggf. Titel schreiben
+    # 3. Pro Workout: Beschreibung + ggf. Titel-Symbol schreiben
     updated = skipped = errors = 0
     results = []
     for day_str, workouts in sorted(by_date.items()):
-        w_data = wx.get(day_str)
-        if not w_data:
+        d_wx = daily_wx.get(day_str)
+        if not d_wx:
             skipped += len(workouts)
             results.append({"date": day_str, "status": "no_weather", "workouts": len(workouts)})
             continue
-        note = (f"🌡️ Wetter: {w_data['description']}, "
-                f"{w_data['temp_min']}–{w_data['temp_max']}°C, "
-                f"Regen {w_data['rain_prob']}%")
+
         for w in workouts:
-            is_swim = any(x in (w["sport"] or "").lower() for x in ("swim", "schwimm"))
-            if is_swim:
+            if not _is_weather_sport(w["sport"]):
                 skipped += 1
                 continue
+
+            # Stündliches Wetter für das Einheits-Zeitfenster (bevorzugt)
+            h_wx = _hourly_window_weather(hourly_wx, day_str, w["start_time"], w["duration_s"])
+            if h_wx:
+                wx_note = (f"🌡️ {h_wx['start_h']:02d}–{h_wx['end_h']:02d}h: "
+                           f"{h_wx['description']}, "
+                           f"{h_wx['temp_min']}–{h_wx['temp_max']}°C, "
+                           f"{h_wx['precip_total']}mm Regen")
+            else:
+                wx_note = (f"🌡️ {d_wx['description']}, "
+                           f"{d_wx['temp_min']}–{d_wx['temp_max']}°C, "
+                           f"Regen {d_wx['rain_prob']}%")
+
             base = clean_title(w["title"])
-            if not w_data["is_hot"] and not w_data["is_cold"]:
+            update_args: dict = {"workout_id": w["id"]}
+
+            # Beschreibung: schreiben wenn leer oder bereits Wetter-Note
+            existing = w["existing_desc"]
+            if not existing or existing.startswith("🌡️"):
+                update_args["description"] = wx_note
+
+            # Titel-Symbol nur bei Extrem
+            if d_wx["is_hot"]:
+                update_args["title"] = f"♨️ {base}"
+            elif d_wx["is_cold"]:
+                update_args["title"] = f"❄️ {base}"
+
+            if len(update_args) <= 1:  # nur workout_id, nichts zu tun
                 skipped += 1
                 continue
-            new_title = f"♨️ {base}" if w_data["is_hot"] else f"❄️ {base}"
+
             try:
-                await call_tp_mcp("tp_update_workout", {"workout_id": w["id"], "title": new_title})
+                await call_tp_mcp("tp_update_workout", update_args)
                 updated += 1
-                results.append({"date": day_str, "workout": w["title"],
-                                 "status": "ok", "title": new_title})
+                results.append({
+                    "date": day_str, "sport": w["sport"], "workout": w["title"],
+                    "status": "ok", "note": wx_note,
+                    "title": update_args.get("title", "(unverändert)"),
+                })
             except Exception as e:
                 errors += 1
                 results.append({"date": day_str, "workout": w["title"],
