@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.47"
+APP_VERSION = "2.6.48"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1699,7 +1699,8 @@ def _run_analysis_job_fast(job_id: str, key: str, prompt: str):
 
 
 def _build_analysis_prompt(athlete: dict, a_race: dict, workout_id: str, sport: str,
-                            title: str, target_date: str, fit_data: dict, weather_data: dict = None) -> str:
+                            title: str, target_date: str, fit_data: dict,
+                            weather_data: dict = None, tp_data: dict = None) -> str:
     base = T["coach_analysis_prompt"].format(
         name=athlete.get("name", "Hendrik"),
         ftp=athlete.get("ftp_watt", 286),
@@ -1720,6 +1721,22 @@ def _build_analysis_prompt(athlete: dict, a_race: dict, workout_id: str, sport: 
             f"{weather_data.get('temp_min','?')}–{weather_data.get('temp_max','?')}°C, "
             f"Regen {weather_data.get('rain_prob',0)}%."
         )
+    if tp_data:
+        lines = ["\n\n--- TRAININGPEAKS IST-DATEN ---"]
+        tp_label_map = {
+            "totalTime": "Dauer (s)", "totalTimePlanned": "Dauer geplant (s)",
+            "distanceInMeters": "Distanz (m)", "tssActual": "TSS (Ist)", "tssPlanned": "TSS (Plan)",
+            "averageHeartRateInBeatsPerMinute": "Ø HF", "maxHeartRateInBeatsPerMinute": "Max HF",
+            "averageWatts": "Ø Leistung (W)", "normalizedPower": "NP (W)",
+            "averagePaceInMinutesPerKilometer": "Ø Pace (min/km)",
+            "totalWork": "Gesamtarbeit (kJ)",
+            "coachComments": "Coach-Notizen", "description": "Beschreibung",
+        }
+        for k, label in tp_label_map.items():
+            v = tp_data.get(k)
+            if v is not None and v != "":
+                lines.append(f"- {label}: {v}")
+        base += "\n".join(lines)
     if fit_data:
         lines = ["\n\n--- FIT-DATEI (lokale Ist-Daten) ---"]
         label_map = {
@@ -1836,15 +1853,26 @@ async def workout_analyze(
         except Exception as _we:
             logger.warning("workout_analyze: weather update skipped: %s", _we)
 
-    prompt = _build_analysis_prompt(athlete, a_race, workout_id, sport, title, target_date, fit_data, weather_on_date)
+    # TP-Workout direkt vorab holen — kein MCP-Roundtrip durch Claude nötig
+    tp_workout_data: dict = {}
+    if workout_id and tp_url:
+        try:
+            tp_workout_data = await call_tp_mcp("tp_get_workout", {"workout_id": workout_id})
+            if not isinstance(tp_workout_data, dict):
+                tp_workout_data = {}
+            logger.info("workout_analyze: tp_get_workout ok for %s", workout_id)
+        except Exception as _te:
+            logger.warning("workout_analyze: tp_get_workout failed: %s", _te)
+
+    prompt = _build_analysis_prompt(athlete, a_race, workout_id, sport, title, target_date,
+                                    fit_data, weather_on_date, tp_workout_data)
     job_id = uuid.uuid4().hex[:10]
     _analysis_jobs[job_id] = {"status": "pending", "has_fit": bool(fit_data)}
-    if fit_data:
-        t = threading.Thread(target=_run_analysis_job_fast, args=(job_id, key, prompt), daemon=True)
-    else:
-        t = threading.Thread(target=_run_analysis_job, args=(job_id, tp_url, key, prompt), daemon=True)
+    # Immer schneller Pfad — TP-Daten sind bereits im Prompt enthalten
+    t = threading.Thread(target=_run_analysis_job_fast, args=(job_id, key, prompt), daemon=True)
     t.start()
-    logger.info("analysis job %s started for %s on %s (fit=%s)", job_id, title, target_date, bool(fit_data))
+    logger.info("analysis job %s started for %s on %s (fit=%s, tp=%s)",
+                job_id, title, target_date, bool(fit_data), bool(tp_workout_data))
     return JSONResponse({"job_id": job_id, "has_fit": bool(fit_data), "weather": weather_on_date or None},
                         headers=_NO_CACHE)
 

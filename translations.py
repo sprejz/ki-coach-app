@@ -289,17 +289,10 @@ TRANSLATIONS = {
             "Schreibe die rohen Tool-Daten vollständig auf Deutsch heraus — kein JSON, nur Fließtext mit allen Werten."
         ),
         "coach_analysis_prompt": (
-            "Führe folgende zwei Schritte aus:\n\n"
-            "SCHRITT 1: Rufe über die TrainingPeaks-Tools das Workout ab:\n"
-            "- Titel: \"{title}\"\n"
-            "- Datum: {date}\n"
-            "- Sport: {sport}\n"
-            "- Workout-ID: {workout_id}\n"
-            "Hole alle verfügbaren Daten: Dauer, Distanz, HF (Ø/Max), Leistung (Ø/Max), "
-            "Pace (Ø), TSS, Zonenverteilung, Notizen.\n\n"
-            "SCHRITT 2: Analysiere als erfahrener Triathlon-Coach ({name}, FTP {ftp}W, "
-            "Laufschwelle {run_threshold}/km, CSS {css}/100m, "
-            "A-Rennen: {race_name} am {race_date}, Zielzeit {race_goal}h):\n"
+            "Analysiere als erfahrener Triathlon-Coach folgendes Training:\n\n"
+            "Athlet: {name} | FTP {ftp}W | Laufschwelle {run_threshold}/km | CSS {css}/100m\n"
+            "A-Rennen: {race_name} am {race_date}, Zielzeit {race_goal}h\n"
+            "Sport: {sport} | Titel: \"{title}\" | Datum: {date}\n\n"
             "War diese Einheit gut ausgeführt? Direkt, ehrlich, ohne Floskeln.\n\n"
             "Antworte NUR als JSON:\n"
             '{{"bewertung":"gut|ok|verbesserungsbedarf",'
@@ -606,17 +599,10 @@ TRANSLATIONS = {
             "Write out the raw tool data completely in plain text with all values — no JSON."
         ),
         "coach_analysis_prompt": (
-            "Execute the following two steps:\n\n"
-            "STEP 1: Use the TrainingPeaks tools to retrieve the workout:\n"
-            "- Title: \"{title}\"\n"
-            "- Date: {date}\n"
-            "- Sport: {sport}\n"
-            "- Workout ID: {workout_id}\n"
-            "Fetch all available data: duration, distance, HR (avg/max), power (avg/max), "
-            "pace (avg), TSS, zone distribution, notes.\n\n"
-            "STEP 2: Analyze as an experienced triathlon coach ({name}, FTP {ftp}W, "
-            "run threshold {run_threshold}/km, CSS {css}/100m, "
-            "A-race: {race_name} on {race_date}, goal {race_goal}h):\n"
+            "Analyze as an experienced triathlon coach:\n\n"
+            "Athlete: {name} | FTP {ftp}W | run threshold {run_threshold}/km | CSS {css}/100m\n"
+            "A-race: {race_name} on {race_date}, goal {race_goal}h\n"
+            "Sport: {sport} | Title: \"{title}\" | Date: {date}\n\n"
             "Was this session well executed? Direct, honest, no platitudes.\n\n"
             "Respond ONLY as JSON:\n"
             '{{"bewertung":"gut|ok|verbesserungsbedarf",'

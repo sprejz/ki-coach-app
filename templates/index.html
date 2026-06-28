@@ -2448,7 +2448,7 @@ async function analyzeWorkout(idx, workoutId, sport, title, workoutDate, startTi
   if (resultDiv) resultDiv.innerHTML = `
     <div class="analyse-loading">
       <div class="analyse-dots"><span></span><span></span><span></span></div>
-      <p class="analyse-loading-label">${hasFit ? 'FIT + TP-Daten werden analysiert…' : 'Trainingsdaten werden aus TP geladen…'}<br><span style="font-size:11px;opacity:.6">Dauert 2–5 Min</span></p>
+      <p class="analyse-loading-label">Einheit wird analysiert…<br><span style="font-size:11px;opacity:.6">Dauert ca. 10–20 Sek</span></p>
     </div>`;
   try {
     const fd = new FormData();
