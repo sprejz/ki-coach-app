@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.56"
+APP_VERSION = "2.6.57"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1299,22 +1299,13 @@ async def tp_apply(request: Request):
                 continue
             is_hot  = weather_for_apply.get("is_hot")
             is_cold = weather_for_apply.get("is_cold")
-            temp_min = weather_for_apply.get("temp_min", "?")
-            temp_max_v = weather_for_apply.get("temp_max", "?")
-            desc_w   = weather_for_apply.get("description", "")
-            rain     = weather_for_apply.get("rain_prob", 0)
-            go_update: dict = {
-                "workout_id": workout_id,
-                "private_notes": f"🌡️ Wetter: {desc_w}, {temp_min}–{temp_max_v}°C, Regen {rain}%",
-            }
-            if is_hot:
-                go_update["title"] = f"🔥 {base_title}"
-            elif is_cold:
-                go_update["title"] = f"❄️ {base_title}"
+            if not is_hot and not is_cold:
+                continue
+            new_go_title = f"🔥 {base_title}" if is_hot else f"❄️ {base_title}"
             try:
-                await call_tp_mcp("tp_update_workout", go_update)
+                await call_tp_mcp("tp_update_workout", {"workout_id": workout_id, "title": new_go_title})
                 actions.append({"workout_id": workout_id, "badge": "GO", "status": "ok",
-                                "detail": go_update.get("title", base_title)})
+                                "detail": new_go_title})
             except Exception as e:
                 logger.warning("tp_apply GO: weather update failed for %s: %s", workout_id, e)
             continue
@@ -1951,8 +1942,7 @@ async def workout_analyze(
                     f"{weather_on_date.get('temp_min','?')}–{weather_on_date.get('temp_max','?')}°C, "
                     f"Regen {weather_on_date.get('rain_prob',0)}%"
                 )
-            await call_tp_mcp("tp_update_workout", {"workout_id": workout_id, "private_notes": _w_note})
-            logger.info("workout_analyze: weather private_notes written to TP for %s on %s", workout_id, target_date)
+            logger.info("workout_analyze: weather note prepared for %s on %s (not written to TP — field unsupported)", workout_id, target_date)
         except Exception as _we:
             logger.warning("workout_analyze: weather update skipped: %s", _we)
 
@@ -2101,18 +2091,16 @@ async def backfill_weather(days: int = 30):
             if is_swim:
                 skipped += 1
                 continue
-            update: dict = {"workout_id": w["id"], "private_notes": note}
             base = clean_title(w["title"])
-            if w_data["is_hot"]:
-                update["title"] = f"🔥 {base}"
-            elif w_data["is_cold"]:
-                update["title"] = f"❄️ {base}"
+            if not w_data["is_hot"] and not w_data["is_cold"]:
+                skipped += 1
+                continue
+            new_title = f"🔥 {base}" if w_data["is_hot"] else f"❄️ {base}"
             try:
-                await call_tp_mcp("tp_update_workout", update)
+                await call_tp_mcp("tp_update_workout", {"workout_id": w["id"], "title": new_title})
                 updated += 1
                 results.append({"date": day_str, "workout": w["title"],
-                                 "status": "ok", "note": note,
-                                 "title": update.get("title")})
+                                 "status": "ok", "title": new_title})
             except Exception as e:
                 errors += 1
                 results.append({"date": day_str, "workout": w["title"],
