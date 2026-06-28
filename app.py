@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.55"
+APP_VERSION = "2.6.56"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1158,6 +1158,25 @@ async def tp_refresh_endpoint(day: str = "tomorrow"):
     if cached:
         return JSONResponse(cached, headers=_NO_CACHE)
     return JSONResponse({"available": True, "workouts": [], "date": target}, headers=_NO_CACHE)
+
+
+@app.get("/api/debug/tp-update-combined")
+async def debug_tp_update_combined(workout_id: str):
+    """Testet tp_update_workout mit title + private_notes gleichzeitig (wie backfill)."""
+    if not os.environ.get("TP_MCP_URL"):
+        raise HTTPException(400, "TP_MCP_URL nicht gesetzt")
+    try:
+        result = await call_tp_mcp("tp_update_workout", {
+            "workout_id": workout_id,
+            "title": "COMBINED_TEST_TITEL",
+            "private_notes": "COMBINED_TEST_NOTE",
+        })
+        after = await call_tp_mcp("tp_get_workout", {"workout_id": workout_id})
+        return JSONResponse({"mcp_result": result,
+                             "title_in_tp": after.get("title"),
+                             "description_in_tp": after.get("description")})
+    except Exception as e:
+        return JSONResponse({"error": str(e)})
 
 
 @app.get("/api/debug/tp-update")
