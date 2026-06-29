@@ -1328,9 +1328,8 @@ function renderHeader() {
   strip.innerHTML = (athlete.races || []).map(r => {
     const cls = r.priority === 'A' ? 'race-chip a-race' : 'race-chip';
     const d = new Date(r.date + 'T12:00:00').toLocaleDateString('de-DE', {day:'2-digit',month:'2-digit'});
-    // Kurznamen: Nummer-Präfix wegschneiden, auf 12 Zeichen kürzen
-    const short = r.name.replace(/^\d+\.\s*/, '').slice(0, 14);
-    return `<span class="${cls}"><b>${r.priority}</b> ${short} · ${d}</span>`;
+    // Nur Priorität + Datum — passt immer auf den Screen
+    return `<span class="${cls}"><b>${r.priority}</b> · ${d}</span>`;
   }).join('');
 }
 
