@@ -59,7 +59,7 @@
     "fluid_heat_per_hour_ml": 750,
     "salt_per_hour": 1,
     "salt_heat_per_hour": 2,
-    "heat_threshold_celsius": 25,
+    "heat_threshold_celsius": 28,
     "rules": [
       {
         "duration_max_min": 60,
