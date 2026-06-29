@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.75"
+APP_VERSION = "2.6.76"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1301,9 +1301,24 @@ async def tp_apply(request: Request):
         if not workout_id:
             continue
 
-        base_title = clean_title(orig_title)
-        op_sport   = op.get("sport", "")
-        is_swim    = any(x in (op_sport or "").lower() for x in ("swim", "schwimm"))
+        base_title    = clean_title(orig_title)
+        op_sport      = op.get("sport", "")
+        is_swim       = any(x in (op_sport or "").lower() for x in ("swim", "schwimm"))
+        user_override = op.get("user_override", False)
+
+        if user_override:
+            orig_desc = op.get("orig_description", "")
+            note = "Athlete override – eigenes Gefühl"
+            desc = f"{note}\n\n{orig_desc}".strip() if orig_desc else note
+            try:
+                await call_tp_mcp("tp_update_workout", {"workout_id": workout_id,
+                                                        "title": base_title, "description": desc})
+                actions.append({"workout_id": workout_id, "badge": "GO", "status": "ok",
+                                "detail": f"Override: {base_title}"})
+            except Exception as e:
+                logger.error("tp_apply OVERRIDE: failed for %s: %s", workout_id, e)
+                actions.append({"workout_id": workout_id, "badge": "GO", "status": "error", "detail": str(e)})
+            continue
 
         if badge == "GO":
             # Nur Lauf, Golf, Rad — und nur Outdoor

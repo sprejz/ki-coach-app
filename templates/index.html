@@ -402,9 +402,25 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
   letter-spacing: 0.5px;
   flex-shrink: 0;
 }
-.badge-go   { background: rgba(29,158,117,.2);  color: var(--green);  }
-.badge-mod  { background: rgba(239,159,39,.18); color: var(--orange); }
-.badge-skip { background: rgba(226,75,74,.18);  color: var(--red);    }
+.badge-go       { background: rgba(29,158,117,.2);  color: var(--green);  }
+.badge-mod      { background: rgba(239,159,39,.18); color: var(--orange); }
+.badge-skip     { background: rgba(226,75,74,.18);  color: var(--red);    }
+.badge-override { background: rgba(29,158,117,.35); color: var(--green); border: 1px solid var(--green); }
+.btn-override {
+  margin-top: 8px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.btn-override.active {
+  border-color: var(--green);
+  color: var(--green);
+  background: rgba(29,158,117,.1);
+}
 .sport-name { font-size: 15px; font-weight: 600; }
 .sport-details { font-size: 13px; color: var(--muted); line-height: 1.5; margin-bottom: 4px; }
 .sport-ernaehrung { font-size: 12px; color: var(--muted2); line-height: 1.4; }
@@ -1190,6 +1206,7 @@ let currentResultType = null;
 let currentFormData = null;
 let weatherToday = null;
 let weatherTomorrow = null;
+let userOverrides = {};
 let sleepHistory = [];
 let sleepBaseline = null;
 let erholungLoaded = false;
@@ -1588,16 +1605,20 @@ function buildResult(data, fd, type) {
   // Sports
   if (data.sportarten?.length) {
     h += `<div class="card-section">`;
-    data.sportarten.forEach(s => {
-      const bc = s.badge === 'GO' ? 'badge-go' : s.badge === 'MOD' ? 'badge-mod' : 'badge-skip';
-      h += `<div class="sport-card">
+    data.sportarten.forEach((s, idx) => {
+      const isNonGo = s.badge === 'MOD' || s.badge === 'SKIP';
+      const isOverridden = !!userOverrides[idx];
+      const bc = isOverridden ? 'badge-override' : (s.badge === 'GO' ? 'badge-go' : s.badge === 'MOD' ? 'badge-mod' : 'badge-skip');
+      const badgeLabel = isOverridden ? 'GO ↩' : s.badge;
+      h += `<div class="sport-card" id="sport-card-${idx}">
         <div class="sport-header">
-          <span class="badge ${bc}">${esc(s.badge)}</span>
+          <span class="badge ${bc}" id="sport-badge-${idx}">${esc(badgeLabel)}</span>
           <span class="sport-name">${esc(s.sport)}</span>
         </div>
         ${s.details ? `<p class="sport-details">${esc(s.details)}</p>` : ''}
         ${s.beschreibung ? `<pre style="font-size:11px;color:var(--muted);line-height:1.55;margin:4px 0 2px;white-space:pre-wrap;font-family:inherit">${esc(s.beschreibung)}</pre>` : ''}
         ${s.ernaehrung ? `<p class="sport-ernaehrung">🍎 ${esc(s.ernaehrung)}</p>` : ''}
+        ${isNonGo ? `<button class="btn-override${isOverridden ? ' active' : ''}" id="override-btn-${idx}" onclick="toggleOverride(${idx})">${isOverridden ? 'Override aufheben' : 'Trotzdem machen'}</button>` : ''}
       </div>`;
     });
     h += `</div>`;
@@ -1643,12 +1664,30 @@ function buildResult(data, fd, type) {
   return h;
 }
 
+function toggleOverride(idx) {
+  userOverrides[idx] = !userOverrides[idx];
+  const isOverridden = userOverrides[idx];
+  const badge = document.getElementById(`sport-badge-${idx}`);
+  const btn   = document.getElementById(`override-btn-${idx}`);
+  const sportarten = currentResult?.sportarten || [];
+  const origBadge  = sportarten[idx]?.badge || 'GO';
+  if (badge) {
+    badge.className = `badge ${isOverridden ? 'badge-override' : (origBadge === 'MOD' ? 'badge-mod' : 'badge-skip')}`;
+    badge.textContent = isOverridden ? 'GO ↩' : origBadge;
+  }
+  if (btn) {
+    btn.textContent = isOverridden ? 'Override aufheben' : 'Trotzdem machen';
+    btn.className   = `btn-override${isOverridden ? ' active' : ''}`;
+  }
+}
+
 function backToForm() {
   document.getElementById('result-section').style.display = 'none';
   document.getElementById('form-section').style.display = 'block';
   currentResult = null;
   currentFormData = null;
   tpWorkouts = [];
+  userOverrides = {};
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -2707,21 +2746,24 @@ async function applyToTP() {
     const operations = tpWorkouts.reduce((acc, w, i) => {
       const wid = w.id ?? w.workoutId ?? w.workout_id ?? w.Id ?? w.ID ?? null;
       if (!wid) { console.warn('applyToTP: no id in workout', JSON.stringify(w)); return acc; }
-      const badge = sportarten[i]?.badge || 'GO';
+      const origBadge   = sportarten[i]?.badge || 'GO';
+      const isOverride  = !!userOverrides[i];
+      const badge       = isOverride ? 'GO' : origBadge;
       // GO mit extremem Wetter ebenfalls schicken — Backend setzt Symbol im TP-Titel
-      if (badge !== 'GO' || _wxExtreme) acc.push({
-        workout_id:   String(wid),
-        orig_title:   w.title || w.sport || '',
+      if (badge !== 'GO' || _wxExtreme || isOverride) acc.push({
+        workout_id:    String(wid),
+        orig_title:    w.title || w.sport || '',
         orig_description: w.description || '',
         badge,
-        sport:        w.sport || '',
-        description:  sportarten[i]?.beschreibung || sportarten[i]?.details || '',
-        reason:       badge === 'MOD' ? buildModReason(currentFormData) : '',
-        duration_min: w.duration_min || null,
-        tss:          w.tss || null,
-        tp_struktur:  sportarten[i]?.tp_struktur || null,
-        distanz_m:    sportarten[i]?.distanz_m   || null,
-        subtype_id:   w.subtype_id ?? null,
+        user_override: isOverride,
+        sport:         w.sport || '',
+        description:   sportarten[i]?.beschreibung || sportarten[i]?.details || '',
+        reason:        origBadge === 'MOD' ? buildModReason(currentFormData) : '',
+        duration_min:  w.duration_min || null,
+        tss:           w.tss || null,
+        tp_struktur:   sportarten[i]?.tp_struktur || null,
+        distanz_m:     sportarten[i]?.distanz_m   || null,
+        subtype_id:    w.subtype_id ?? null,
       });
       return acc;
     }, []);
