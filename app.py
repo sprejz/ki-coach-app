@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.79"
+APP_VERSION = "2.6.80"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -464,7 +464,7 @@ async def _fetch_tp_races(existing_races: list) -> Optional[list]:
         return _tp_events_cache["races"]
     try:
         today = date.today()
-        end   = (today + timedelta(days=548)).isoformat()  # ~18 months
+        end   = (today + timedelta(days=89)).isoformat()  # max 90 days per TP limit
         raw   = await call_tp_mcp("tp_get_events", {"start_date": today.isoformat(), "end_date": end})
         events = raw.get("events", []) if isinstance(raw, dict) else (raw if isinstance(raw, list) else [])
         if not events:
@@ -2289,7 +2289,7 @@ async def debug_tp_events():
     if not os.environ.get("TP_MCP_URL"):
         return {"error": "TP_MCP_URL not set"}
     today = date.today()
-    end   = (today + timedelta(days=548)).isoformat()
+    end   = (today + timedelta(days=89)).isoformat()
     try:
         raw = await call_tp_mcp("tp_get_events", {"start_date": today.isoformat(), "end_date": end})
         return {"raw_type": type(raw).__name__, "raw": raw}
