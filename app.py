@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.73"
+APP_VERSION = "2.6.74"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -75,15 +75,27 @@ def _extract_json(raw: str):
     if raw.startswith("```"):
         lines = raw.split("\n")
         raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:]).strip()
-    # Direkt parsen
+    # Direkt parsen (strikt)
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
         pass
-    # JSON-Array oder -Objekt per Regex suchen
-    m = re.search(r'(\[[\s\S]*\]|\{[\s\S]*\})', raw)
+    # Ersten vollständigen JSON-Block per Decoder extrahieren (robust gegen "Extra data")
+    try:
+        decoder = json.JSONDecoder()
+        obj, _ = decoder.raw_decode(raw)
+        return obj
+    except json.JSONDecodeError:
+        pass
+    # Fallback: erstes {...} oder [...] per Regex
+    m = re.search(r'(\{[\s\S]*\}|\[[\s\S]*\])', raw)
     if m:
-        return json.loads(m.group(1))
+        try:
+            decoder = json.JSONDecoder()
+            obj, _ = decoder.raw_decode(m.group(1))
+            return obj
+        except json.JSONDecodeError:
+            pass
     raise ValueError(f"Kein JSON gefunden: {raw[:200]}")
 
 
@@ -736,11 +748,7 @@ def call_claude(system: str, user_msg: str) -> dict:
         messages=[{"role": "user", "content": user_msg}],
     )
     raw = msg.content[0].text.strip()
-    if raw.startswith("```"):
-        lines = raw.split("\n")
-        inner = lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
-        raw = "\n".join(inner)
-    return json.loads(raw)
+    return _extract_json(raw)
 
 
 def call_claude_tp_mcp(user_content: str) -> str:
