@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.72"
+APP_VERSION = "2.6.73"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -731,7 +731,7 @@ def call_claude(system: str, user_msg: str) -> dict:
     c = anthropic.Anthropic(api_key=key)
     msg = c.messages.create(
         model="claude-haiku-4-5-20251001",
-        max_tokens=1500,
+        max_tokens=3000,
         system=system,
         messages=[{"role": "user", "content": user_msg}],
     )
