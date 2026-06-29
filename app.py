@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.76"
+APP_VERSION = "2.6.77"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -410,6 +410,70 @@ def next_a_race(athlete: dict) -> Optional[dict]:
         if r.get("priority") == "A" and date.fromisoformat(r["date"]) >= today
     ]
     return min(candidates, key=lambda r: r["date"]) if candidates else None
+
+
+# ── TP events cache ───────────────────────────────────────────────────────────
+
+_tp_events_cache: dict = {"ts": 0.0, "races": None}
+_TP_EVENTS_TTL = 900  # 15 min
+
+
+def _normalize_tp_events(events: list, existing_races: list) -> list:
+    """Map TP events to internal race format, preserving goals from athlete.json by name."""
+    goals_by_name = {r.get("name", "").strip().lower(): r for r in existing_races}
+    today = date.today().isoformat()
+    result = []
+    for e in events:
+        ev_date = (e.get("eventDate") or "")[:10]
+        if not ev_date or ev_date < today:
+            continue
+        name = (e.get("name") or "").strip()
+        tp_priority = e.get("atpPriority")
+        existing = goals_by_name.get(name.lower(), {})
+        priority = tp_priority if tp_priority in ("A", "B", "C") else existing.get("priority", "B")
+        result.append({
+            "name":       name,
+            "date":       ev_date,
+            "priority":   priority,
+            "distance":   existing.get("distance", ""),
+            "goal_total": existing.get("goal_total"),
+            "goal_swim":  existing.get("goal_swim"),
+            "goal_bike":  existing.get("goal_bike"),
+            "goal_run":   existing.get("goal_run"),
+            "tp_event_id": e.get("id"),
+        })
+    result.sort(key=lambda r: r["date"])
+    return result
+
+
+async def load_athlete_merged() -> dict:
+    """load_athlete() + TP events merged in (cached)."""
+    athlete = load_athlete()
+    tp_races = await _fetch_tp_races(athlete.get("races", []))
+    if tp_races is not None:
+        athlete["races"] = tp_races
+    return athlete
+
+
+async def _fetch_tp_races(existing_races: list) -> Optional[list]:
+    import time as _time
+    if not os.environ.get("TP_MCP_URL"):
+        return None
+    now = _time.monotonic()
+    if _tp_events_cache["races"] is not None and now - _tp_events_cache["ts"] < _TP_EVENTS_TTL:
+        return _tp_events_cache["races"]
+    try:
+        today = date.today()
+        end   = (today + timedelta(days=548)).isoformat()  # ~18 months
+        raw   = await call_tp_mcp("tp_get_events", {"start_date": today.isoformat(), "end_date": end})
+        events = raw.get("events", []) if isinstance(raw, dict) else (raw if isinstance(raw, list) else [])
+        races  = _normalize_tp_events(events, existing_races)
+        _tp_events_cache.update({"ts": now, "races": races})
+        logger.info("_fetch_tp_races: %d events loaded", len(races))
+        return races
+    except Exception as e:
+        logger.warning("_fetch_tp_races failed: %s", e)
+        return None
 
 
 # ── weather ───────────────────────────────────────────────────────────────────
@@ -895,7 +959,7 @@ async def manifest_json():
 
 @app.get("/api/athlete")
 async def get_athlete():
-    return load_athlete()
+    return await load_athlete_merged()
 
 
 @app.post("/api/athlete/update")
@@ -1489,7 +1553,7 @@ async def tp_apply(request: Request):
 @app.post("/api/check-abend")
 async def check_abend(request: Request):
     data = await request.json()
-    athlete = load_athlete()
+    athlete = await load_athlete_merged()
     baseline = load_baseline()
 
     weather = None
@@ -1581,7 +1645,7 @@ async def check_morgen(
     weather_data: str = Form(""),
     csv_file: Optional[UploadFile] = File(None),
 ):
-    athlete = load_athlete()
+    athlete = await load_athlete_merged()
     baseline = load_baseline()
     system = build_system_prompt(athlete, baseline)
 
