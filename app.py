@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.81"
+APP_VERSION = "2.6.82"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -900,7 +900,7 @@ async def call_tp_mcp(tool_name: str, arguments: dict):
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse(
+    resp = templates.TemplateResponse(
         request=request,
         name="index.html",
         context={
@@ -910,6 +910,10 @@ async def index(request: Request):
             "version": APP_VERSION,
         },
     )
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
 
 
 @app.get("/api/version")
