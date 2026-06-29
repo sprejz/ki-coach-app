@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.78"
+APP_VERSION = "2.6.79"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -2281,3 +2281,17 @@ async def backfill_weather(days: int = 30):
                 updated, skipped, errors, days)
     return JSONResponse({"updated": updated, "skipped": skipped, "errors": errors,
                          "days_searched": days, "results": results})
+
+
+@app.get("/api/debug/tp-events")
+async def debug_tp_events():
+    """Debug: rohe TP-Events Response anzeigen."""
+    if not os.environ.get("TP_MCP_URL"):
+        return {"error": "TP_MCP_URL not set"}
+    today = date.today()
+    end   = (today + timedelta(days=548)).isoformat()
+    try:
+        raw = await call_tp_mcp("tp_get_events", {"start_date": today.isoformat(), "end_date": end})
+        return {"raw_type": type(raw).__name__, "raw": raw}
+    except Exception as e:
+        return {"error": str(e), "type": type(e).__name__}
