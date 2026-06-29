@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.77"
+APP_VERSION = "2.6.78"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -467,6 +467,9 @@ async def _fetch_tp_races(existing_races: list) -> Optional[list]:
         end   = (today + timedelta(days=548)).isoformat()  # ~18 months
         raw   = await call_tp_mcp("tp_get_events", {"start_date": today.isoformat(), "end_date": end})
         events = raw.get("events", []) if isinstance(raw, dict) else (raw if isinstance(raw, list) else [])
+        if not events:
+            logger.warning("_fetch_tp_races: TP returned 0 events — keeping athlete.json races")
+            return None
         races  = _normalize_tp_events(events, existing_races)
         _tp_events_cache.update({"ts": now, "races": races})
         logger.info("_fetch_tp_races: %d events loaded", len(races))
