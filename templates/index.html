@@ -61,8 +61,19 @@ body {
   font-size: 12px;
   font-weight: 600;
 }
-.race-strip {
+.race-strip-wrap {
+  position: relative;
   margin-top: 8px;
+}
+.race-strip-wrap::after {
+  content: '';
+  position: absolute;
+  right: 0; top: 0; bottom: 0;
+  width: 32px;
+  background: linear-gradient(to right, transparent, var(--card));
+  pointer-events: none;
+}
+.race-strip {
   display: flex;
   gap: 6px;
   overflow-x: auto;
@@ -546,6 +557,7 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 }
 .priority-a { background: rgba(239,159,39,.2); color: var(--orange); }
 .priority-b { background: rgba(136,136,136,.12); color: var(--muted); }
+.priority-c { background: rgba(100,100,100,.1); color: var(--muted); }
 .save-ok {
   text-align: center;
   margin-top: 8px;
@@ -790,7 +802,9 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
       <button id="btn-refresh" onclick="refreshAll()" title="{{ T.btn_refresh_title }}" aria-label="{{ T.btn_refresh_aria }}">↺</button>
     </div>
   </div>
-  <div class="race-strip" id="race-strip"></div>
+  <div class="race-strip-wrap">
+    <div class="race-strip" id="race-strip"></div>
+  </div>
 </header>
 
 <!-- Tabs -->
@@ -1732,15 +1746,18 @@ function fillProfileForm(a) {
 
   const list = document.getElementById('races-list');
   if (list && a.races) {
-    list.innerHTML = a.races.map(r => {
+    const tpSrc = a.races.some(r => r.tp_event_id)
+      ? `<p style="font-size:11px;color:var(--muted);margin:0 0 8px">🔄 TrainingPeaks</p>` : '';
+    list.innerHTML = tpSrc + a.races.map(r => {
       const d = new Date(r.date + 'T12:00:00').toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-      const cls = r.priority === 'A' ? 'priority-a' : 'priority-b';
+      const cls = r.priority === 'A' ? 'priority-a' : r.priority === 'C' ? 'priority-c' : 'priority-b';
       const goal = r.goal_total ? ` · Ziel ${r.goal_total}h` : '';
+      const dist = r.distance ? `${esc(r.distance)} · ` : '';
       return `<div class="race-item">
-        <span class="race-priority-badge ${cls}">${r.priority}</span>
+        <span class="race-priority-badge ${cls}">${r.priority || 'B'}</span>
         <div>
           <div style="font-size:14px;font-weight:600">${esc(r.name)}</div>
-          <div style="font-size:12px;color:var(--muted)">${d} · ${esc(r.distance || '')}${goal}</div>
+          <div style="font-size:12px;color:var(--muted)">${d} · ${dist}${goal || '—'}</div>
         </div>
       </div>`;
     }).join('');
