@@ -800,6 +800,7 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
     <div style="display:flex;align-items:center;gap:8px">
       <span class="countdown-chip" id="countdown-chip">{{ T.countdown_loading }}</span>
       <button id="btn-refresh" onclick="refreshAll()" title="{{ T.btn_refresh_title }}" aria-label="{{ T.btn_refresh_aria }}">↺</button>
+      <button id="btn-logout" onclick="doLogout()" title="Logout" aria-label="Logout" style="display:none;background:none;border:1px solid #333;border-radius:8px;color:#666;font-size:14px;padding:5px 9px;cursor:pointer;">⏻</button>
     </div>
   </div>
   <div class="race-strip-wrap">
@@ -1211,6 +1212,23 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 'use strict';
 const T = {{ T_json|safe }};
 
+// ── Auth ──────────────────────────────────────────────────────────────────────
+async function doLogout() {
+  await fetch('/api/logout', {method:'POST'});
+  window.location.href = '/login';
+}
+
+function handleUnauthorized(resp) {
+  if (resp.status === 401) { window.location.href = '/login'; return true; }
+  return false;
+}
+
+async function apiFetch(url, opts = {}) {
+  const resp = await fetch(url, opts);
+  if (handleUnauthorized(resp)) return null;
+  return resp;
+}
+
 let athlete = null;
 let currentResult = null;
 let tpWorkouts = [];
@@ -1296,8 +1314,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (el) el.textContent = 'v' + d.version;
   }).catch(() => {});
   setSplashStatus(T.loading_data);
+  // Check if PIN protection is active — show logout button if so
+  fetch('/api/version').then(r => r.json()).then(d => {
+    if (d.pin_enabled) document.getElementById('btn-logout').style.display = '';
+  }).catch(() => {});
   try {
     const r = await apiFetch('/api/athlete');
+    if (!r) return;
     athlete = await r.json();
     renderHeader();
     setSplashProgress(10);
