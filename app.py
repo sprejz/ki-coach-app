@@ -1,5 +1,4 @@
 import asyncio
-import hashlib
 import os
 import json
 import re
@@ -15,13 +14,13 @@ from typing import Optional, List
 
 import httpx
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.86"
+APP_VERSION = "2.6.87"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -364,25 +363,8 @@ SLEEP_HISTORY_FILE = BASE_DIR / "sleep_history.json"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
-# ── PIN auth ──────────────────────────────────────────────────────────────────
-
-def _pin_enabled() -> bool:
-    return bool(os.environ.get("APP_PIN", "").strip())
-
-def _session_token() -> str:
-    pin = os.environ.get("APP_PIN", "")
-    return hashlib.sha256(f"ki-coach-session:{pin}".encode()).hexdigest()
-
-_AUTH_EXEMPT = {"/login", "/api/login", "/api/version", "/manifest.json", "/favicon.ico"}
-
 @app.middleware("http")
-async def auth_middleware(request: Request, call_next):
-    if _pin_enabled() and request.url.path not in _AUTH_EXEMPT:
-        token = request.cookies.get("ki_session", "")
-        if token != _session_token():
-            if request.url.path.startswith("/api/"):
-                return JSONResponse({"detail": "Unauthorized"}, status_code=401)
-            return RedirectResponse("/login", status_code=302)
+async def no_cache_api(request: Request, call_next):
     response = await call_next(request)
     if request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
@@ -916,76 +898,6 @@ async def call_tp_mcp(tool_name: str, arguments: dict):
 
 # ── routes ────────────────────────────────────────────────────────────────────
 
-@app.get("/login", response_class=HTMLResponse)
-async def login_page():
-    return HTMLResponse(content="""<!DOCTYPE html>
-<html lang="de">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>KI Coach — Login</title>
-<style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: #0f0f13; color: #e8e8e8; font-family: -apple-system, sans-serif;
-       min-height: 100dvh; display: flex; align-items: center; justify-content: center; }
-.card { background: #1a1a24; border-radius: 16px; padding: 32px 24px; width: 320px;
-        text-align: center; }
-h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
-p  { color: #666; font-size: 14px; margin-bottom: 24px; }
-input[type=password] { width: 100%; background: #0f0f13; border: 1px solid #333;
-                        border-radius: 10px; padding: 14px 16px; font-size: 20px;
-                        color: #e8e8e8; text-align: center; letter-spacing: 6px;
-                        outline: none; margin-bottom: 16px; }
-input[type=password]:focus { border-color: #1D9E75; }
-button { width: 100%; background: #1D9E75; color: #fff; border: none; border-radius: 10px;
-         padding: 14px; font-size: 16px; font-weight: 600; cursor: pointer; }
-button:active { opacity: 0.8; }
-.err { color: #E24B4A; font-size: 14px; margin-top: 12px; min-height: 20px; }
-</style>
-</head>
-<body>
-<div class="card">
-  <h1>🏊‍♂️ KI Coach</h1>
-  <p>PIN eingeben</p>
-  <input type="password" id="pin" placeholder="••••" maxlength="12" inputmode="numeric" autofocus>
-  <button onclick="doLogin()">Einloggen</button>
-  <div class="err" id="err"></div>
-</div>
-<script>
-document.getElementById('pin').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
-async function doLogin() {
-  const pin = document.getElementById('pin').value.trim();
-  const r = await fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'},
-                                        body: JSON.stringify({pin})});
-  if (r.ok) { window.location.href = '/'; }
-  else { document.getElementById('err').textContent = 'Falscher PIN'; }
-}
-</script>
-</body>
-</html>""")
-
-
-@app.post("/api/login")
-async def api_login(request: Request):
-    if not _pin_enabled():
-        return JSONResponse({"ok": True})
-    body = await request.json()
-    entered = str(body.get("pin", "")).strip()
-    expected = os.environ.get("APP_PIN", "").strip()
-    if entered != expected:
-        return JSONResponse({"detail": "Falscher PIN"}, status_code=401)
-    resp = JSONResponse({"ok": True})
-    resp.set_cookie("ki_session", _session_token(), max_age=30*24*3600,
-                    httponly=True, samesite="lax", secure=False)
-    return resp
-
-
-@app.post("/api/logout")
-async def api_logout():
-    resp = JSONResponse({"ok": True})
-    resp.delete_cookie("ki_session")
-    return resp
-
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -1007,7 +919,7 @@ async def index(request: Request):
 
 @app.get("/api/version")
 async def api_version():
-    return {"version": APP_VERSION, "pin_enabled": _pin_enabled()}
+    return {"version": APP_VERSION}
 
 
 
