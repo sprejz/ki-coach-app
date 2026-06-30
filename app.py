@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.89"
+APP_VERSION = "2.6.90"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -212,41 +212,33 @@ async def _tp_refresh_range(athlete: dict, days: int = 7):
 def parse_fit_summary(fit_bytes: bytes) -> dict:
     """Parst eine FIT-Datei und gibt die wichtigsten Metriken als Dict zurück."""
     try:
-        from fitparse import FitFile
+        import fitdecode
     except ImportError:
         return {}
     try:
-        ff = FitFile(io.BytesIO(fit_bytes))
+        import warnings
         session = {}
         laps = []
         records_power = []
-        for msg in ff.get_messages():
-            name = msg.name
-            if name == "session":
-                for f in msg.fields:
-                    session[f.name] = f.value
-            elif name == "lap":
-                lap = {}
-                for f in msg.fields:
-                    lap[f.name] = f.value
-                laps.append(lap)
-            elif name == "record":
-                pw = None
-                for f in msg.fields:
-                    if f.name == "power":
-                        pw = f.value
-                if pw is not None:
-                    records_power.append(pw)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            with fitdecode.FitReader(io.BytesIO(fit_bytes)) as ff:
+                for frame in ff:
+                    if not isinstance(frame, fitdecode.FitDataMessage):
+                        continue
+                    name = frame.name
+                    if name == "session":
+                        for f in frame.fields:
+                            session[f.name] = f.value
+                    elif name == "lap":
+                        lap = {f.name: f.value for f in frame.fields}
+                        laps.append(lap)
+                    elif name == "record":
+                        pw = frame.get_value("power", fallback=None)
+                        if pw is not None:
+                            records_power.append(pw)
 
         summary = {}
-
-        def _s(key, unit=""):
-            v = session.get(key)
-            if v is None:
-                return None
-            if unit:
-                return f"{round(v)} {unit}"
-            return v
 
         # Dauer
         elapsed = session.get("total_elapsed_time") or session.get("total_timer_time")
@@ -261,15 +253,14 @@ def parse_fit_summary(fit_bytes: bytes) -> dict:
         # Leistung (Rad)
         avg_pw = session.get("avg_power") or session.get("average_power")
         max_pw = session.get("max_power")
-        np = session.get("normalized_power")
+        np_val = session.get("normalized_power")
         if avg_pw:
             summary["avg_power_w"] = round(avg_pw)
         if max_pw:
             summary["max_power_w"] = round(max_pw)
-        if np:
-            summary["normalized_power_w"] = round(np)
+        if np_val:
+            summary["normalized_power_w"] = round(np_val)
         elif records_power and len(records_power) > 30:
-            # NP berechnen: 30s rolling avg^4, dann MW^(1/4)
             window = 30
             rolling = []
             for i in range(window - 1, len(records_power)):
@@ -278,26 +269,33 @@ def parse_fit_summary(fit_bytes: bytes) -> dict:
             if rolling:
                 summary["normalized_power_w"] = round(statistics.mean(rolling) ** 0.25)
 
-        # Herzrate (enhanced_* für neuere Garmin-Geräte)
-        avg_hr = (session.get("avg_heart_rate") or session.get("average_heart_rate")
-                  or session.get("enhanced_avg_heart_rate"))
-        max_hr = session.get("max_heart_rate") or session.get("enhanced_max_heart_rate")
+        # Herzrate
+        avg_hr = session.get("avg_heart_rate") or session.get("average_heart_rate")
+        max_hr = session.get("max_heart_rate")
         if avg_hr:
             summary["avg_hr"] = round(avg_hr)
         if max_hr:
             summary["max_hr"] = round(max_hr)
 
-        # Kadenz (Rad oder Lauf)
+        # Kadenz (Lauf: avg_running_cadence × 2 = Schritte/min)
         avg_cad = session.get("avg_cadence") or session.get("average_cadence")
-        if avg_cad:
+        avg_run_cad = session.get("avg_running_cadence")
+        if avg_run_cad:
+            summary["avg_kadenz"] = round(avg_run_cad * 2)
+        elif avg_cad:
             summary["avg_kadenz"] = round(avg_cad)
 
-        # Pace (Lauf) — enhanced_avg_speed für neuere Garmin-Firmware
+        # Pace (Lauf) — enhanced_avg_speed zuerst
         avg_speed = (session.get("enhanced_avg_speed") or session.get("avg_speed")
                      or session.get("average_speed"))
         if avg_speed and avg_speed > 0:
             pace_sec = 1000 / avg_speed
             summary["avg_pace_min_km"] = f"{int(pace_sec//60)}:{int(pace_sec%60):02d}"
+
+        # Kalorien
+        kcal = session.get("total_calories")
+        if kcal:
+            summary["kcal"] = round(kcal)
 
         # TSS / Work
         tss = session.get("training_stress_score") or session.get("total_training_effect")
@@ -329,18 +327,16 @@ def parse_fit_summary(fit_bytes: bytes) -> dict:
             except Exception:
                 pass
 
-        # Lap-Splits (max 10)
+        # Lap-Splits (alle, max 25)
         if laps:
             lap_list = []
-            for lap in laps[:20]:
+            for lap in laps[:25]:
                 entry = {}
                 t = lap.get("total_elapsed_time") or lap.get("total_timer_time")
                 d = lap.get("total_distance")
                 p = lap.get("avg_power") or lap.get("average_power")
-                h = (lap.get("avg_heart_rate") or lap.get("average_heart_rate")
-                     or lap.get("enhanced_avg_heart_rate"))
-                sp = (lap.get("enhanced_avg_speed") or lap.get("avg_speed")
-                      or lap.get("average_speed"))
+                h = lap.get("avg_heart_rate") or lap.get("average_heart_rate")
+                sp = lap.get("enhanced_avg_speed") or lap.get("avg_speed") or lap.get("average_speed")
                 if t:
                     entry["t_min"] = round(t / 60, 1)
                 if d:
