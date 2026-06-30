@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.88"
+APP_VERSION = "2.6.89"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -278,9 +278,10 @@ def parse_fit_summary(fit_bytes: bytes) -> dict:
             if rolling:
                 summary["normalized_power_w"] = round(statistics.mean(rolling) ** 0.25)
 
-        # Herzrate
-        avg_hr = session.get("avg_heart_rate") or session.get("average_heart_rate")
-        max_hr = session.get("max_heart_rate")
+        # Herzrate (enhanced_* für neuere Garmin-Geräte)
+        avg_hr = (session.get("avg_heart_rate") or session.get("average_heart_rate")
+                  or session.get("enhanced_avg_heart_rate"))
+        max_hr = session.get("max_heart_rate") or session.get("enhanced_max_heart_rate")
         if avg_hr:
             summary["avg_hr"] = round(avg_hr)
         if max_hr:
@@ -291,8 +292,9 @@ def parse_fit_summary(fit_bytes: bytes) -> dict:
         if avg_cad:
             summary["avg_kadenz"] = round(avg_cad)
 
-        # Pace (Lauf)
-        avg_speed = session.get("avg_speed") or session.get("average_speed")
+        # Pace (Lauf) — enhanced_avg_speed für neuere Garmin-Firmware
+        avg_speed = (session.get("enhanced_avg_speed") or session.get("avg_speed")
+                     or session.get("average_speed"))
         if avg_speed and avg_speed > 0:
             pace_sec = 1000 / avg_speed
             summary["avg_pace_min_km"] = f"{int(pace_sec//60)}:{int(pace_sec%60):02d}"
@@ -335,8 +337,10 @@ def parse_fit_summary(fit_bytes: bytes) -> dict:
                 t = lap.get("total_elapsed_time") or lap.get("total_timer_time")
                 d = lap.get("total_distance")
                 p = lap.get("avg_power") or lap.get("average_power")
-                h = lap.get("avg_heart_rate") or lap.get("average_heart_rate")
-                sp = lap.get("avg_speed") or lap.get("average_speed")
+                h = (lap.get("avg_heart_rate") or lap.get("average_heart_rate")
+                     or lap.get("enhanced_avg_heart_rate"))
+                sp = (lap.get("enhanced_avg_speed") or lap.get("avg_speed")
+                      or lap.get("average_speed"))
                 if t:
                     entry["t_min"] = round(t / 60, 1)
                 if d:
@@ -2083,6 +2087,17 @@ async def workout_analyze_status(job_id: str):
     if not job:
         raise HTTPException(404, "Job nicht gefunden")
     return JSONResponse(job, headers=_NO_CACHE)
+
+
+@app.post("/api/debug/fit-parse")
+async def debug_fit_parse(fit_file: UploadFile = File(...)):
+    """Gibt das parse_fit_summary-Ergebnis zurück — zum Debuggen der FIT-Verarbeitung."""
+    try:
+        fit_bytes = await fit_file.read()
+        result = parse_fit_summary(fit_bytes)
+        return JSONResponse({"parsed_keys": list(result.keys()), "data": result}, headers=_NO_CACHE)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500, headers=_NO_CACHE)
 
 
 @app.post("/api/admin/backfill-weather")
