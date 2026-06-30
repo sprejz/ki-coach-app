@@ -293,10 +293,14 @@ TRANSLATIONS = {
             "Athlet: {name} | FTP {ftp}W | Laufschwelle {run_threshold}/km | CSS {css}/100m\n"
             "A-Rennen: {race_name} am {race_date}, Zielzeit {race_goal}h\n"
             "Sport: {sport} | Titel: \"{title}\" | Datum: {date}\n\n"
-            "War diese Einheit gut ausgeführt? Direkt, ehrlich, ohne Floskeln.\n\n"
+            "Bewerte die Ausführung anhand der tatsächlichen Messwerte (Pace, HF, Splits). "
+            "Wenn die Einheit gut war, sag es klar. Erfinde keine Kritikpunkte. "
+            "Wenn etwas konkret nicht gestimmt hat (Pace zu schnell/langsam, HF zu hoch, "
+            "Intervall abgebrochen), nenn es mit den echten Zahlen. Direkt, ohne Floskeln.\n\n"
             "Antworte NUR als JSON:\n"
             '{{"bewertung":"gut|ok|verbesserungsbedarf",'
-            '"urteil":"3-4 direkte Sätze: Wie war die Einheit wirklich? Pace/HF/Leistung im Verhältnis zur Schwelle?",'
+            '"urteil":"3-4 Sätze: Konkrete Zahlen nennen (Pace, HF, Splits) und mit Schwelle vergleichen. '
+            'Wenn gut — sag gut. Keine erfundenen Wermutstropfen.",'
             '"naechster_schritt":"Was soll {name} morgen/übermorgen konkret tun?"}}'
         ),
         # TP op labels
