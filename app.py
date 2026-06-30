@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.87"
+APP_VERSION = "2.6.88"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -330,7 +330,7 @@ def parse_fit_summary(fit_bytes: bytes) -> dict:
         # Lap-Splits (max 10)
         if laps:
             lap_list = []
-            for lap in laps[:10]:
+            for lap in laps[:20]:
                 entry = {}
                 t = lap.get("total_elapsed_time") or lap.get("total_timer_time")
                 d = lap.get("total_distance")
@@ -1877,8 +1877,8 @@ def _run_analysis_job_fast(job_id: str, key: str, prompt: str):
     try:
         c = anthropic.Anthropic(api_key=key)
         msg = c.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=800,
+            model="claude-sonnet-4-6",
+            max_tokens=1500,
             system="Du bist ein erfahrener Triathlon-Coach. Antworte ausschließlich mit gültigem JSON ohne Markdown.",
             messages=[{"role": "user", "content": prompt}],
         )
@@ -1938,7 +1938,8 @@ def _build_analysis_prompt(athlete: dict, a_race: dict, workout_id: str, sport: 
                 lines.append(f"- {label}: {v}")
         base += "\n".join(lines)
     if fit_data:
-        lines = ["\n\n--- FIT-DATEI (lokale Ist-Daten) ---"]
+        lines = ["\n\n--- FIT-DATEI (TATSÄCHLICHE IST-DATEN — PRIMÄRE QUELLE) ---",
+                 "WICHTIG: Diese Werte sind die realen Messdaten dieser Einheit. Nutze sie als primäre Grundlage. Sage NICHT, dass keine Ist-Daten vorliegen."]
         label_map = {
             "dauer_min": "Dauer", "distanz_km": "Distanz", "avg_power_w": "Ø Leistung",
             "max_power_w": "Max Leistung", "normalized_power_w": "NP",
