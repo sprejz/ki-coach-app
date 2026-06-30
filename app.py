@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.93"
+APP_VERSION = "2.6.94"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1922,20 +1922,36 @@ def _build_analysis_prompt(athlete: dict, a_race: dict, workout_id: str, sport: 
             f"Regen {weather_data.get('rain_prob',0)}%."
         )
     if tp_data:
-        lines = ["\n\n--- TRAININGPEAKS IST-DATEN ---"]
+        # Ist-Werte erkennen: tssActual, HF, Pace, Distanz vorhanden?
+        tp_actual_keys = ["tssActual", "averageHeartRateInBeatsPerMinute",
+                          "averagePaceInMinutesPerKilometer", "averageWatts",
+                          "distanceInMeters", "totalTime"]
+        has_actual = any(tp_data.get(k) for k in tp_actual_keys)
+        header = (
+            "\n\n--- TRAININGPEAKS IST-DATEN (tatsächlich absolviert — als primäre Datenquelle nutzen) ---"
+            if has_actual else
+            "\n\n--- TRAININGPEAKS PLAN-DATEN (keine Ist-Werte — Einheit trotzdem bewerten anhand Plan + Kontext) ---"
+        )
+        lines = [header]
         tp_label_map = {
-            "totalTime": "Dauer (s)", "totalTimePlanned": "Dauer geplant (s)",
-            "distanceInMeters": "Distanz (m)", "tssActual": "TSS (Ist)", "tssPlanned": "TSS (Plan)",
-            "averageHeartRateInBeatsPerMinute": "Ø HF", "maxHeartRateInBeatsPerMinute": "Max HF",
-            "averageWatts": "Ø Leistung (W)", "normalizedPower": "NP (W)",
-            "averagePaceInMinutesPerKilometer": "Ø Pace (min/km)",
+            "totalTime": "Dauer Ist (s)", "totalTimePlanned": "Dauer Plan (s)",
+            "distanceInMeters": "Distanz Ist (m)", "distancePlanned": "Distanz Plan (m)",
+            "tssActual": "TSS Ist", "tssPlanned": "TSS Plan",
+            "averageHeartRateInBeatsPerMinute": "Ø HF Ist",
+            "maxHeartRateInBeatsPerMinute": "Max HF Ist",
+            "averageWatts": "Ø Leistung Ist (W)", "normalizedPower": "NP Ist (W)",
+            "averagePaceInMinutesPerKilometer": "Ø Pace Ist (min/km)",
             "totalWork": "Gesamtarbeit (kJ)",
+            "perceivedExertion": "RPE (1–10)",
             "coachComments": "Coach-Notizen", "description": "Beschreibung",
         }
         for k, label in tp_label_map.items():
             v = tp_data.get(k)
             if v is not None and v != "":
                 lines.append(f"- {label}: {v}")
+        if not has_actual:
+            lines.append("Hinweis: Bewerte diese Einheit trotzdem — nutze Workout-Beschreibung, "
+                         "geplante Belastung, Wetter und Athletenprofil für eine sinnvolle Einschätzung.")
         base += "\n".join(lines)
     if fit_data:
         lines = ["\n\n--- FIT-DATEI (TATSÄCHLICHE IST-DATEN — PRIMÄRE QUELLE) ---",
