@@ -20,7 +20,7 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.94"
+APP_VERSION = "2.6.95"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1378,9 +1378,16 @@ async def tp_apply(request: Request):
         is_swim       = any(x in (op_sport or "").lower() for x in ("swim", "schwimm"))
         user_override = op.get("user_override", False)
 
+        def _wx_line(wx: dict) -> str:
+            return (f"Wetter: {wx.get('description','?')}, "
+                    f"{wx.get('temp_min','?')}–{wx.get('temp_max','?')}°C, "
+                    f"Regen {wx.get('rain_prob', 0)}%")
+
         if user_override:
             orig_desc = op.get("orig_description", "")
             note = "Athlete override – eigenes Gefühl"
+            if weather_for_apply and _is_weather_sport(op_sport) and not _is_indoor(orig_title):
+                note = f"{note}\n{_wx_line(weather_for_apply)}"
             desc = f"{note}\n\n{orig_desc}".strip() if orig_desc else note
             try:
                 await call_tp_mcp("tp_update_workout", {"workout_id": workout_id,
@@ -1398,12 +1405,11 @@ async def tp_apply(request: Request):
                 continue
             is_hot  = weather_for_apply.get("is_hot")
             is_cold = weather_for_apply.get("is_cold")
-            _td_desc = weather_for_apply.get("description", "")
-            _tr      = weather_for_apply.get("rain_prob", 0)
-            _tmin    = weather_for_apply.get("temp_min", "?")
-            _tmax    = weather_for_apply.get("temp_max", "?")
-            wx_desc  = f"Wetter {_td_desc}, {_tmin}–{_tmax}°C, Regen {_tr}%"
-            go_args: dict = {"workout_id": workout_id, "description": wx_desc}
+            wx_line  = _wx_line(weather_for_apply)
+            orig_desc = op.get("orig_description", "")
+            # Wetter voranstellen, Originalbeschreibung erhalten
+            new_desc = f"{wx_line}\n\n{orig_desc}".strip() if orig_desc else wx_line
+            go_args: dict = {"workout_id": workout_id, "description": new_desc}
             if is_hot:
                 go_args["title"] = f"♨️ {base_title}"
             elif is_cold:
@@ -1411,7 +1417,7 @@ async def tp_apply(request: Request):
             try:
                 await call_tp_mcp("tp_update_workout", go_args)
                 actions.append({"workout_id": workout_id, "badge": "GO", "status": "ok",
-                                "detail": go_args.get("title", base_title), "wx": wx_desc})
+                                "detail": go_args.get("title", base_title), "wx": wx_line})
             except Exception as e:
                 logger.warning("tp_apply GO: weather update failed for %s: %s", workout_id, e)
             continue

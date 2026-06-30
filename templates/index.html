@@ -2768,8 +2768,9 @@ async function applyToTP() {
       const origBadge   = sportarten[i]?.badge || 'GO';
       const isOverride  = !!userOverrides[i];
       const badge       = isOverride ? 'GO' : origBadge;
-      // GO mit extremem Wetter ebenfalls schicken — Backend setzt Symbol im TP-Titel
-      if (badge !== 'GO' || _wxExtreme || isOverride) acc.push({
+      // GO-Workouts: immer schicken wenn Outdoor-Wettersportart (Lauf/Rad/Golf) — Backend schreibt Wetter in Beschreibung
+      const _isWeatherSport = s => /lauf|run|golf|bike|rad|cycl/i.test(s || '');
+      if (badge !== 'GO' || _wxExtreme || isOverride || _isWeatherSport(w.sport)) acc.push({
         workout_id:    String(wid),
         orig_title:    w.title || w.sport || '',
         orig_description: w.description || '',
