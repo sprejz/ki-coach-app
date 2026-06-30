@@ -1655,7 +1655,7 @@ function buildResult(data, fd, type) {
         ${_tpWorks.map(w => {
           const _swim = /swim|schwimm/i.test(w.sport || '');
           const wxIcon = (!_swim && _wx?.is_cold) ? '❄️ ' : '';
-          const displayTitle = wxIcon + esc(w.title || w.sport || '?');
+          const displayTitle = wxIcon + esc((w.title || w.sport || '?').replace(/^[🔥❄️☀️♨️↩️❌]\s*/u, ''));
           return `<div class="tp-workout-item">
             <span class="tp-sport-badge">${esc(w.sport || '?')}</span>
             <span style="font-size:13px">${displayTitle}${w.duration_min ? ` · ${w.duration_min}min` : ''}${w.tss ? ` · ${w.tss} TSS` : ''}</span>
@@ -2477,10 +2477,11 @@ async function renderAnalyseSection() {
         const i = idx++;
         const _wSwim = /swim|schwimm/i.test(w.sport || '');
         const wxIcon = (!_wSwim && day.weather?.is_cold) ? '❄️ ' : '';
+        const cleanTitle = (w.title || w.sport || 'Workout').replace(/^[🔥❄️☀️♨️↩️❌]\s*/u, '');
         html += `
           <div id="analyse-item-${i}" style="margin-bottom:10px">
             <div style="font-size:13px;color:var(--text);margin-bottom:6px">
-              ${wxIcon}${esc(w.title || w.sport || 'Workout')}
+              ${wxIcon}${esc(cleanTitle)}
               ${w.duration_min ? `<span style="font-size:11px;color:var(--muted);margin-left:6px">${w.duration_min} min</span>` : ''}
             </div>
             <div style="display:flex;align-items:center;gap:6px">
