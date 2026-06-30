@@ -1654,7 +1654,7 @@ function buildResult(data, fd, type) {
       <div id="tp-result-list">
         ${_tpWorks.map(w => {
           const _swim = /swim|schwimm/i.test(w.sport || '');
-          const wxIcon = (!_swim && _wx?.is_hot) ? '🔥 ' : (!_swim && _wx?.is_cold) ? '❄️ ' : '';
+          const wxIcon = (!_swim && _wx?.is_cold) ? '❄️ ' : '';
           const displayTitle = wxIcon + esc(w.title || w.sport || '?');
           return `<div class="tp-workout-item">
             <span class="tp-sport-badge">${esc(w.sport || '?')}</span>
@@ -2476,7 +2476,7 @@ async function renderAnalyseSection() {
       visible.forEach(w => {
         const i = idx++;
         const _wSwim = /swim|schwimm/i.test(w.sport || '');
-        const wxIcon = (!_wSwim && day.weather?.is_hot) ? '🔥 ' : (!_wSwim && day.weather?.is_cold) ? '❄️ ' : '';
+        const wxIcon = (!_wSwim && day.weather?.is_cold) ? '❄️ ' : '';
         html += `
           <div id="analyse-item-${i}" style="margin-bottom:10px">
             <div style="font-size:13px;color:var(--text);margin-bottom:6px">
