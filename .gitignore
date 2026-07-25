@@ -1,1 +1,11 @@
-.venv
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# macOS
+.DS_Store
+
+# Logs / lokale Artefakte
+railway.log.json
+*.log

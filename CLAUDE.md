@@ -1,4 +1,4 @@
-# KI Coach App — v2.6.96
+# KI Coach App — v2.6.97
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -30,7 +30,7 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.6.96)
+├── CLAUDE.md            ← diese Datei (v2.6.97)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
 ├── translations.py      ← UI-Texte + alle Claude-Prompts (de/en)
 ├── templates/
@@ -331,6 +331,9 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
 
+### v2.6.97 — Repo-Hygiene
+`.gitignore` erweitert (`__pycache__/`, `*.py[cod]`, `.DS_Store`, `railway.log.json`, `*.log`), eingecheckte `.pyc` aus dem Index entfernt.
+
 ### v2.6.96 — Doku
 CLAUDE.md aus Code + Commit-History neu aufgebaut (stand noch auf v2.1.0). Korrigiert: Modelle (Haiku für Checks, Sonnet nur für FIT-Analyse), Wetter-Provider (wttr.in statt Open-Meteo für Prognose), Hitze 28°C / Kälte <0°C, 7 statt 3 Tabs, Rennen aus TP-Events. Entfernt: die starren Schmerzschwellen, die seit v2.4.32 nicht mehr im Prompt stehen.
 
@@ -351,5 +354,4 @@ MFP MCP auf Railway (`MFP_USERNAME`/`MFP_PASSWORD`), Kalorienbilanz im Abend-Che
 ### Technische Altlasten
 - `build_pain_rules()` gibt `""` zurück → `pain_thresholds` in `athlete.json` ist ungenutzt
 - `_run_analysis_job()` (MCP-Pfad der Analyse) ist definiert, wird aber nie aufgerufen — nur `_run_analysis_job_fast()` läuft
-- `CLAUDE_14.md` ist eingecheckt, aber veraltet (Vorgängerspec); `railway.log.json` liegt untracked im Repo
-- `.gitignore` enthält nur `.venv` — `__pycache__/*.pyc` sind eingecheckt und tauchen bei jedem Lauf als Änderung auf, `.DS_Store` ebenfalls nicht ignoriert
+- `CLAUDE_14.md` ist eingecheckt, aber veraltet (Vorgängerspec)
