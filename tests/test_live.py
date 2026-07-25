@@ -30,9 +30,8 @@ if not os.environ.get("ANTHROPIC_API_KEY"):
     print("Den Key findest du in Railway unter Variables.")
     sys.exit(2)
 
-from agents import head_coach, medic, weather  # noqa: E402
 from agents.base import USAGE, AgentError, kosten  # noqa: E402
-from orchestrator import normalize_sport  # noqa: E402
+from orchestrator import run_check  # noqa: E402
 from tests import fixtures as fx  # noqa: E402
 
 ATHLET = {
@@ -70,19 +69,18 @@ async def lauf_fall(fall: dict) -> dict:
     name = fall["name"]
     print(f"\n{'═' * 72}\n{name}\n{'═' * 72}")
 
-    sportarten = list(dict.fromkeys(normalize_sport(w["sport"]) for w in fall["tp"]))
-    titel = [w["title"] for w in fall["tp"]]
     t0 = time.monotonic()
-
-    med, wet = await asyncio.gather(
-        asyncio.to_thread(medic.run, koerper=fall["koerper"], sportarten=sportarten,
-                          sleep=fall.get("sleep"), baseline=None),
-        asyncio.to_thread(weather.run, weather=fall["weather"], sportarten=sportarten,
-                          titel=titel, swim_min_c=15),
+    hc = await run_check(
+        athlete=ATHLET, a_race=A_RACE, baseline=None,
+        koerper=fall["koerper"], weather_data=fall["weather"],
+        tp_workouts=fall["tp"], sleep=fall.get("sleep"),
+        tag="Sonntag, 26.07.2026",
     )
-    t_spez = time.monotonic() - t0
+    dauer = time.monotonic() - t0
+    med = hc["_agents"]["medic"]
+    wet = hc["_agents"]["wetter"]
 
-    print(f"\n{GRAU}── Sportmediziner ({t_spez:.1f}s parallel){RESET}")
+    print(f"\n{GRAU}── Sportmediziner{RESET}")
     print(f"   Gesamturteil: {med['gesamturteil']}")
     if med.get("leitsymptom"):
         print(f"   Leitsymptom:  {med['leitsymptom']}")
@@ -98,20 +96,19 @@ async def lauf_fall(fall: dict) -> dict:
         extra = " ".join(x for x in [s.get("anpassung", ""), s.get("zeitfenster", "")] if x)
         print(f"   {s['sport']:<11} {s['empfehlung']:<15} {kuerze(extra, 130)}")
 
-    t1 = time.monotonic()
-    hc = await asyncio.to_thread(
-        head_coach.run, athlete=ATHLET, a_race=A_RACE, medic=med, wetter=wet,
-        tp_workouts=fall["tp"], tag="Sonntag, 26.07.2026",
-    )
-    t_hc = time.monotonic() - t1
-
-    print(f"\n{GRAU}── Chefcoach ({t_hc:.1f}s){RESET}")
+    print(f"\n{GRAU}── Chefcoach + Architekt ({dauer:.1f}s gesamt){RESET}")
     print(f"   Status: {hc['status']} — {hc['status_text']}")
     for s in hc["sportarten"]:
         farbe = {"GO": GRUEN, "MOD": GELB, "SKIP": ROT}.get(s["badge"], "")
-        print(f"\n   {farbe}[{s['badge']}]{RESET} {s['sport']}")
+        quelle = "Architekt" if s["badge"] == "MOD" else "Original übernommen"
+        print(f"\n   {farbe}[{s['badge']}]{RESET} {s['sport']}  {GRAU}({quelle}){RESET}")
         print(f"      Hinweis:      {kuerze(s['details'], 200)}")
-        print(f"      Beschreibung: {kuerze(s['beschreibung'], 260)}")
+        if s.get("_begruendung"):
+            print(f"      Begründung:   {kuerze(s['_begruendung'], 160)}")
+        if s["beschreibung"]:
+            print(f"      Beschreibung: {kuerze(s['beschreibung'], 300)}")
+        if s.get("ernaehrung"):
+            print(f"      Ernährung:    {kuerze(s['ernaehrung'], 140)}")
         if s.get("tp_struktur"):
             n = len(s["tp_struktur"].get("steps", []))
             print(f"      TP-Struktur:  {n} Blöcke ({s['tp_struktur'].get('primaryIntensityMetric')})")
@@ -153,7 +150,7 @@ async def lauf_fall(fall: dict) -> dict:
         print(f"\n   {GRUEN}✓ Alle Erwartungen erfüllt{RESET}")
 
     return {"name": name, "probleme": probleme,
-            "dauer": t_spez + t_hc, "badges": [s["badge"] for s in hc["sportarten"]]}
+            "dauer": dauer, "badges": [s["badge"] for s in hc["sportarten"]]}
 
 
 async def main():

@@ -1,9 +1,9 @@
 """Chefcoach — trifft die Trainingsentscheidung aus den Spezialisten-Urteilen.
 
-Das Ausgabeschema spiegelt exakt den Vertrag, den templates/index.html liest
-(status, status_text, sportarten[].{sport,badge,details,beschreibung,ernaehrung},
-autosleep_summary, wetter_hinweis, prep) plus die Felder, die applyToTP an
-/api/tp/apply weitergibt (tp_struktur, distanz_m).
+Seit Stufe 3 formuliert der Chefcoach die Einheiten nicht mehr aus. Er
+entscheidet (GO/MOD/SKIP) und übergibt bei MOD einen strukturierten Auftrag an
+den Workout-Architekten. Den Vertrag fürs Frontend baut der Orchestrator
+daraus zusammen.
 """
 import json
 import logging
@@ -13,42 +13,24 @@ from .base import HAIKU, call_agent, load_prompt
 
 logger = logging.getLogger(__name__)
 
-# tp_struktur: bewusst nicht rekursiv aufgebaut (Structured Outputs unterstützen
-# keine rekursiven Schemas). Ein Wiederholungsblock enthält nur Einzelschritte.
-_STEP = {
+_ANPASSUNG = {
     "type": "object",
+    "description": "Was am Workout geändert werden soll. Nur bei MOD gefüllt, sonst überall null/false.",
     "properties": {
-        "name": {"type": "string"},
-        "duration_seconds": {"type": "integer"},
-        "intensity_min": {"type": "integer", "description": "Prozent der Schwelle"},
-        "intensity_max": {"type": "integer", "description": "Prozent der Schwelle"},
-        "intensityClass": {"type": "string", "enum": ["warmUp", "active", "rest", "coolDown"]},
-    },
-    "required": ["name", "duration_seconds", "intensity_min", "intensity_max", "intensityClass"],
-    "additionalProperties": False,
-}
-
-_REPETITION = {
-    "type": "object",
-    "properties": {
-        "type": {"type": "string", "const": "repetition"},
-        "reps": {"type": "integer"},
-        "steps": {"type": "array", "items": _STEP},
-    },
-    "required": ["type", "reps", "steps"],
-    "additionalProperties": False,
-}
-
-_TP_STRUKTUR = {
-    "type": "object",
-    "properties": {
-        "steps": {"type": "array", "items": {"anyOf": [_STEP, _REPETITION]}},
-        "primaryIntensityMetric": {
-            "type": "string",
-            "enum": ["percentOfFtp", "percentOfThresholdPace"],
+        "dauer_min": {
+            "anyOf": [{"type": "integer"}, {"type": "null"}],
+            "description": "Zieldauer in Minuten, oder null wenn unverändert.",
         },
+        "zone": {"type": "string", "description": "Zielzone/Intensität, z.B. 'Z1–Z2'. Leer wenn unverändert."},
+        "kein_tempo": {"type": "boolean", "description": "Keine Intervalle, keine Schwellenarbeit."},
+        "indoor": {"type": "boolean", "description": "Nach drinnen verlegen."},
+        "sportwechsel": {
+            "anyOf": [{"type": "string"}, {"type": "null"}],
+            "description": "Andere Sportart, z.B. 'Aquajogging'. Null wenn keine.",
+        },
+        "hinweis": {"type": "string", "description": "Zusatzauflage für den Architekten. Leer wenn keine."},
     },
-    "required": ["steps", "primaryIntensityMetric"],
+    "required": ["dauer_min", "zone", "kein_tempo", "indoor", "sportwechsel", "hinweis"],
     "additionalProperties": False,
 }
 
@@ -66,19 +48,13 @@ SCHEMA = {
                     "sport": {"type": "string"},
                     "badge": {"type": "string", "enum": ["GO", "MOD", "SKIP"]},
                     "details": {"type": "string", "description": "1–2 Sätze Coach-Hinweis für die App."},
-                    "beschreibung": {"type": "string", "description": "Text für das TrainingPeaks-Beschreibungsfeld."},
-                    "ernaehrung": {"type": "string"},
-                    "tp_struktur": {
-                        "anyOf": [_TP_STRUKTUR, {"type": "null"}],
-                        "description": "Nur bei MOD mit echten Intervallblöcken, sonst null.",
+                    "begruendung": {
+                        "type": "string",
+                        "description": "Warum diese Entscheidung, mit konkretem Wert. Bei GO kurz oder leer.",
                     },
-                    "distanz_m": {
-                        "anyOf": [{"type": "integer"}, {"type": "null"}],
-                        "description": "Gesamtdistanz in Metern, nur bei Schwimm-MOD, sonst null.",
-                    },
+                    "anpassung": _ANPASSUNG,
                 },
-                "required": ["sport", "badge", "details", "beschreibung", "ernaehrung",
-                             "tp_struktur", "distanz_m"],
+                "required": ["sport", "badge", "details", "begruendung", "anpassung"],
                 "additionalProperties": False,
             },
         },
@@ -106,22 +82,8 @@ def _athlete_block(athlete: dict, a_race: Optional[dict]) -> str:
             f"- A-Rennen: {a_race.get('name')} am {a_race.get('date')}, "
             f"Zielzeit {a_race.get('goal_total', '?')} h"
         )
-    n = athlete.get("nutrition", {})
-    if n.get("rules"):
-        lines.append("\n## Ernährungsregeln des Athleten (nach Dauer)")
-        for r in n["rules"]:
-            lo = r.get("duration_min_min", 0)
-            hi = r.get("duration_max_min")
-            spanne = f"{lo}–{hi} min" if hi else f"ab {lo} min"
-            teile = [f"vorher: {r['before']}" if r.get("before") else "",
-                     f"während: {r['during']}" if r.get("during") else "",
-                     f"nachher: {r['after']}" if r.get("after") else ""]
-            lines.append(f"- {spanne} — " + " | ".join(t for t in teile if t))
-        lines.append(
-            f"- Gemisch: {n.get('mix', '?')}, {n.get('carbs_per_hour_g', 90)} g Carbs/h, "
-            f"{n.get('fluid_per_hour_ml', 600)} ml/h (Hitze: {n.get('fluid_heat_per_hour_ml', 750)} ml/h, "
-            f"{n.get('salt_heat_per_hour', 2)} Saltstick/h)"
-        )
+    # Ernährungsregeln bewusst nicht mitgeliefert — die werden nach der
+    # fertigen Dauer deterministisch aus athlete.json berechnet.
     return "\n".join(lines)
 
 

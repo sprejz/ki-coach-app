@@ -5,13 +5,14 @@ User-Messages die relevanten Werte tatsächlich enthalten.
 
     .venv/bin/python -m tests.test_offline
 """
+import asyncio
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from agents import head_coach, medic, weather  # noqa: E402
-from orchestrator import normalize_sport  # noqa: E402
+from agents import architect, head_coach, medic, weather  # noqa: E402
+from orchestrator import _baue_einheit, normalize_sport  # noqa: E402
 from tests import fixtures as fx  # noqa: E402
 
 fehler = []
@@ -51,21 +52,54 @@ def validiere_schema(schema, pfad="root"):
 
 print("\n=== Schemas ===")
 for name, schema in [("medic", medic.SCHEMA), ("weather", weather.SCHEMA),
-                     ("head_coach", head_coach.SCHEMA)]:
+                     ("head_coach", head_coach.SCHEMA), ("architect", architect.SCHEMA)]:
     vorher = len(fehler)
     validiere_schema(schema, name)
     pruefe(len(fehler) == vorher, f"{name}.SCHEMA ist gültig")
 
-print("\n=== Frontend-Vertrag ===")
-hc_props = set(head_coach.SCHEMA["properties"])
-erwartet = {"status", "status_text", "sportarten", "autosleep_summary",
-            "wetter_hinweis", "prep"}
-pruefe(erwartet <= hc_props, f"Chefcoach liefert alle Felder, die index.html liest: {sorted(erwartet)}")
+print("\n=== Arbeitsteilung Chefcoach / Architekt ===")
+hc_sp = set(head_coach.SCHEMA["properties"]["sportarten"]["items"]["properties"])
+pruefe("anpassung" in hc_sp, "Chefcoach liefert einen Auftrag (anpassung)")
+pruefe(not {"beschreibung", "tp_struktur", "distanz_m", "ernaehrung"} & hc_sp,
+       "Chefcoach formuliert NICHT mehr aus (keine beschreibung/tp_struktur/distanz_m/ernaehrung)")
+arch_props = set(architect.SCHEMA["properties"])
+pruefe({"beschreibung", "tp_struktur", "distanz_m", "dauer_min"} <= arch_props,
+       "Architekt liefert Beschreibung, Struktur, Distanz und Dauer")
 
-sp_props = set(head_coach.SCHEMA["properties"]["sportarten"]["items"]["properties"])
+
+def frontend_vertrag(eintrag: dict) -> set:
+    return set(eintrag) - {"_begruendung"}
+
+
+print("\n=== Frontend-Vertrag (vom Orchestrator zusammengebaut) ===")
+ATHLET = {"nutrition": {"rules": [
+    {"duration_max_min": 60, "before": "Nüchtern", "during": "Wasser reicht"},
+    {"duration_min_min": 90, "duration_max_min": 180, "during": "90g Carbs/h"},
+]}}
+
+go = asyncio.run(_baue_einheit(
+    entscheidung={"sport": "Laufen", "badge": "GO", "details": "Läuft",
+                  "begruendung": "", "anpassung": {}},
+    workout={"sport": "Run", "description": "35 min locker (6:15–6:45/km)", "duration_min": 35},
+    athlete=ATHLET, wetter_zeile="Sonnig", model="egal",
+))
 erwartet_sp = {"sport", "badge", "details", "beschreibung", "ernaehrung",
                "tp_struktur", "distanz_m"}
-pruefe(erwartet_sp <= sp_props, f"Einheiten liefern alle Felder für applyToTP: {sorted(erwartet_sp)}")
+pruefe(erwartet_sp <= frontend_vertrag(go), f"Eintrag hat alle Felder für applyToTP: {sorted(erwartet_sp)}")
+pruefe(go["beschreibung"] == "35 min locker (6:15–6:45/km)",
+       "GO übernimmt die Original-Beschreibung ZEICHENGENAU (ohne Modell)")
+pruefe(go["ernaehrung"] == "Vorher: Nüchtern | Während: Wasser reicht",
+       "GO bekommt die Ernährung aus der Tabelle (35 min → erste Regel)")
+pruefe(go["tp_struktur"] is None, "GO bekommt keine TP-Struktur")
+
+skip = asyncio.run(_baue_einheit(
+    entscheidung={"sport": "Laufen", "badge": "SKIP", "details": "Achilles",
+                  "begruendung": "Achilles 5/10", "anpassung": {}},
+    workout={"sport": "Run", "description": "4×8min @ 5:20", "duration_min": 60},
+    athlete=ATHLET, wetter_zeile="Sonnig", model="egal",
+))
+pruefe(skip["beschreibung"] == "", "SKIP bekommt keine Beschreibung (ohne Modell)")
+pruefe(skip["ernaehrung"] == "", "SKIP bekommt keine Ernährung")
 
 print("\n=== Sportarten-Normalisierung ===")
 for roh, soll in [("Run", "Laufen"), ("Bike", "Rad"), ("Swim", "Schwimmen"),
@@ -102,7 +136,23 @@ hc_in = head_coach.build_input(
 pruefe("**stop**" in hc_in, "Chefcoach sieht das medizinische stop-Urteil")
 pruefe("Malbork" in hc_in, "Chefcoach sieht das A-Rennen")
 pruefe("4×8 min @ 5:20/km" in hc_in, "Chefcoach sieht die Original-Beschreibung aus TP")
-pruefe("90g Carbs/h" in hc_in, "Chefcoach sieht die Ernährungsregeln")
+pruefe("Carbs" not in hc_in, "Chefcoach sieht KEINE Ernährungsregeln mehr (deterministisch)")
+
+arch_in = architect.build_input(
+    athlete={"ftp_watt": 286, "run_threshold_pace": "5:20", "css_per_100m": "2:20",
+             "threshold_hr_bike": 145},
+    workout=fx.TP_LAUF_INTERVALL[0],
+    auftrag={"begruendung": "Hitze 31 °C",
+             "anpassung": {"dauer_min": 45, "zone": "Z2", "kein_tempo": True,
+                           "indoor": False, "sportwechsel": None,
+                           "hinweis": "Start vor 09:00"}},
+    wetter_zeile="Sonnig, 19–31 °C, Regen 5 %",
+)
+pruefe("Zieldauer: 45 min" in arch_in, "Architekt bekommt die Zieldauer")
+pruefe("Kein Tempo" in arch_in, "Architekt bekommt die Tempo-Sperre")
+pruefe("Start vor 09:00" in arch_in, "Architekt bekommt den Zusatzhinweis")
+pruefe("4×8 min @ 5:20/km" in arch_in, "Architekt bekommt das Original als Vorlage")
+pruefe("286 W" in arch_in, "Architekt bekommt die Schwellenwerte")
 
 print(f"\n{'=' * 40}")
 if fehler:

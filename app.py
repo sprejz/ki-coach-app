@@ -18,6 +18,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import anthropic
 
+from nutrition import nutrition_for_duration
 from translations import TRANSLATIONS
 
 # Agent-Pipeline (Sportmediziner + Wetter-Taktiker → Chefcoach). Import bewusst
@@ -30,7 +31,7 @@ except Exception as _agent_err:          # pragma: no cover
     _AGENTS_IMPORTABLE = False
     _AGENTS_IMPORT_ERROR = str(_agent_err)
 
-APP_VERSION = "2.6.98"
+APP_VERSION = "2.6.99"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -764,19 +765,8 @@ def flag_sleep(data: dict, baseline: Optional[dict]) -> dict:
 
 # ── Claude system prompt ──────────────────────────────────────────────────────
 
-def nutrition_for_duration(duration_min: Optional[int], nutrition: dict) -> str:
-    if not duration_min:
-        return ""
-    for rule in nutrition.get("rules", []):
-        lo = rule.get("duration_min_min", 0)
-        hi = rule.get("duration_max_min")
-        if duration_min >= lo and (hi is None or duration_min < hi):
-            parts = []
-            if rule.get("before"):  parts.append(f"Vorher: {rule['before']}")
-            if rule.get("during"):  parts.append(f"Während: {rule['during']}")
-            if rule.get("after"):   parts.append(f"Nachher: {rule['after']}")
-            return " | ".join(parts)
-    return ""
+# nutrition_for_duration lebt jetzt in nutrition.py — Orchestrator und
+# Monolith-Pfad teilen sich dieselbe Tabellenlogik.
 
 
 def build_pain_rules(_pt: dict) -> str:

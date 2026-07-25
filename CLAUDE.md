@@ -1,4 +1,4 @@
-# KI Coach App — v2.6.98
+# KI Coach App — v2.6.99
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -31,11 +31,12 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.6.98)
+├── CLAUDE.md            ← diese Datei (v2.6.99)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
 ├── orchestrator.py      ← Kontrollfluss der Agent-Pipeline
-├── agents/              ← typisierte Coach-Agents (base, medic, weather, head_coach)
-├── prompts/de/          ← statische Agent-Prompts (medic.md, weather.md, head_coach.md)
+├── nutrition.py         ← Ernährungstabelle (deterministisch, von beiden Pfaden genutzt)
+├── agents/              ← base, medic, weather, head_coach, architect
+├── prompts/de/          ← statische Agent-Prompts (medic/weather/head_coach/architect.md)
 ├── tests/               ← fixtures.py, test_offline.py, test_wiring.py, test_live.py
 ├── translations.py      ← UI-Texte + Monolith-Prompts (de/en)
 ├── templates/
@@ -335,6 +336,15 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.6.99 — Workout-Architekt (Stufe 3)
+Der Chefcoach entscheidet nur noch, das Ausformulieren übernimmt ein eigener Agent.
+
+- **Workout-Architekt** (`agents/architect.py`) — bekommt einen strukturierten Auftrag (`dauer_min`, `zone`, `kein_tempo`, `indoor`, `sportwechsel`, `hinweis`) und schreibt daraus Beschreibung, `tp_struktur` und `distanz_m`. Läuft **nur bei MOD**, alle MOD-Einheiten parallel.
+- **Chefcoach** liefert statt Fließtext ein Feld `anpassung` + `begruendung`. Keine Formulierungsregeln mehr im Prompt (64 → 45 Zeilen).
+- **Zwei Fälle brauchen kein Modell mehr:** GO übernimmt die Original-Beschreibung zeichengenau per Code (vorher eine Prompt-Anweisung, die verletzt werden konnte — vgl. v2.6.13/.71), SKIP bekommt gar keine.
+- **Ernährung ist deterministisch** — `nutrition.py`, Tabellenlookup nach der *fertigen* Dauer. Vorher schrieb das Modell die Mengen.
+- Den Frontend-Vertrag baut jetzt der Orchestrator zusammen; für `index.html` und `applyToTP` ändert sich nichts.
 
 ### v2.6.98 — Agent-Architektur (Stufe 1+2)
 Der Monolith-Prompt wird durch typisierte Spezialisten ersetzt. **Hinter `COACH_AGENTS`, Default aus.**
