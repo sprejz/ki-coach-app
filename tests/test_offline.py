@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from datetime import date, timedelta  # noqa: E402
 
-from agents import architect, head_coach, medic, periodizer, weather  # noqa: E402
+from agents import analyst, architect, chat, head_coach, medic, periodizer, weather  # noqa: E402
 from orchestrator import _baue_einheit, normalize_sport  # noqa: E402
 from tests import fixtures as fx  # noqa: E402
 from training_load import compute_pmc, tage_bis, tss_pro_tag, wochenstruktur  # noqa: E402
@@ -96,7 +96,7 @@ pruefe(tage_bis("", ab=HEUTE) is None and tage_bis("kaputt", ab=HEUTE) is None,
 print("\n=== Schemas ===")
 for name, schema in [("medic", medic.SCHEMA), ("weather", weather.SCHEMA),
                      ("head_coach", head_coach.SCHEMA), ("architect", architect.SCHEMA),
-                     ("periodizer", periodizer.SCHEMA)]:
+                     ("periodizer", periodizer.SCHEMA), ("analyst", analyst.SCHEMA)]:
     vorher = len(fehler)
     validiere_schema(schema, name)
     pruefe(len(fehler) == vorher, f"{name}.SCHEMA ist gültig")
@@ -226,6 +226,62 @@ hc_ohne_block = head_coach.build_input(
 )
 pruefe("Periodisierer" not in hc_ohne_block,
        "Ohne Belastungsdaten steht nichts vom Periodisierer im Prompt")
+
+print("\n=== Performance-Analyst ===")
+FIT = {"dauer_min": 62, "distanz_km": 11.4, "avg_hr": 158, "max_hr": 172,
+       "avg_pace_min_km": "5:26", "tss": 78,
+       "laps": [{"t_min": 8, "avg_hr": 161, "pace": "5:18"},
+                {"t_min": 8, "avg_hr": 166, "pace": "5:31"}]}
+TP_IST = {"tssActual": 78, "averageHeartRateInBeatsPerMinute": 158,
+          "perceivedExertion": 7, "description": "4×8min @ 5:20"}
+TP_NUR_PLAN = {"tssPlanned": 75, "totalTimePlanned": 3600, "description": "4×8min @ 5:20"}
+
+pruefe(analyst.datenlage(FIT, TP_IST) == "fit", "FIT-Datei schlägt TP-Ist")
+pruefe(analyst.datenlage(None, TP_IST) == "tp_ist", "Ohne FIT zählen die TP-Ist-Werte")
+pruefe(analyst.datenlage(None, TP_NUR_PLAN) == "nur_plan", "Nur Plandaten werden erkannt")
+pruefe(analyst.datenlage(None, None) == "nur_plan", "Gar keine Daten → nur_plan")
+
+an_in = analyst.build_input(
+    athlete={"ftp_watt": 286, "run_threshold_pace": "5:20", "css_per_100m": "2:20",
+             "weight_kg": 84},
+    a_race=fx.A_RACE_MALBORK, sport="Run", titel="Schwellenlauf", datum="2026-07-24",
+    fit=FIT, tp=TP_IST, wetter={"description": "Sonnig", "avg_temp": 29.5,
+                                "start_local": "07:00", "end_local": "08:02",
+                                "temp_min": 27, "temp_max": 31, "precip_mm": 0},
+    load=fx.LOAD_AUFBAU,
+)
+pruefe("Ø HF: 158 bpm" in an_in, "Analyst sieht die FIT-Herzfrequenz")
+pruefe("5:18" in an_in and "5:31" in an_in, "Analyst sieht die einzelnen Splits")
+pruefe("RPE (1–10): 7" in an_in, "Analyst sieht das RPE aus TP")
+pruefe("Ø 29.5 °C" in an_in, "Analyst sieht das Wetter zur Trainingszeit")
+pruefe("TSB -17.8" in an_in, "Analyst sieht die Belastungslage des Tages")
+pruefe("Laufschwelle: 5:20 /km" in an_in, "Analyst sieht die Schwelle zum Vergleich")
+
+an_plan = analyst.build_input(athlete={}, sport="Run", titel="Lauf", datum="2026-07-24",
+                              fit=None, tp=TP_NUR_PLAN)
+pruefe("NUR Plan-Daten" in an_plan, "Ohne Ist-Werte wird das im Prompt markiert")
+pruefe("Bewerte die Einheit trotzdem" in an_plan,
+       "Ohne Ist-Werte wird trotzdem eine Bewertung verlangt")
+
+print("\n=== Coach-Chat ===")
+ctx = chat.build_context(
+    athlete={"name": "Hendrik", "ftp_watt": 286, "weight_kg": 84},
+    a_race=fx.A_RACE_MALBORK, tage_bis_a=43,
+    tp_tage=["heute (2026-07-25): Run | Schwellenlauf | 60 min"],
+    wetter_heute={"description": "Sonnig", "temp_min": 19, "temp_max": 31, "rain_prob": 5},
+    wetter_morgen={"description": "Bedeckt", "temp_min": 15, "temp_max": 22, "rain_prob": 40},
+    load=fx.LOAD_AUFBAU, heute_str="Samstag, 25.07.2026",
+)
+pruefe("noch 43 Tage" in ctx, "Chat kennt den Abstand zum A-Rennen")
+pruefe("TSB -17.8" in ctx, "Chat kennt die Belastungslage")
+pruefe("Schwellenlauf" in ctx, "Chat kennt den TP-Plan")
+pruefe("heute: Sonnig, 19–31 °C" in ctx, "Chat kennt das Wetter heute")
+pruefe("morgen: Bedeckt" in ctx, "Chat kennt das Wetter morgen — der alte Pfad konnte das nie")
+
+ctx_leer = chat.build_context(athlete={"name": "H"}, a_race=None, tage_bis_a=None)
+pruefe("Keine Wetterdaten verfügbar" in ctx_leer, "Ohne Wetter wird das explizit gesagt")
+pruefe("keine Einheiten geplant" in ctx_leer, "Ohne TP-Plan wird das explizit gesagt")
+pruefe("CTL" not in ctx_leer, "Ohne Belastungsdaten steht keine erfundene Kennzahl drin")
 
 pruefe("Zieldauer: 45 min" in arch_in, "Architekt bekommt die Zieldauer")
 pruefe("Kein Tempo" in arch_in, "Architekt bekommt die Tempo-Sperre")

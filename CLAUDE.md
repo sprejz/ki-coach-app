@@ -1,4 +1,4 @@
-# KI Coach App — v2.7.0
+# KI Coach App — v2.7.1
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -31,12 +31,12 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.7.0)
+├── CLAUDE.md            ← diese Datei (v2.7.1)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
 ├── orchestrator.py      ← Kontrollfluss der Agent-Pipeline
 ├── nutrition.py         ← Ernährungstabelle (deterministisch, von beiden Pfaden genutzt)
 ├── training_load.py     ← CTL/ATL/TSB aus der TSS-Historie (deterministisch)
-├── agents/              ← base, medic, weather, periodizer, head_coach, architect
+├── agents/              ← base, medic, weather, periodizer, head_coach, architect, analyst, chat
 ├── prompts/de/          ← statische Agent-Prompts, einer je Agent
 ├── tests/               ← fixtures.py, test_offline.py, test_wiring.py, test_live.py
 ├── translations.py      ← UI-Texte + Monolith-Prompts (de/en)
@@ -337,6 +337,13 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.7.1 — Analyst und Chat (Agent-Architektur vollständig)
+Die letzten beiden Claude-Aufrufe wandern in die Architektur. Sechs Agents, alle hinter `COACH_AGENTS`.
+
+- **Performance-Analyst** (`agents/analyst.py`) — ersetzt `_run_analysis_job_fast`. Dort machte ein JSON-Parse-Fehler stillschweigend `{"bewertung": "ok", "urteil": <Rohtext>}` daraus — der Athlet sah ein Urteil, das keines war. Mit erzwungenem Schema unmöglich; ein Fehler schlägt jetzt sichtbar fehl. Neu: Feld `datenlage` (fit / tp_ist / nur_plan) und die Belastungslage des Trainingstags als Kontext — dieselbe Einheit bei TSB −28 liest sich anders als bei TSB +5.
+- **Coach-Chat** (`agents/chat.py`) — der einzige Agent **ohne** Schema, weil die Antwort direkt an den Athleten geht (`call_agent_text` in `base.py`). Bekommt jetzt zusätzlich CTL/ATL/TSB.
+- **Bugfix:** `tomorrow_str` war im Chat-Pfad nie definiert. Der `NameError` landete im `except` und der Chat bekam **seit v2.6.35 immer** „Wetterdaten nicht verfügbar" — er hatte nie Wetter. Behoben in beiden Pfaden, mit Regressionstest.
 
 ### v2.7.0 — Periodisierer (Stufe 4)
 Die App denkt erstmals in Wochen statt nur in Tagen.

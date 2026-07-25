@@ -25,6 +25,8 @@ from translations import TRANSLATIONS
 # Agent-Pipeline (Sportmediziner + Wetter-Taktiker → Chefcoach). Import bewusst
 # defensiv: fehlt etwas, läuft die App weiter über den alten Monolith-Prompt.
 try:
+    from agents import analyst
+    from agents import chat as chat_agent
     from orchestrator import run_check as _run_agent_check
     _AGENTS_IMPORTABLE = True
     _AGENTS_IMPORT_ERROR = ""
@@ -32,7 +34,7 @@ except Exception as _agent_err:          # pragma: no cover
     _AGENTS_IMPORTABLE = False
     _AGENTS_IMPORT_ERROR = str(_agent_err)
 
-APP_VERSION = "2.7.0"
+APP_VERSION = "2.7.1"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1082,6 +1084,34 @@ async def coach_chat(request: Request):
             if ds not in _tp_refresh_busy and f"range_{today_str}" not in str(_tp_refresh_busy):
                 asyncio.create_task(_tp_refresh(athlete, date_str=ds))
 
+    # Wetter best-effort für beide Pfade
+    wx_today = wx_tomorrow = None
+    try:
+        wx_today = await fetch_weather(athlete, day=0)
+        wx_tomorrow = await fetch_weather(athlete, day=1)
+    except Exception as e:
+        logger.warning("coach_chat: Wetter nicht verfügbar: %s", e)
+
+    if agents_enabled():
+        try:
+            load, _ = await _fetch_training_load(athlete)
+            a_race = next_a_race(athlete)
+            kontext = chat_agent.build_context(
+                athlete=athlete, a_race=a_race,
+                tage_bis_a=tage_bis(a_race.get("date")) if a_race else None,
+                tp_tage=[ln.strip("  -") for ln in tp_lines],
+                wetter_heute=wx_today, wetter_morgen=wx_tomorrow,
+                load=load, ladend=tp_loading_labels,
+                heute_str=today_d.strftime("%A, %d.%m.%Y"),
+            )
+            reply = await asyncio.to_thread(
+                chat_agent.run, nachricht=message, historie=history, kontext=kontext,
+            )
+            return JSONResponse({"reply": reply, "_pipeline": "agents"}, headers=_NO_CACHE)
+        except Exception as e:
+            logger.error("Chat-Agent fehlgeschlagen, Fallback auf Monolith: %s: %s",
+                         type(e).__name__, e)
+
     if tp_lines:
         system += (
             "\n\nAktueller TrainingPeaks-Plan (automatisch geladen — du HAST diese Daten, nutze sie direkt):\n"
@@ -1095,10 +1125,10 @@ async def coach_chat(request: Request):
     if not tp_lines and not tp_loading_labels and os.environ.get("TP_MCP_URL"):
         system += "\n\nTrainingPeaks: keine Workouts für die angefragten Tage geplant."
 
-    # Wetterdaten heute + morgen anhängen
-    try:
-        wx_today    = await fetch_weather(athlete, day=0)
-        wx_tomorrow = await fetch_weather(athlete, day=1)
+    if wx_today and wx_tomorrow:
+        # tomorrow_str war hier nie definiert — der NameError landete im except
+        # und der Chat bekam seit v2.6.35 immer "Wetter nicht verfügbar".
+        tomorrow_str = (today_d + timedelta(days=1)).isoformat()
         system += (
             f"\n\nWetter heute ({today_str}): {wx_today.get('description','?')}, "
             f"{wx_today.get('temp_min','?')}–{wx_today.get('temp_max','?')}°C, "
@@ -1107,7 +1137,7 @@ async def coach_chat(request: Request):
             f"{wx_tomorrow.get('temp_min','?')}–{wx_tomorrow.get('temp_max','?')}°C, "
             f"Regen {wx_tomorrow.get('rain_prob',0)}%."
         )
-    except Exception:
+    else:
         system += "\n\nWetterdaten aktuell nicht verfügbar. Antworte ohne Wetterdaten — keine Spekulationen."
 
     messages = []
@@ -2013,6 +2043,23 @@ def _run_analysis_job(job_id: str, tp_url: str, key: str, prompt: str):
         _analysis_jobs[job_id] = {"status": "error", "error": str(e)[:300]}
 
 
+def _run_analysis_job_agent(job_id: str, **kwargs):
+    """Analyse über den Performance-Analyst mit erzwungenem Schema.
+
+    Im alten Pfad wurde ein Parse-Fehler zu {"bewertung": "ok", ...} — der
+    Athlet sah ein Urteil, das keines war. Hier schlägt der Job stattdessen
+    sichtbar fehl.
+    """
+    try:
+        result = analyst.run(**kwargs)
+        logger.info("analysis job %s done (agent): bewertung=%s datenlage=%s",
+                    job_id, result.get("bewertung"), result.get("datenlage"))
+        _analysis_jobs[job_id] = {"status": "done", "result": result}
+    except Exception as e:
+        logger.error("analysis job %s error (agent): %s: %s", job_id, type(e).__name__, e)
+        _analysis_jobs[job_id] = {"status": "error", "error": str(e)[:300]}
+
+
 def _run_analysis_job_fast(job_id: str, key: str, prompt: str):
     """Schneller Pfad wenn FIT-Daten vorhanden — kein MCP nötig."""
     import re as _re
@@ -2222,12 +2269,24 @@ async def workout_analyze(
         except Exception as _te:
             logger.warning("workout_analyze: tp_get_workout failed: %s", _te)
 
-    prompt = _build_analysis_prompt(athlete, a_race, workout_id, sport, title, target_date,
-                                    fit_data, weather_on_date, tp_workout_data)
     job_id = uuid.uuid4().hex[:10]
     _analysis_jobs[job_id] = {"status": "pending", "has_fit": bool(fit_data)}
-    # Immer schneller Pfad — TP-Daten sind bereits im Prompt enthalten
-    t = threading.Thread(target=_run_analysis_job_fast, args=(job_id, key, prompt), daemon=True)
+
+    if agents_enabled():
+        # Belastungslage mitgeben: eine Einheit bei TSB -28 liest sich anders
+        # als dieselbe bei TSB +5.
+        load, _ = await _fetch_training_load(athlete)
+        t = threading.Thread(
+            target=_run_analysis_job_agent, kwargs={
+                "job_id": job_id, "athlete": athlete, "a_race": a_race,
+                "sport": sport, "titel": title, "datum": target_date,
+                "fit": fit_data or None, "tp": tp_workout_data or None,
+                "wetter": weather_on_date or None, "load": load,
+            }, daemon=True)
+    else:
+        prompt = _build_analysis_prompt(athlete, a_race, workout_id, sport, title, target_date,
+                                        fit_data, weather_on_date, tp_workout_data)
+        t = threading.Thread(target=_run_analysis_job_fast, args=(job_id, key, prompt), daemon=True)
     t.start()
     logger.info("analysis job %s started for %s on %s (fit=%s, tp=%s)",
                 job_id, title, target_date, bool(fit_data), bool(tp_workout_data))

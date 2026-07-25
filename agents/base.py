@@ -121,3 +121,45 @@ def call_agent(
         label, model, resp.usage.input_tokens, resp.usage.output_tokens,
     )
     return json.loads(text)
+
+
+def call_agent_text(
+    *,
+    prompt: str,
+    messages: list,
+    model: str = HAIKU,
+    max_tokens: int = 1500,
+    label: str = "agent",
+) -> str:
+    """Freitext-Variante für den Chat — kein Schema, mehrere Turns.
+
+    Der Chat ist der einzige Agent ohne Schema: seine Antwort geht direkt an
+    den Athleten, nicht an ein weiterverarbeitendes System.
+    """
+    client = _client()
+    try:
+        resp = client.messages.create(
+            model=model, max_tokens=max_tokens, system=prompt, messages=messages,
+        )
+    except anthropic.APIStatusError as e:
+        logger.error("%s: API %s — %s", label, e.status_code, e.message)
+        raise AgentError(f"{label}: API-Fehler {e.status_code}: {e.message}") from e
+    except anthropic.APIConnectionError as e:
+        logger.error("%s: Verbindungsfehler — %s", label, e)
+        raise AgentError(f"{label}: API nicht erreichbar") from e
+
+    if resp.stop_reason == "refusal":
+        raise AgentError(f"{label}: Anfrage wurde abgelehnt")
+
+    text = "".join(b.text for b in resp.content if b.type == "text").strip()
+    if not text:
+        raise AgentError(f"{label}: leere Antwort")
+
+    USAGE.append({
+        "label": label, "model": model,
+        "in": resp.usage.input_tokens, "out": resp.usage.output_tokens,
+    })
+    logger.info("%s ok: model=%s in=%d out=%d%s", label, model,
+                resp.usage.input_tokens, resp.usage.output_tokens,
+                " (abgeschnitten)" if resp.stop_reason == "max_tokens" else "")
+    return text

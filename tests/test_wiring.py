@@ -186,6 +186,24 @@ async def main():
            "Chefcoach bekommt block=None statt erfundener Zahlen")
     pruefe(ohne["_agents"]["block"] is None, "Blockurteil ist None, nicht leer erfunden")
 
+    print("\n=== Coach-Chat und Analyst verdrahtet ===")
+    import agents.analyst as analyst_mod
+    import agents.chat as chat_mod
+    pruefe(app.chat_agent is chat_mod, "app.py nutzt den Chat-Agent")
+    pruefe(app.analyst is analyst_mod, "app.py nutzt den Analyst-Agent")
+    pruefe(hasattr(app, "_run_analysis_job_agent"), "Analyse-Job über den Agent existiert")
+
+    # Regression v2.7.1: tomorrow_str war im Monolith-Chatpfad nie definiert.
+    # Der NameError landete im except und der Chat bekam immer
+    # "Wetterdaten nicht verfügbar". Der Bezeichner muss zugewiesen werden,
+    # bevor er im f-String auftaucht.
+    import inspect
+    quelle = inspect.getsource(app.coach_chat)
+    zuweisung = quelle.find("tomorrow_str =")
+    verwendung = quelle.find("{tomorrow_str}")
+    pruefe(zuweisung != -1, "tomorrow_str wird zugewiesen (war der NameError-Bug)")
+    pruefe(zuweisung < verwendung, "tomorrow_str wird VOR der Verwendung zugewiesen")
+
     print("\n=== Fallback bei Agent-Fehler ===")
     def kaputt(**kwargs):
         raise RuntimeError("simulierter Ausfall")
