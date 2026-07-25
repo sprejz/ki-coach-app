@@ -1,4 +1,4 @@
-# KI Coach App — v2.7.1
+# KI Coach App — v2.7.2
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -31,7 +31,7 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.7.1)
+├── CLAUDE.md            ← diese Datei (v2.7.2)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
 ├── orchestrator.py      ← Kontrollfluss der Agent-Pipeline
 ├── nutrition.py         ← Ernährungstabelle (deterministisch, von beiden Pfaden genutzt)
@@ -337,6 +337,15 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.7.2 — Zwei Prompt-Fehler aus dem ersten Live-Test
+Erster Lauf gegen die echte API: 8 von 9 Fixtures grün, zwei inhaltliche Fehler gefunden, die offline unsichtbar waren.
+
+- **Krankheit wurde nur auf Schwimmen angewendet.** Bei „neu mittel" (plus HRV 26, WachBPM 62, Müdigkeit 4/5) lieferte der Mediziner `eingeschraenkt` statt `pause` und für Rad/Laufen nur `kein_tempo` — der Chefcoach hätte einen kranken Athleten auf 60 min Rad geschickt. Ursache: der Prompt nannte Schwimmen bei „neu leicht" explizit und stiftete so das Muster „Krankheit betrifft Schwimmen". Jetzt ist Krankheit ein Ganzkörper-Befund, der zuerst geprüft wird und die sportartspezifische Logik überschreibt; bei `pause` muss jede Sportart `stop` tragen.
+- **Falscher Rechenwert im Wetter-Prompt.** „Pro Grad über 20 °C etwa 4–5 % langsamere Pace" ist als lineare Regel falsch — das Modell rechnete korrekt 4,5 % × 11 Grad = 44–55 % Pace-Verlust. Ersetzt durch eine Gesamtverlust-Orientierung (25 °C ≈ 2–3 %, 30 °C ≈ 4–6 %, 35 °C ≈ 8–10 %) plus explizites Hochrechnen-Verbot.
+- **Schwimmen ist jetzt eindeutig hitze-ausgenommen.** Der Taktiker hatte eine Schwimmeinheit wegen Mittagshitze in ein Zeitfenster verlegt. Zeitfenster oder Indoor-Wechsel beim Schwimmen nur noch bei Gewitter oder zu kaltem Wasser.
+
+**Wichtig für künftige Prompt-Arbeit:** die Urteile sind nicht deterministisch. Derselbe Hitze-Fall war grün, dann rot, dann dreimal grün. Ein einzelner Durchlauf beweist nichts — kritische Fixtures mehrfach fahren.
 
 ### v2.7.1 — Analyst und Chat (Agent-Architektur vollständig)
 Die letzten beiden Claude-Aufrufe wandern in die Architektur. Sechs Agents, alle hinter `COACH_AGENTS`.

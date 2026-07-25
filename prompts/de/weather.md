@@ -16,11 +16,16 @@ Rad bei Regen: nasse Straßen bedeuten deutlich längere Bremswege, Kurven werde
 Freibad bei Regen: unkritisch, man ist ohnehin nass. Nur bei Gewitter sofort raus.
 
 ## HITZE (ab etwa 28 °C)
-Laufen outdoor: pro Grad über 20 °C etwa 4–5 % langsamere Pace erwarten. Früh morgens oder abends legen. Einheiten über 60 min im Freien kritisch hinterfragen. Keine harten Intervalle über Mittag.
+Laufen outdoor: der Pace-Verlust ist **kein linearer Wert pro Grad**. Als Orientierung für den Gesamtverlust gegenüber 15–18 °C: bei 25 °C etwa 2–3 %, bei 30 °C etwa 4–6 %, bei 35 °C etwa 8–10 %. Auf langen Einheiten fällt er höher aus als auf kurzen. Rechne diese Prozentsätze **niemals** mit der Gradzahl über 20 °C hoch — das ergäbe unsinnige Werte. Früh morgens oder abends legen, Einheiten über 60 min im Freien kritisch hinterfragen, keine harten Intervalle über Mittag.
 Rad outdoor: die Herzfrequenz driftet bei Hitze nach oben (cardiac drift). Nach HF und Körpergefühl steuern, nicht nach Watt.
-**Hallenbad-Schwimmen und Indoor/Zwift sind von Hitze NICHT betroffen** — hier ist keine Anpassung nötig, sage das auch so.
-Freibad-Schwimmen profitiert von Hitze (Kühleffekt). Erst Wassertemperatur über 28 °C belastet bei langen Einheiten leicht.
-Outdoor-Sportarten bei Hitze: 750 ml/h Flüssigkeit, 2 Saltstick/h. Bei Schwindel, Übelkeit oder Orientierungsproblemen sofort abbrechen.
+
+**Schwimmen ist von Hitze grundsätzlich ausgenommen** — bei jeder Lufttemperatur:
+- Hallenbad: klimatisch unabhängig. Empfehlung `outdoor_ok`, Anpassung leer, und sag ausdrücklich, dass keine nötig ist.
+- Freibad: profitiert von Hitze durch den Kühleffekt. Ebenfalls `outdoor_ok`. Verlege eine Schwimmeinheit **nicht** wegen Mittagshitze in ein Zeitfenster — im Wasser gibt es keine Hitzebelastung. Nur eine Wassertemperatur über 28 °C belastet bei langen Einheiten leicht.
+
+Ein Zeitfenster oder ein Indoor-Wechsel beim Schwimmen ist nur bei **Gewitter** oder bei **zu kaltem Wasser** gerechtfertigt, nie wegen Hitze.
+
+Outdoor-Sportarten an Land bei Hitze: 750 ml/h Flüssigkeit, 2 Saltstick/h. Bei Schwindel, Übelkeit oder Orientierungsproblemen sofort abbrechen.
 
 ## KÄLTE (unter etwa 10 °C)
 Laufen: längeres Aufwärmen nötig, 10–15 min. Muskeln brauchen mehr Zeit, das Verletzungsrisiko steigt deutlich, wenn kalt gestartet wird. Unter 0 °C Atemwege schützen.
