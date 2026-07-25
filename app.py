@@ -20,11 +20,31 @@ import anthropic
 
 from translations import TRANSLATIONS
 
-APP_VERSION = "2.6.97"
+# Agent-Pipeline (Sportmediziner + Wetter-Taktiker → Chefcoach). Import bewusst
+# defensiv: fehlt etwas, läuft die App weiter über den alten Monolith-Prompt.
+try:
+    from orchestrator import run_check as _run_agent_check
+    _AGENTS_IMPORTABLE = True
+    _AGENTS_IMPORT_ERROR = ""
+except Exception as _agent_err:          # pragma: no cover
+    _AGENTS_IMPORTABLE = False
+    _AGENTS_IMPORT_ERROR = str(_agent_err)
+
+APP_VERSION = "2.6.98"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+if not _AGENTS_IMPORTABLE:
+    logger.warning("Agent-Pipeline nicht importierbar: %s", _AGENTS_IMPORT_ERROR)
+
+
+def agents_enabled() -> bool:
+    """Agent-Pipeline nur wenn importierbar UND per ENV COACH_AGENTS aktiviert."""
+    return _AGENTS_IMPORTABLE and os.environ.get("COACH_AGENTS", "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
 
 app = FastAPI()
 
@@ -1564,6 +1584,37 @@ async def tp_apply(request: Request):
     return {"ok": True, "actions": actions}
 
 
+async def _try_agent_check(*, athlete, baseline, weather, koerper, tp_workouts,
+                           sleep, wasser_temp, tag):
+    """Führt die Agent-Pipeline aus. Gibt None zurück, wenn sie fehlschlägt —
+    dann übernimmt der alte Monolith-Prompt. Ein Fehler hier darf den
+    Morgen-Check nie blockieren."""
+    t0 = _time.time()
+    try:
+        result = await _run_agent_check(
+            athlete=athlete,
+            a_race=next_a_race(athlete),
+            baseline=baseline,
+            koerper=koerper,
+            weather_data=weather,
+            tp_workouts=tp_workouts,
+            sleep=sleep,
+            wasser_temp=wasser_temp,
+            tag=tag,
+        )
+    except Exception as e:
+        logger.error("Agent-Pipeline fehlgeschlagen (%.1fs), Fallback auf Monolith: %s: %s",
+                     _time.time() - t0, type(e).__name__, e)
+        return None
+
+    result["weather"] = weather
+    result["_pipeline"] = "agents"
+    logger.info("Agent-Pipeline ok in %.1fs: status=%s badges=%s",
+                _time.time() - t0, result.get("status"),
+                [s.get("badge") for s in result.get("sportarten", [])])
+    return result
+
+
 @app.post("/api/check-abend")
 async def check_abend(request: Request):
     data = await request.json()
@@ -1593,10 +1644,29 @@ async def check_abend(request: Request):
     einheiten = data.get("geplante_einheiten", [])
     muskelkater = data.get("muskelkater") or ["keine"]
     tomorrow = (date.today() + timedelta(days=1)).strftime("%d.%m.%Y")
+    tp_workouts_data = data.get("tp_workouts")
+
+    if agents_enabled():
+        agent_result = await _try_agent_check(
+            athlete=athlete, baseline=baseline, weather=weather,
+            koerper={
+                "waden": data.get("waden", 0), "knie": data.get("knie", 0),
+                "achilles_l": data.get("achilles_l", 0), "achilles_r": data.get("achilles_r", 0),
+                "muedigkeit": data.get("muedigkeit", 1), "muskelkater": muskelkater,
+                "symptome": data.get("symptome", "keine"),
+                "geplante_einheiten": einheiten,
+            },
+            tp_workouts=tp_workouts_data or [],
+            sleep=None,
+            wasser_temp=data.get("wasser_temp"),
+            tag=f"morgen, {tomorrow}",
+        )
+        if agent_result is not None:
+            return agent_result
+        # None = Pipeline fehlgeschlagen, unten läuft der Monolith als Fallback
 
     # Optional TP workouts context (pre-loaded by user in form)
     tp_ctx = ""
-    tp_workouts_data = data.get("tp_workouts")
     if tp_workouts_data:
         tp_ctx = "\n" + T["prompt_tp_ctx"].format(data=json.dumps(tp_workouts_data, ensure_ascii=False))
 
@@ -1703,6 +1773,30 @@ AutoSleep (letzte Nacht):
                 logger.warning("sleep_history save failed: %s", hist_err)
         except Exception as e:
             sleep_text = "\n" + T["prompt_autosleep_err"].format(err=str(e))
+
+    if agents_enabled():
+        # Das Frontend schickt beim Morgen-Check keine TP-Workouts mit —
+        # serverseitig aus dem Cache holen (heute).
+        cached = _tp_cache_get(date.today().isoformat()) or {}
+        agent_result = await _try_agent_check(
+            athlete=athlete, baseline=baseline, weather=weather or {},
+            koerper={
+                "waden": waden, "knie": knie,
+                "achilles_l": achilles_l, "achilles_r": achilles_r,
+                "muedigkeit": muedigkeit,
+                "muskelkater": [x.strip() for x in muskelkater.split(",") if x.strip()] or ["keine"],
+                "symptome": symptome,
+                "geplante_einheiten": [x.strip() for x in geplante_einheiten.split(",") if x.strip()],
+            },
+            tp_workouts=cached.get("workouts") or [],
+            sleep={**sd, "flags": sleep_result["flags"]} if sleep_result else None,
+            wasser_temp=None,
+            tag=f"heute, {date.today().strftime('%d.%m.%Y')}",
+        )
+        if agent_result is not None:
+            if sleep_result:
+                agent_result["sleep_flags"] = sleep_result
+            return agent_result
 
     heat_thr = athlete.get("nutrition", {}).get("heat_threshold_celsius", 25)
     weather_flags = []

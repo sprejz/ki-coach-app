@@ -1,4 +1,4 @@
-# KI Coach App — v2.6.97
+# KI Coach App — v2.6.98
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -21,6 +21,7 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 - `ANTHROPIC_API_KEY` — Claude API Key (Pflicht)
 - `TP_MCP_URL` — TrainingPeaks MCP: `https://trainingpeaks-mcp-production-1a4f.up.railway.app/mcp` (optional; ohne → TP-Endpoints liefern `{"available": false}` bzw. HTTP 400)
 - `APP_LANG` — `de` (Default) oder `en`
+- `COACH_AGENTS` — `1`/`true`/`on` aktiviert die Agent-Pipeline. **Default aus** → Monolith-Prompt
 - `PORT` — Railway setzt automatisch
 
 **Kein Auth-Layer.** Der PIN-Schutz aus v2.6.86 wurde in v2.6.87 wieder entfernt; Google OAuth ist geplant, aber nicht implementiert. Die App ist derzeit öffentlich erreichbar.
@@ -30,9 +31,13 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.6.97)
+├── CLAUDE.md            ← diese Datei (v2.6.98)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
-├── translations.py      ← UI-Texte + alle Claude-Prompts (de/en)
+├── orchestrator.py      ← Kontrollfluss der Agent-Pipeline
+├── agents/              ← typisierte Coach-Agents (base, medic, weather, head_coach)
+├── prompts/de/          ← statische Agent-Prompts (medic.md, weather.md, head_coach.md)
+├── tests/               ← fixtures.py, test_offline.py, test_wiring.py, test_live.py
+├── translations.py      ← UI-Texte + Monolith-Prompts (de/en)
 ├── templates/
 │   └── index.html       ← Frontend, 7 Tabs
 ├── athlete.json         ← Athletenprofil (über Profil-Tab editierbar)
@@ -330,6 +335,19 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.6.98 — Agent-Architektur (Stufe 1+2)
+Der Monolith-Prompt wird durch typisierte Spezialisten ersetzt. **Hinter `COACH_AGENTS`, Default aus.**
+
+- **Sportmediziner** (`agents/medic.py`) — beurteilt nur Körpersignale, liefert pro Sportart `frei`/`reduziert`/`kein_tempo`/`stop`
+- **Wetter-Taktiker** (`agents/weather.py`) — liefert pro Sportart `outdoor_ok`/`zeitfenster`/`indoor_wechsel`/`gestrichen`
+- **Chefcoach** (`agents/head_coach.py`) — synthetisiert beide Urteile zur Entscheidung, sieht keine Rohwerte mehr
+- **Orchestrator** — Mediziner und Wetter laufen parallel (`asyncio.gather`), dann der Chefcoach. Agents reden nicht miteinander.
+- **Structured Outputs** (`output_config`) erzwingen das JSON-Schema hart → `_extract_json` ist für diese Agents überflüssig, die Bug-Klasse aus v2.6.21/.37/.73/.74 entfällt
+- Prompts sind statische Markdown-Dateien ohne `.format()`-Platzhalter (kein Escaping-Risiko mehr wie v2.6.41); Athletendaten gehen in die User-Message
+- Fallback: schlägt die Pipeline fehl, übernimmt automatisch der Monolith-Prompt. Ein Agent-Fehler blockiert den Morgen-Check nie.
+- `anthropic` auf `>=0.120.0` (für `output_config`)
+- Tests: `test_offline.py` (Schemas + Frontend-Vertrag), `test_wiring.py` (Verdrahtung mit Attrappen), `test_live.py` (5 Fixtures gegen die echte API)
 
 ### v2.6.97 — Repo-Hygiene
 `.gitignore` erweitert (`__pycache__/`, `*.py[cod]`, `.DS_Store`, `railway.log.json`, `*.log`), eingecheckte `.pyc` aus dem Index entfernt.
