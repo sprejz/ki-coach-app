@@ -19,6 +19,7 @@ from fastapi.templating import Jinja2Templates
 import anthropic
 
 from nutrition import nutrition_for_duration
+from training_load import compute_pmc, tage_bis, tss_pro_tag, wochenstruktur
 from translations import TRANSLATIONS
 
 # Agent-Pipeline (Sportmediziner + Wetter-Taktiker → Chefcoach). Import bewusst
@@ -31,7 +32,7 @@ except Exception as _agent_err:          # pragma: no cover
     _AGENTS_IMPORTABLE = False
     _AGENTS_IMPORT_ERROR = str(_agent_err)
 
-APP_VERSION = "2.6.99"
+APP_VERSION = "2.7.0"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1574,16 +1575,62 @@ async def tp_apply(request: Request):
     return {"ok": True, "actions": actions}
 
 
+_LOAD_CACHE: dict = {"ts": 0.0, "data": None, "woche": None}
+_LOAD_TTL = 21600  # 6h — CTL/ATL ändern sich nicht stündlich
+
+
+async def _fetch_training_load(athlete: dict):
+    """Holt 42 Tage TSS-Historie aus TP und rechnet CTL/ATL/TSB aus.
+
+    Gibt (load, woche) zurück, oder (None, None) wenn TP nicht erreichbar ist —
+    dann läuft der Check ohne Periodisierer weiter.
+    """
+    if not os.environ.get("TP_MCP_URL"):
+        return None, None
+    if _LOAD_CACHE["data"] and _time.time() - _LOAD_CACHE["ts"] < _LOAD_TTL:
+        return _LOAD_CACHE["data"], _LOAD_CACHE["woche"]
+
+    heute = date.today()
+    try:
+        roh = await call_tp_mcp("tp_get_workouts", {
+            "start_date": (heute - timedelta(days=42)).isoformat(),
+            "end_date": heute.isoformat(),
+            "type": "completed",
+        })
+    except Exception as e:
+        logger.warning("training_load: TP-Historie nicht abrufbar: %s", e)
+        return None, None
+
+    items = roh if isinstance(roh, list) else roh.get("workouts", roh.get("items", []))
+    load = compute_pmc(tss_pro_tag(items or []), bis=heute)
+
+    # Wochenplan aus dem bestehenden 7-Tage-Cache, kein zusätzlicher MCP-Call.
+    geplant = []
+    for i in range(7):
+        d = (heute + timedelta(days=i)).isoformat()
+        for w in (_tp_cache_get(d) or {}).get("workouts", []):
+            geplant.append({**w, "_day": d})
+    woche = wochenstruktur(geplant, ab=heute)
+
+    _LOAD_CACHE.update({"ts": _time.time(), "data": load, "woche": woche})
+    logger.info("training_load: CTL=%.1f ATL=%.1f TSB=%.1f ramp=%.1f (%d Tage mit Daten)",
+                load["ctl"], load["atl"], load["tsb"], load["ramp_7d"], load["tage_mit_daten"])
+    return load, woche
+
+
 async def _try_agent_check(*, athlete, baseline, weather, koerper, tp_workouts,
                            sleep, wasser_temp, tag):
     """Führt die Agent-Pipeline aus. Gibt None zurück, wenn sie fehlschlägt —
     dann übernimmt der alte Monolith-Prompt. Ein Fehler hier darf den
     Morgen-Check nie blockieren."""
     t0 = _time.time()
+    a_race = next_a_race(athlete)
+    # Belastungsdaten best-effort — ohne sie läuft der Check ohne Periodisierer.
+    load, woche = await _fetch_training_load(athlete)
     try:
         result = await _run_agent_check(
             athlete=athlete,
-            a_race=next_a_race(athlete),
+            a_race=a_race,
             baseline=baseline,
             koerper=koerper,
             weather_data=weather,
@@ -1591,6 +1638,9 @@ async def _try_agent_check(*, athlete, baseline, weather, koerper, tp_workouts,
             sleep=sleep,
             wasser_temp=wasser_temp,
             tag=tag,
+            load=load,
+            woche=woche,
+            tage_bis_a=tage_bis(a_race.get("date")) if a_race else None,
         )
     except Exception as e:
         logger.error("Agent-Pipeline fehlgeschlagen (%.1fs), Fallback auf Monolith: %s: %s",
@@ -1599,9 +1649,11 @@ async def _try_agent_check(*, athlete, baseline, weather, koerper, tp_workouts,
 
     result["weather"] = weather
     result["_pipeline"] = "agents"
-    logger.info("Agent-Pipeline ok in %.1fs: status=%s badges=%s",
+    block = (result.get("_agents") or {}).get("block")
+    logger.info("Agent-Pipeline ok in %.1fs: status=%s badges=%s block=%s",
                 _time.time() - t0, result.get("status"),
-                [s.get("badge") for s in result.get("sportarten", [])])
+                [s.get("badge") for s in result.get("sportarten", [])],
+                f"{block.get('phase')}/{block.get('spielraum')}" if block else "—")
     return result
 
 

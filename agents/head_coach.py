@@ -88,8 +88,20 @@ def _athlete_block(athlete: dict, a_race: Optional[dict]) -> str:
 
 
 def build_input(*, athlete: dict, a_race, medic: dict, wetter: dict,
-                tp_workouts: list, tag: str) -> str:
+                tp_workouts: list, tag: str, block: Optional[dict] = None) -> str:
     lines = [f"# Entscheidung für {tag}", "", _athlete_block(athlete, a_race)]
+
+    if block:
+        lines.append("\n## Urteil des Periodisierers")
+        lines.append(f"- Phase: {block.get('phase')}")
+        lines.append(f"- Woche: {block.get('wochenintention')}")
+        lines.append(f"- Rolle heute: **{block.get('heute_rolle')}** — {block.get('heute_begruendung')}")
+        lines.append(f"- Belastung: {block.get('belastungsurteil')}")
+        lines.append(f"- Spielraum: **{block.get('spielraum')}**")
+        if block.get("hinweis"):
+            lines.append(f"- Hinweis: {block['hinweis']}")
+        if block.get("warnung"):
+            lines.append(f"- ⚠️ WARNUNG: {block['warnung']}")
 
     lines.append("\n## Urteil des Sportmediziners")
     lines.append(f"- Gesamtlage: {medic.get('gesamturteil')}")
@@ -135,12 +147,12 @@ def build_input(*, athlete: dict, a_race, medic: dict, wetter: dict,
 
 
 def run(*, athlete: dict, a_race, medic: dict, wetter: dict, tp_workouts: list,
-        tag: str, model: str = HAIKU) -> dict:
+        tag: str, block: Optional[dict] = None, model: str = HAIKU) -> dict:
     return call_agent(
         prompt=load_prompt("head_coach"),
         schema=SCHEMA,
         user=build_input(athlete=athlete, a_race=a_race, medic=medic, wetter=wetter,
-                         tp_workouts=tp_workouts, tag=tag),
+                         tp_workouts=tp_workouts, tag=tag, block=block),
         model=model,
         max_tokens=8000,
         label="head_coach",

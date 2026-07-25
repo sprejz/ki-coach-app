@@ -30,6 +30,7 @@ if not os.environ.get("ANTHROPIC_API_KEY"):
     print("Den Key findest du in Railway unter Variables.")
     sys.exit(2)
 
+from agents import periodizer  # noqa: E402
 from agents.base import USAGE, AgentError, kosten  # noqa: E402
 from orchestrator import run_check  # noqa: E402
 from tests import fixtures as fx  # noqa: E402
@@ -153,15 +154,73 @@ async def lauf_fall(fall: dict) -> dict:
             "dauer": dauer, "badges": [s["badge"] for s in hc["sportarten"]]}
 
 
+async def lauf_block_fall(fall: dict) -> dict:
+    """Prüft den Periodisierer isoliert gegen eine Belastungslage."""
+    name = fall["name"]
+    print(f"\n{'═' * 72}\nPeriodisierer: {name}\n{'═' * 72}")
+    l = fall["load"]
+    print(f"{GRAU}   CTL {l['ctl']}  ATL {l['atl']}  TSB {l['tsb']}  "
+          f"Ramp {l['ramp_7d']}  ({l['tage_mit_daten']} Tage Daten, "
+          f"{fall['tage_bis_a']} Tage bis A-Rennen){RESET}")
+
+    t0 = time.monotonic()
+    b = await asyncio.to_thread(
+        periodizer.run, load=l, woche=fall["woche"], a_race=A_RACE,
+        naechste_rennen=[A_RACE], tage_bis_a=fall["tage_bis_a"],
+    )
+    dauer = time.monotonic() - t0
+
+    print(f"\n   Phase:        {b['phase']}")
+    print(f"   Woche:        {kuerze(b['wochenintention'], 160)}")
+    print(f"   Rolle heute:  {b['heute_rolle']} — {kuerze(b['heute_begruendung'], 140)}")
+    print(f"   Belastung:    {b['belastungsurteil']}")
+    print(f"   Spielraum:    {b['spielraum']}")
+    print(f"   Hinweis:      {kuerze(b['hinweis'], 200)}")
+    if b["warnung"]:
+        print(f"   {GELB}⚠ Warnung:    {kuerze(b['warnung'], 200)}{RESET}")
+
+    e = fall["erwartung"]
+    probleme = []
+    for feld in ("phase", "heute_rolle", "belastungsurteil", "spielraum"):
+        if feld in e and b[feld] not in e[feld]:
+            probleme.append(f"{feld}={b[feld]}, erwartet {e[feld]}")
+    if "warnung_leer" in e:
+        leer = not b["warnung"].strip()
+        if leer != e["warnung_leer"]:
+            probleme.append(
+                "Warnung erwartet, aber keine gesetzt" if not e["warnung_leer"]
+                else f"Warnung gesetzt, obwohl keine erwartet: {b['warnung'][:80]}"
+            )
+
+    if probleme:
+        print(f"\n   {ROT}✗ Erwartung verletzt:{RESET}")
+        for p in probleme:
+            print(f"     - {p}")
+    else:
+        print(f"\n   {GRUEN}✓ Alle Erwartungen erfüllt{RESET}")
+    return {"name": f"block/{name}", "probleme": probleme, "dauer": dauer,
+            "badges": [b["phase"], b["spielraum"]]}
+
+
 async def main():
     filter_ = sys.argv[1].lower() if len(sys.argv) > 1 else None
     faelle = [c for c in fx.CASES if not filter_ or filter_ in c["name"]]
-    if not faelle:
-        print(f"Kein Fall passt zu {filter_!r}. Verfügbar: {[c['name'] for c in fx.CASES]}")
+    block_faelle = [c for c in fx.BLOCK_FAELLE if not filter_ or filter_ in c["name"]]
+    if not faelle and not block_faelle:
+        alle = [c["name"] for c in fx.CASES] + [c["name"] for c in fx.BLOCK_FAELLE]
+        print(f"Kein Fall passt zu {filter_!r}. Verfügbar: {alle}")
         return 2
 
-    print(f"Live-Test: {len(faelle)} Fall/Fälle, Modell Haiku 4.5")
+    print(f"Live-Test: {len(faelle)} Check-Fälle + {len(block_faelle)} Block-Fälle, Haiku 4.5")
     ergebnisse = []
+    for fall in block_faelle:
+        try:
+            ergebnisse.append(await lauf_block_fall(fall))
+        except AgentError as err:
+            print(f"\n   {ROT}✗ Agent-Fehler: {err}{RESET}")
+            ergebnisse.append({"name": f"block/{fall['name']}", "probleme": [str(err)],
+                               "dauer": 0, "badges": []})
+
     for fall in faelle:
         try:
             ergebnisse.append(await lauf_fall(fall))

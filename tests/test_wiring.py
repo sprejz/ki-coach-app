@@ -18,9 +18,11 @@ os.environ.setdefault("ANTHROPIC_API_KEY", "dummy-fuer-test")
 import agents.architect as architect  # noqa: E402
 import agents.head_coach as head_coach  # noqa: E402
 import agents.medic as medic  # noqa: E402
+import agents.periodizer as periodizer  # noqa: E402
 import agents.weather as weather  # noqa: E402
 import app  # noqa: E402
 import orchestrator  # noqa: E402
+from tests import fixtures as fx  # noqa: E402
 
 fehler = []
 mitschrieb = {}
@@ -61,6 +63,12 @@ FAKE_ARCHITEKT = {
     "beschreibung": "40 min ganz locker (6:30–7:05/km)\nHITZE: 750ml/h",
     "dauer_min": 40, "tp_struktur": None, "distanz_m": None,
 }
+FAKE_BLOCK = {
+    "phase": "aufbau", "wochenintention": "Schwellenblock, zweite Woche",
+    "heute_rolle": "schluesseleinheit", "heute_begruendung": "einzige Intensität der Woche",
+    "belastungsurteil": "grenzwertig", "spielraum": "zuruecknehmen",
+    "hinweis": "Ramp Rate 9.4, TSB -34.6", "warnung": "Ramp Rate über 7",
+}
 
 
 def attrappe(name, antwort):
@@ -75,9 +83,16 @@ medic.run = attrappe("medic", FAKE_MEDIC)
 weather.run = attrappe("weather", FAKE_WETTER)
 head_coach.run = attrappe("head_coach", FAKE_COACH)
 architect.run = attrappe("architect", FAKE_ARCHITEKT)
+periodizer.run = attrappe("periodizer", FAKE_BLOCK)
 # Der Orchestrator hat die Module beim Import gebunden — Attrappen nachziehen.
 orchestrator.medic, orchestrator.weather = medic, weather
 orchestrator.head_coach, orchestrator.architect = head_coach, architect
+orchestrator.periodizer = periodizer
+
+# Kein TP-MCP im Test: Belastungsdaten werden direkt eingespeist.
+app._fetch_training_load = lambda athlete: asyncio.sleep(
+    0, result=(fx.LOAD_UEBERLASTET, fx.WOCHE_MIT_SCHLUESSELEINHEIT)
+)
 
 
 async def main():
@@ -109,6 +124,16 @@ async def main():
     pruefe(ergebnis is not None, "Pipeline liefert ein Ergebnis")
     pruefe(ergebnis.get("_pipeline") == "agents", "Antwort ist als Agent-Pfad markiert")
     pruefe(ergebnis.get("weather", {}).get("temp_max") == 31.0, "Wetter hängt an der Antwort")
+
+    print("\n=== Periodisierer ===")
+    p = mitschrieb["periodizer_last"]
+    pruefe(p["load"]["ramp_7d"] == 9.4, "Periodisierer bekommt die Belastungskennzahlen")
+    pruefe(len(p["woche"]) == 7, "Periodisierer bekommt die ganze Woche")
+    pruefe(p["tage_bis_a"] is not None, "Periodisierer bekommt den Abstand zum A-Rennen")
+    h_block = mitschrieb["head_coach_last"]["block"]
+    pruefe(h_block == FAKE_BLOCK, "Chefcoach bekommt den Blockkontext")
+    pruefe(ergebnis["_agents"]["block"]["spielraum"] == "zuruecknehmen",
+           "Blockurteil hängt am Ergebnis (für Debugging sichtbar)")
 
     print("\n=== Architekt läuft nur für MOD ===")
     pruefe(len(mitschrieb.get("architect", [])) == 1,
@@ -142,6 +167,24 @@ async def main():
     pruefe(h["wetter"] == FAKE_WETTER, "Chefcoach bekommt das Wetter-Urteil")
     pruefe(h["a_race"] and h["a_race"]["name"] == "Malbork", "Chefcoach bekommt das A-Rennen")
     pruefe("achilles_r" not in str(h.get("koerper", "")), "Chefcoach sieht KEINE Rohwerte mehr")
+
+    print("\n=== Ohne TP-Belastungsdaten ===")
+    mitschrieb.pop("periodizer", None)
+    app._fetch_training_load = lambda athlete: asyncio.sleep(0, result=(None, None))
+    ohne = await app._try_agent_check(
+        athlete={"name": "Hendrik", "races": [], "nutrition": {"rules": []}},
+        baseline=None, weather={"description": "Sonnig", "temp_max": 20.0},
+        koerper={"symptome": "keine"},
+        tp_workouts=[{"id": "1", "sport": "Run", "title": "Lauf", "duration_min": 40,
+                      "description": "40 min locker"}],
+        sleep=None, wasser_temp=None, tag="heute",
+    )
+    pruefe(ohne is not None, "Check läuft auch ohne Belastungsdaten durch")
+    pruefe("periodizer" not in mitschrieb,
+           "Periodisierer wird NICHT aufgerufen, wenn keine Daten da sind")
+    pruefe(mitschrieb["head_coach_last"]["block"] is None,
+           "Chefcoach bekommt block=None statt erfundener Zahlen")
+    pruefe(ohne["_agents"]["block"] is None, "Blockurteil ist None, nicht leer erfunden")
 
     print("\n=== Fallback bei Agent-Fehler ===")
     def kaputt(**kwargs):

@@ -3,21 +3,22 @@
 Der Kontrollfluss liegt hier, nicht bei den Agents — die Agents reden nicht
 miteinander, sie liefern typisierte Urteile an den Orchestrator zurück.
 
-    Mediziner ┐
-              ├─(parallel)─→ Chefcoach ─→ Architekt (nur MOD, parallel) ─→ Vertrag
-    Wetter    ┘
+    Mediziner    ┐
+    Wetter       ├─(parallel)─→ Chefcoach ─→ Architekt (nur MOD, parallel) ─→ Vertrag
+    Periodisierer┘
 
 Deterministisch, ohne Modell:
   - GO-Einheiten übernehmen die Original-Beschreibung unverändert
   - SKIP-Einheiten brauchen keine Beschreibung
   - Ernährung kommt aus der Tabelle in athlete.json, nach fertiger Dauer
+  - CTL/ATL/TSB werden in training_load.py ausgerechnet, nicht geschätzt
   - Schlaf-Flags, Baseline, Wetterschwellen, tp_apply liegen ohnehin in Code
 """
 import asyncio
 import logging
 from typing import Optional
 
-from agents import architect, head_coach, medic, weather
+from agents import architect, head_coach, medic, periodizer, weather
 from agents.base import HAIKU
 from nutrition import nutrition_for_duration
 
@@ -98,6 +99,9 @@ async def run_check(
     sleep: Optional[dict] = None,
     wasser_temp=None,
     tag: str = "morgen",
+    load: Optional[dict] = None,
+    woche: Optional[list] = None,
+    tage_bis_a: Optional[int] = None,
     model: str = HAIKU,
 ) -> dict:
     """Führt den kompletten Check aus und liefert den Frontend-Vertrag.
@@ -112,9 +116,9 @@ async def run_check(
     sportarten = [s for s in dict.fromkeys(sportarten) if s]
     titel = [w.get("title", "") for w in tp_workouts if w.get("title")]
 
-    # Stufe 1: die beiden Spezialisten sind unabhängig voneinander → parallel.
+    # Stufe 1: die Spezialisten sind voneinander unabhängig → parallel.
     # asyncio.to_thread, weil das anthropic-SDK hier synchron aufgerufen wird.
-    medic_result, weather_result = await asyncio.gather(
+    aufgaben = [
         asyncio.to_thread(
             medic.run, koerper=koerper, sportarten=sportarten,
             sleep=sleep, baseline=baseline, model=model,
@@ -124,17 +128,32 @@ async def run_check(
             swim_min_c=athlete.get("swim_outdoor_min_celsius", 15),
             wasser_temp=wasser_temp, tag=tag, model=model,
         ),
-    )
+    ]
+    # Der Periodisierer läuft nur mit Belastungsdaten — ohne TP-Historie hätte
+    # er nichts zu beurteilen und würde Zahlen erfinden.
+    mit_block = bool(load)
+    if mit_block:
+        aufgaben.append(asyncio.to_thread(
+            periodizer.run, load=load, woche=woche or [], a_race=a_race,
+            naechste_rennen=athlete.get("races"), tage_bis_a=tage_bis_a, model=model,
+        ))
+
+    ergebnis_spezialisten = await asyncio.gather(*aufgaben)
+    medic_result, weather_result = ergebnis_spezialisten[0], ergebnis_spezialisten[1]
+    block_result = ergebnis_spezialisten[2] if mit_block else None
+
     logger.info(
-        "orchestrator: medic=%s wetter=%s sportarten=%s",
-        medic_result.get("gesamturteil"), weather_result.get("gesamtlage"), sportarten,
+        "orchestrator: medic=%s wetter=%s block=%s sportarten=%s",
+        medic_result.get("gesamturteil"), weather_result.get("gesamtlage"),
+        f"{block_result.get('phase')}/{block_result.get('heute_rolle')}" if block_result else "—",
+        sportarten,
     )
 
     # Stufe 2: der Chefcoach entscheidet — ohne auszuformulieren.
     entscheidung = await asyncio.to_thread(
         head_coach.run,
         athlete=athlete, a_race=a_race, medic=medic_result, wetter=weather_result,
-        tp_workouts=tp_workouts, tag=tag, model=model,
+        tp_workouts=tp_workouts, tag=tag, block=block_result, model=model,
     )
 
     # Stufe 3: der Architekt formuliert die MOD-Einheiten aus — parallel.
@@ -160,5 +179,6 @@ async def run_check(
         "autosleep_summary": entscheidung.get("autosleep_summary"),
         "wetter_hinweis": entscheidung.get("wetter_hinweis", ""),
         "prep": entscheidung.get("prep", ""),
-        "_agents": {"medic": medic_result, "wetter": weather_result},
+        "_agents": {"medic": medic_result, "wetter": weather_result,
+                    "block": block_result},
     }

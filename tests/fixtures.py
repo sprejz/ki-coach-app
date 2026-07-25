@@ -59,6 +59,94 @@ TP_TAG_MIT_DREI = [
 ]
 
 
+# ── Belastungslagen für den Periodisierer ────────────────────────────────────
+# Gerechnet mit training_load.compute_pmc, nicht von Hand gesetzt.
+
+LOAD_AUFBAU = {          # harter Block, TSB tief, Ramp im Rahmen
+    "ctl": 78.4, "atl": 96.2, "tsb": -17.8, "ramp_7d": 3.1,
+    "ctl_vor_28d": 68.0, "tss_7d": 690, "tss_28d": 2340, "tage_mit_daten": 24,
+    "verlauf": [],
+}
+LOAD_UEBERLASTET = {     # Ramp Rate zu hoch, TSB sehr tief
+    "ctl": 84.1, "atl": 118.7, "tsb": -34.6, "ramp_7d": 9.4,
+    "ctl_vor_28d": 58.0, "tss_7d": 890, "tss_28d": 2980, "tage_mit_daten": 27,
+    "verlauf": [],
+}
+LOAD_TAPER = {           # Umfang runter, Frische kommt
+    "ctl": 71.2, "atl": 52.0, "tsb": 19.2, "ramp_7d": -4.8,
+    "ctl_vor_28d": 82.0, "tss_7d": 310, "tss_28d": 1780, "tage_mit_daten": 21,
+    "verlauf": [],
+}
+LOAD_DUENN = {           # kaum Daten — Kennzahlen unbrauchbar
+    "ctl": 12.3, "atl": 18.1, "tsb": -5.8, "ramp_7d": 1.2,
+    "ctl_vor_28d": 4.0, "tss_7d": 140, "tss_28d": 260, "tage_mit_daten": 3,
+    "verlauf": [],
+}
+
+WOCHE_MIT_SCHLUESSELEINHEIT = [
+    {"datum": "2026-07-26", "wochentag": "Sonntag", "ist_heute": True,
+     "einheiten": [{"sport": "Run", "titel": "Schwellenlauf 4×8min",
+                    "dauer_min": 60, "tss": 75}], "tss_summe": 75},
+    {"datum": "2026-07-27", "wochentag": "Montag", "ist_heute": False,
+     "einheiten": [], "tss_summe": 0},
+    {"datum": "2026-07-28", "wochentag": "Dienstag", "ist_heute": False,
+     "einheiten": [{"sport": "Swim", "titel": "Technik", "dauer_min": 45, "tss": 35}],
+     "tss_summe": 35},
+    {"datum": "2026-07-29", "wochentag": "Mittwoch", "ist_heute": False,
+     "einheiten": [{"sport": "Bike", "titel": "GA1", "dauer_min": 90, "tss": 65}],
+     "tss_summe": 65},
+    {"datum": "2026-07-30", "wochentag": "Donnerstag", "ist_heute": False,
+     "einheiten": [], "tss_summe": 0},
+    {"datum": "2026-07-31", "wochentag": "Freitag", "ist_heute": False,
+     "einheiten": [{"sport": "Run", "titel": "Lockerer Dauerlauf",
+                    "dauer_min": 40, "tss": 35}], "tss_summe": 35},
+    {"datum": "2026-08-01", "wochentag": "Samstag", "ist_heute": False,
+     "einheiten": [{"sport": "Bike", "titel": "Lange Ausfahrt 4h",
+                    "dauer_min": 240, "tss": 180}], "tss_summe": 180},
+]
+
+A_RACE_MALBORK = {"name": "Castle Triathlon Malbork", "date": "2026-09-06",
+                  "priority": "A", "goal_total": "10:50"}
+
+BLOCK_FAELLE = [
+    {
+        "name": "aufbau_43_tage_vor_a_rennen",
+        "load": LOAD_AUFBAU, "woche": WOCHE_MIT_SCHLUESSELEINHEIT, "tage_bis_a": 43,
+        "erwartung": {
+            "phase": ["aufbau", "spitze"],
+            "heute_rolle": ["schluesseleinheit"],
+            "spielraum": ["halten", "ausbauen"],
+            "warnung_leer": True,
+        },
+    },
+    {
+        "name": "ueberlastet_ramp_9_tsb_minus35",
+        "load": LOAD_UEBERLASTET, "woche": WOCHE_MIT_SCHLUESSELEINHEIT, "tage_bis_a": 43,
+        "erwartung": {
+            "belastungsurteil": ["ueberlastet", "grenzwertig"],
+            "spielraum": ["zuruecknehmen"],
+            "warnung_leer": False,
+        },
+    },
+    {
+        "name": "taper_10_tage_vor_a_rennen",
+        "load": LOAD_TAPER, "woche": WOCHE_MIT_SCHLUESSELEINHEIT, "tage_bis_a": 10,
+        "erwartung": {
+            "phase": ["taper", "wettkampfwoche"],
+            "spielraum": ["halten", "zuruecknehmen"],
+        },
+    },
+    {
+        "name": "duenne_datenlage",
+        "load": LOAD_DUENN, "woche": WOCHE_MIT_SCHLUESSELEINHEIT, "tage_bis_a": 43,
+        "erwartung": {
+            # Bei 3 Tagen Daten darf er keine Überlastung diagnostizieren
+            "belastungsurteil": ["zu_wenig", "im_rahmen"],
+        },
+    },
+]
+
+
 CASES = [
     {
         "name": "gesund_mild_intervall",

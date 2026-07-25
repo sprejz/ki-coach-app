@@ -11,9 +11,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from agents import architect, head_coach, medic, weather  # noqa: E402
+from datetime import date, timedelta  # noqa: E402
+
+from agents import architect, head_coach, medic, periodizer, weather  # noqa: E402
 from orchestrator import _baue_einheit, normalize_sport  # noqa: E402
 from tests import fixtures as fx  # noqa: E402
+from training_load import compute_pmc, tage_bis, tss_pro_tag, wochenstruktur  # noqa: E402
 
 fehler = []
 
@@ -50,9 +53,50 @@ def validiere_schema(schema, pfad="root"):
         validiere_schema(variante, f"{pfad}|anyOf")
 
 
+print("\n=== Belastungsmathematik (training_load.py) ===")
+HEUTE = date(2026, 7, 25)
+
+konstant = compute_pmc({(HEUTE - timedelta(days=i)).isoformat(): 70.0
+                        for i in range(120)}, bis=HEUTE)
+pruefe(abs(konstant["atl"] - 70.0) < 0.5,
+       f"Dauerbelastung 70 TSS/Tag → ATL konvergiert gegen 70 (ist {konstant['atl']})")
+pruefe(konstant["ctl"] < konstant["atl"],
+       "CTL bleibt bei steigender Last unter ATL (42d träger als 7d)")
+pruefe(konstant["tsb"] < 0, f"Dauerbelastung → TSB negativ (ist {konstant['tsb']})")
+
+taper = compute_pmc({(HEUTE - timedelta(days=i)).isoformat(): (0.0 if i < 21 else 70.0)
+                     for i in range(120)}, bis=HEUTE)
+pruefe(taper["tsb"] > 25, f"3 Wochen Pause → TSB deutlich positiv (ist {taper['tsb']})")
+pruefe(taper["atl"] < 5, f"3 Wochen Pause → ATL fast null (ist {taper['atl']})")
+pruefe(taper["ctl"] < konstant["ctl"], "Pause baut CTL ab")
+
+leer = compute_pmc({}, bis=HEUTE)
+pruefe(leer["ctl"] == 0.0 and leer["tsb"] == 0.0, "Keine Daten → alle Werte 0, kein Absturz")
+pruefe(leer["tage_mit_daten"] == 0, "Keine Daten → tage_mit_daten = 0")
+
+roh = [{"workoutDay": "2026-07-24T00:00:00", "tssActual": 60, "tssPlanned": 999},
+       {"date": "2026-07-24", "tss": 40},
+       {"workoutDay": "2026-07-23", "tssActual": None, "tssPlanned": 50},
+       {"workoutDay": "", "tssActual": 100}]
+pt = tss_pro_tag(roh)
+pruefe(pt.get("2026-07-24") == 100.0, "TSS wird pro Tag summiert (60 + 40)")
+pruefe(pt.get("2026-07-23") == 50.0, "Ohne Ist-Wert zählt der Planwert")
+pruefe("" not in pt and len(pt) == 2, "Einträge ohne Datum werden verworfen")
+
+woche = wochenstruktur([{"_day": HEUTE.isoformat(), "sport": "Run", "title": "X", "tss": 75}],
+                       ab=HEUTE)
+pruefe(len(woche) == 7, "Wochenstruktur umfasst 7 Tage")
+pruefe(woche[0]["ist_heute"] and not woche[1]["ist_heute"], "Nur der erste Tag ist 'heute'")
+pruefe(woche[0]["tss_summe"] == 75, "TSS-Summe pro Tag stimmt")
+pruefe(woche[3]["einheiten"] == [], "Tage ohne Einheiten bleiben leer")
+pruefe(tage_bis("2026-09-06", ab=HEUTE) == 43, "Tage bis Malbork: 43")
+pruefe(tage_bis("", ab=HEUTE) is None and tage_bis("kaputt", ab=HEUTE) is None,
+       "Ungültiges Datum → None statt Absturz")
+
 print("\n=== Schemas ===")
 for name, schema in [("medic", medic.SCHEMA), ("weather", weather.SCHEMA),
-                     ("head_coach", head_coach.SCHEMA), ("architect", architect.SCHEMA)]:
+                     ("head_coach", head_coach.SCHEMA), ("architect", architect.SCHEMA),
+                     ("periodizer", periodizer.SCHEMA)]:
     vorher = len(fehler)
     validiere_schema(schema, name)
     pruefe(len(fehler) == vorher, f"{name}.SCHEMA ist gültig")
@@ -148,6 +192,41 @@ arch_in = architect.build_input(
                            "hinweis": "Start vor 09:00"}},
     wetter_zeile="Sonnig, 19–31 °C, Regen 5 %",
 )
+per_in = periodizer.build_input(
+    load=fx.LOAD_UEBERLASTET, woche=fx.WOCHE_MIT_SCHLUESSELEINHEIT,
+    a_race=fx.A_RACE_MALBORK, naechste_rennen=[fx.A_RACE_MALBORK], tage_bis_a=43,
+)
+pruefe("Ramp Rate (CTL-Zuwachs letzte 7 Tage): 9.4" in per_in, "Periodisierer sieht die Ramp Rate")
+pruefe("TSB (Frische): -34.6" in per_in, "Periodisierer sieht den TSB")
+pruefe("noch 43 Tage" in per_in, "Periodisierer sieht den Abstand zum A-Rennen")
+pruefe("← HEUTE" in per_in, "Periodisierer erkennt, welcher Tag heute ist")
+pruefe("Lange Ausfahrt 4h" in per_in, "Periodisierer sieht die ganze Woche, nicht nur heute")
+pruefe("Tage mit Trainingsdaten im Zeitraum: 27" in per_in,
+       "Periodisierer sieht die Datenlage (kann Belastbarkeit einschätzen)")
+
+hc_mit_block = head_coach.build_input(
+    athlete={"name": "H"}, a_race=fx.A_RACE_MALBORK,
+    medic={"gesamturteil": "frei", "sportarten": []},
+    wetter={"gesamtlage": "unkritisch", "sportarten": []},
+    tp_workouts=[], tag="heute",
+    block={"phase": "aufbau", "wochenintention": "Schwellenblock",
+           "heute_rolle": "schluesseleinheit", "heute_begruendung": "einzige Intensität",
+           "belastungsurteil": "grenzwertig", "spielraum": "zuruecknehmen",
+           "hinweis": "Ramp 9.4", "warnung": "Ramp Rate über 7"},
+)
+pruefe("**schluesseleinheit**" in hc_mit_block, "Chefcoach sieht die Rolle des Tages")
+pruefe("**zuruecknehmen**" in hc_mit_block, "Chefcoach sieht den Spielraum")
+pruefe("WARNUNG: Ramp Rate über 7" in hc_mit_block, "Chefcoach sieht die Warnung")
+
+hc_ohne_block = head_coach.build_input(
+    athlete={"name": "H"}, a_race=None,
+    medic={"gesamturteil": "frei", "sportarten": []},
+    wetter={"gesamtlage": "unkritisch", "sportarten": []},
+    tp_workouts=[], tag="heute", block=None,
+)
+pruefe("Periodisierer" not in hc_ohne_block,
+       "Ohne Belastungsdaten steht nichts vom Periodisierer im Prompt")
+
 pruefe("Zieldauer: 45 min" in arch_in, "Architekt bekommt die Zieldauer")
 pruefe("Kein Tempo" in arch_in, "Architekt bekommt die Tempo-Sperre")
 pruefe("Start vor 09:00" in arch_in, "Architekt bekommt den Zusatzhinweis")

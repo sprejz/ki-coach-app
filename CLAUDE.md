@@ -1,4 +1,4 @@
-# KI Coach App — v2.6.99
+# KI Coach App — v2.7.0
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -31,12 +31,13 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.6.99)
+├── CLAUDE.md            ← diese Datei (v2.7.0)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
 ├── orchestrator.py      ← Kontrollfluss der Agent-Pipeline
 ├── nutrition.py         ← Ernährungstabelle (deterministisch, von beiden Pfaden genutzt)
-├── agents/              ← base, medic, weather, head_coach, architect
-├── prompts/de/          ← statische Agent-Prompts (medic/weather/head_coach/architect.md)
+├── training_load.py     ← CTL/ATL/TSB aus der TSS-Historie (deterministisch)
+├── agents/              ← base, medic, weather, periodizer, head_coach, architect
+├── prompts/de/          ← statische Agent-Prompts, einer je Agent
 ├── tests/               ← fixtures.py, test_offline.py, test_wiring.py, test_live.py
 ├── translations.py      ← UI-Texte + Monolith-Prompts (de/en)
 ├── templates/
@@ -336,6 +337,14 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.7.0 — Periodisierer (Stufe 4)
+Die App denkt erstmals in Wochen statt nur in Tagen.
+
+- **`training_load.py`** rechnet CTL/ATL/TSB aus der TSS-Historie (42 Tage `completed` aus TP). Der MCP liefert kein fertiges PMC, aber `tssActual` pro Workout reicht für die Standardformeln. Deterministisch — ein Modell könnte hier nur Zahlen halluzinieren. Zusätzlich: Ramp Rate, 7d/28d-TSS, Wochenstruktur, Tage bis A-Rennen.
+- **Periodisierer** (`agents/periodizer.py`) — liest Kennzahlen, Wochenplan und Renndatum und liefert `phase` (grundlage/aufbau/spitze/taper/wettkampfwoche/erholung), `heute_rolle` (schluesseleinheit/unterstuetzung/erholung/ruhetag/wettkampf), `belastungsurteil`, `spielraum` und optional eine `warnung`. Läuft **parallel** zu Mediziner und Wetter.
+- **Chefcoach** wägt damit anders ab: eine `schluesseleinheit` wird bei nur `reduziert` gerettet statt gestrichen, eine `unterstuetzung` darf großzügig fallen, bei `zuruecknehmen` greift er das auf, auch wenn Körper und Wetter unauffällig sind. Rangfolge bleibt: **Mediziner schlägt Periodisierer** — Form lässt sich nachholen, eine Achillessehne nicht.
+- **Ohne TP-Daten läuft alles weiter** — der Periodisierer wird dann gar nicht erst aufgerufen und der Chefcoach bekommt `block=None` statt erfundener Zahlen. Belastungsdaten sind 6 h gecacht.
 
 ### v2.6.99 — Workout-Architekt (Stufe 3)
 Der Chefcoach entscheidet nur noch, das Ausformulieren übernimmt ein eigener Agent.
