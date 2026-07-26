@@ -34,7 +34,7 @@ except Exception as _agent_err:          # pragma: no cover
     _AGENTS_IMPORTABLE = False
     _AGENTS_IMPORT_ERROR = str(_agent_err)
 
-APP_VERSION = "2.7.4"
+APP_VERSION = "2.7.5"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1676,6 +1676,27 @@ async def _fetch_training_load(athlete: dict):
     logger.info("training_load: CTL=%.1f ATL=%.1f TSB=%.1f ramp=%.1f (%d Tage mit Daten)",
                 load["ctl"], load["atl"], load["tsb"], load["ramp_7d"], load["tage_mit_daten"])
     return load, woche
+
+
+@app.get("/api/load")
+async def api_load():
+    """CTL/ATL/TSB + Wochenstruktur — bisher nur intern für den Periodisierer.
+
+    Als Endpoint nach außen gelegt, damit der MCP-Server (v2.7.5) die
+    Belastungslage abfragen kann, ohne app.py zu importieren.
+    """
+    athlete = await load_athlete_merged()
+    load, woche = await _fetch_training_load(athlete)
+    if not load:
+        return JSONResponse({"available": False}, headers=_NO_CACHE)
+    a_race = next_a_race(athlete)
+    return JSONResponse({
+        "available": True,
+        **load,
+        "woche": woche,
+        "tage_bis_a_rennen": tage_bis(a_race.get("date")) if a_race else None,
+        "a_rennen": a_race.get("name") if a_race else None,
+    }, headers=_NO_CACHE)
 
 
 async def _try_agent_check(*, athlete, baseline, weather, koerper, tp_workouts,

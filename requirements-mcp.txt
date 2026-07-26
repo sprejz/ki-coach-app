@@ -1,0 +1,7 @@
+# Nur für den lokalen MCP-Server (coach_mcp.py) auf dem Mac.
+# Bewusst getrennt von requirements.txt — auf Railway läuft der MCP-Server nicht,
+# und mcp+httpx dort mitzuschleppen würde das Image ohne Nutzen vergrößern.
+# httpx ist bewusst nicht gepinnt: mcp braucht eine neuere Version als das
+# httpx==0.27.0 aus requirements.txt und bringt sie selbst mit.
+mcp>=1.28.0
+httpx

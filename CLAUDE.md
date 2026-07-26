@@ -1,4 +1,4 @@
-# KI Coach App — v2.7.4
+# KI Coach App — v2.7.5
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -31,8 +31,10 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.7.4)
+├── CLAUDE.md            ← diese Datei (v2.7.5)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
+├── coach_mcp.py         ← MCP-Server (lokal, stdio) für Claude Desktop + Claude Code
+├── requirements-mcp.txt ← nur für coach_mcp.py, eigenes venv (.venv-mcp)
 ├── orchestrator.py      ← Kontrollfluss der Agent-Pipeline
 ├── nutrition.py         ← Ernährungstabelle (deterministisch, von beiden Pfaden genutzt)
 ├── training_load.py     ← CTL/ATL/TSB aus der TSS-Historie (deterministisch)
@@ -246,6 +248,7 @@ JSON wird über `_extract_json()` robust geparst (Markdown-Fences, `raw_decode` 
 |---|---|
 | `GET /` | Frontend (no-cache Header) |
 | `GET /api/version` | Version + Pipeline-Diagnose (`agents`: importable/enabled/env/import_error/anthropic_version) |
+| `GET /api/load` | CTL/ATL/TSB + Wochenstruktur + Tage bis A-Rennen (für den MCP-Server) |
 | `GET /api/startup` | Wetter heute + morgen parallel |
 | `GET /manifest.json` | PWA-Manifest |
 | `GET /api/athlete` · `POST /api/athlete/update` | Profil lesen/schreiben (GET inkl. TP-Rennen) |
@@ -340,6 +343,28 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.7.5 — Der Coach ist aus Claude Desktop und Claude Code abfragbar
+Ein MCP-Server macht die App außerhalb der PWA nutzbar. **`coach_mcp.py` läuft lokal auf dem Mac über stdio** und spricht die Railway-App per HTTPS an — bewusst *nicht* als Endpoint in `app.py`: ein öffentlicher MCP-Server wäre eine zweite ungesicherte Angriffsfläche, solange es kein Auth gibt.
+
+**Acht Tools, zwei Sorten:**
+- **Datentools** — `training(tag)` · `belastung()` · `erholung()` · `wetter(tag)` · `profil()` · `einheiten_historie(tage)` · `app_status()`. Liefern Rohdaten; das Modell in Desktop/Code denkt selbst darüber nach und ist stärker als das Haiku hinter dem App-Chat.
+- **`coach_frage(frage)`** — fragt den Coach der App selbst, mit dem getunten Sportmediziner-Prompt. Jeder Aufruf steht für sich (keine Historie), nötiger Kontext gehört in den Fragetext.
+
+Die Tool-Beschreibungen tragen die Auslegungsregeln mit: `erholung` warnt explizit, dass **Schlafdauer kein Entscheidungsfaktor** ist, `belastung` nennt die TSB- und Ramp-Rate-Schwellen. Ohne das würde ein Modell ohne Projektkontext falsche Schlüsse ziehen.
+
+**Neu im Backend:** `GET /api/load` legt CTL/ATL/TSB offen — bisher lief das nur intern zum Periodisierer. Ohne TP liefert es `{"available": false}` statt zu failen.
+
+**Kein `mcp` in `requirements.txt`.** Das Paket zieht ein neueres `starlette` nach, als `fastapi 0.111` erlaubt — es in den Railway-Build zu legen würde die App brechen. Deshalb `requirements-mcp.txt` und ein eigenes venv `.venv-mcp` (gitignored). Der Wiring-Test importiert `coach_mcp` bewusst nicht und prüft nur die Quelle.
+
+**Nur lesend.** Keine Schreibzugriffe auf TrainingPeaks über MCP — `tp/apply` bleibt der PWA vorbehalten.
+
+Einrichten:
+```
+python3 -m venv .venv-mcp && .venv-mcp/bin/pip install -r requirements-mcp.txt
+claude mcp add -s user ki-coach -- <abs>/.venv-mcp/bin/python <abs>/coach_mcp.py
+```
+Claude Desktop: Eintrag unter `mcpServers` in `~/Library/Application Support/Claude/claude_desktop_config.json` (`command` = venv-Python, `args` = `[coach_mcp.py]`), danach Desktop neu starten. Andere App-URL → `COACH_URL` setzen.
 
 ### v2.7.4 — Checks laufen als Hintergrund-Job
 Die Agent-Pipeline braucht 11–19 s. Ein so lange offener Request überlebt weder Proxy-Timeouts noch wechselnden Mobilfunk — dieselbe Begründung wie beim Analyse-Tab in v2.6.5.

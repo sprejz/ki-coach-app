@@ -333,6 +333,31 @@ async def main():
     pruefe(set(echte_stufen) <= set(orchestrator.STUFEN),
            "es werden nur bekannte Stufen gemeldet")
 
+    # v2.7.5: MCP-Server für Claude Desktop / Claude Code.
+    # coach_mcp.py wird hier absichtlich NICHT importiert — das mcp-Paket zieht
+    # ein neueres starlette nach, als fastapi 0.111 erlaubt. Deshalb ein eigenes
+    # venv (.venv-mcp) und hier nur Quellcode-Prüfungen.
+    print("\n=== MCP-Server (v2.7.5) ===")
+    pruefe(hasattr(app, "api_load"), "/api/load existiert (Belastung für den MCP)")
+    load_quelle = inspect.getsource(app.api_load)
+    pruefe('"available": False' in load_quelle,
+           "/api/load liefert available=False statt zu failen, wenn TP fehlt")
+    pruefe("erfundene" not in load_quelle and "_fetch_training_load" in load_quelle,
+           "/api/load nutzt die deterministische Berechnung, nicht ein Modell")
+
+    _MCP = (_WURZEL / "coach_mcp.py").read_text(encoding="utf-8")
+    for werkzeug in ("training", "belastung", "erholung", "wetter", "profil",
+                     "einheiten_historie", "coach_frage", "app_status"):
+        pruefe(f"async def {werkzeug}(" in _MCP, f"MCP-Tool '{werkzeug}' ist definiert")
+    pruefe('transport="stdio"' in _MCP,
+           "MCP läuft über stdio — keine neue öffentliche Angriffsfläche")
+    pruefe("Schlafdauer" in _MCP,
+           "erholung-Tool warnt, dass Schlafdauer kein Entscheidungsfaktor ist")
+    # Getrennte Requirements: mcp auf Railway mitzuschleppen bricht starlette.
+    pruefe((_WURZEL / "requirements-mcp.txt").exists(), "requirements-mcp.txt existiert")
+    pruefe("mcp" not in (_WURZEL / "requirements.txt").read_text(encoding="utf-8"),
+           "mcp steht NICHT in der Railway-requirements.txt")
+
     print(f"\n{'=' * 44}")
     if fehler:
         print(f"FEHLGESCHLAGEN — {len(fehler)} Problem(e)")
