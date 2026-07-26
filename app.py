@@ -5,6 +5,7 @@ import re
 import csv
 import io
 import logging
+import shutil
 import statistics
 import uuid
 import threading
@@ -34,7 +35,7 @@ except Exception as _agent_err:          # pragma: no cover
     _AGENTS_IMPORTABLE = False
     _AGENTS_IMPORT_ERROR = str(_agent_err)
 
-APP_VERSION = "2.7.5"
+APP_VERSION = "2.7.6"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -411,9 +412,48 @@ def parse_fit_summary(fit_bytes: bytes) -> dict:
     except Exception as e:
         logger.warning("FIT parse error: %s", e)
         return {}
-ATHLETE_FILE = BASE_DIR / "athlete.json"
-BASELINE_FILE = BASE_DIR / "baseline.json"
-SLEEP_HISTORY_FILE = BASE_DIR / "sleep_history.json"
+# Schreibbarer Zustand liegt in DATA_DIR (v2.7.6). Railway-Container haben ein
+# flüchtiges Dateisystem: ohne Volume waren Profil-Änderungen, eine neu
+# berechnete Baseline und der Schlafverlauf nach jedem Deploy wieder weg.
+# Default = Repo-Verzeichnis, damit lokal alles unverändert läuft.
+DATA_DIR = Path(os.environ.get("DATA_DIR", "").strip() or BASE_DIR)
+_STATE_FILES = ("athlete.json", "baseline.json", "sleep_history.json")
+
+
+def _init_data_dir() -> dict:
+    """Legt DATA_DIR an und kopiert fehlende Zustandsdateien einmalig aus dem Repo.
+
+    Ohne dieses Seeding wäre ein frisches Volume leer und die App hätte kein
+    Athletenprofil — `load_athlete()` würde beim ersten Request fehlschlagen.
+    """
+    info = {"dir": str(DATA_DIR), "persistent": DATA_DIR.resolve() != BASE_DIR.resolve(),
+            "seeded": [], "writable": False, "error": None}
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        for name in _STATE_FILES:
+            ziel, quelle = DATA_DIR / name, BASE_DIR / name
+            if not ziel.exists() and quelle.exists() and ziel != quelle:
+                shutil.copyfile(quelle, ziel)
+                info["seeded"].append(name)
+        probe = DATA_DIR / ".write_probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+        info["writable"] = True
+    except Exception as e:                      # pragma: no cover
+        info["error"] = f"{type(e).__name__}: {e}"
+        logger.error("DATA_DIR %s nicht nutzbar: %s", DATA_DIR, e)
+    if info["seeded"]:
+        logger.info("DATA_DIR %s initialisiert, kopiert: %s", DATA_DIR, info["seeded"])
+    logger.info("DATA_DIR=%s persistent=%s writable=%s",
+                DATA_DIR, info["persistent"], info["writable"])
+    return info
+
+
+_STORAGE = _init_data_dir()
+
+ATHLETE_FILE = DATA_DIR / "athlete.json"
+BASELINE_FILE = DATA_DIR / "baseline.json"
+SLEEP_HISTORY_FILE = DATA_DIR / "sleep_history.json"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
@@ -962,7 +1002,10 @@ async def index(request: Request):
 
 @app.get("/api/version")
 async def api_version():
-    return {"version": APP_VERSION, "agents": agents_status()}
+    # storage: ohne Volume ist `persistent` false und jeder Deploy verliert
+    # Profil, Baseline und Schlafverlauf. Genau wie beim agents-Block soll das
+    # ohne Railway-Log sichtbar sein.
+    return {"version": APP_VERSION, "agents": agents_status(), "storage": _STORAGE}
 
 
 

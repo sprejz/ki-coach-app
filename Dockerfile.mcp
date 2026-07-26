@@ -1,0 +1,16 @@
+# Eigenes Image für den MCP-Server (v2.7.6).
+#
+# Getrennt vom App-Image, weil `mcp` ein neueres `starlette` verlangt als
+# `fastapi 0.111`. Ein gemeinsames Image würde einen FastAPI-Sprung in der App
+# erzwingen — die entscheidet morgens um 6 über echtes Training, deshalb bleibt
+# sie unangetastet.
+#
+# In Railway als zweiter Service anlegen, gleiches Repo, und
+# RAILWAY_DOCKERFILE_PATH=Dockerfile.mcp setzen.
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements-mcp.txt .
+RUN pip install --no-cache-dir -r requirements-mcp.txt uvicorn
+COPY coach_mcp.py .
+ENV MCP_TRANSPORT=http
+CMD ["sh", "-c", "python coach_mcp.py"]

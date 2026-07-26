@@ -1,9 +1,17 @@
 """MCP-Server für den KI Coach — macht den Coach in Claude Desktop und Claude Code abfragbar.
 
-Läuft **lokal auf Hendriks Mac** über stdio und spricht die Railway-App per
-HTTPS an. Bewusst nicht als Endpoint in app.py: ein öffentlich erreichbarer
-MCP-Server wäre eine zweite ungesicherte Angriffsfläche (die App hat kein Auth,
-siehe CLAUDE.md → Offene Punkte). Über stdio entsteht keine neue.
+Zwei Betriebsarten, **dieselben Tools**:
+
+- **stdio** (Default) — läuft lokal auf dem Mac. Keine offene Fläche, kein Token.
+- **streamable-http** (`MCP_TRANSPORT=http`) — eigener Railway-Service, aus dem
+  Internet erreichbar. **Erfordert `MCP_TOKEN`**, sonst startet der Server nicht:
+  ohne Token hätte jeder Zugriff auf die Gesundheitsdaten und könnte über
+  `coach_frage` den Anthropic-Key verbrennen.
+
+Läuft absichtlich **nicht** in app.py mit: `mcp` verlangt ein neueres `starlette`,
+als `fastapi 0.111` erlaubt. Ein gemeinsames Image würde einen FastAPI-Sprung in
+der App erzwingen, die morgens um 6 über echtes Training entscheidet. Eigener
+Service heißt: die App wird nicht angefasst, und Abschalten ist ein Klick.
 
 Zwei Sorten Tools:
   - **Datentools** (`training`, `belastung`, `erholung`, `wetter`, `profil`,
@@ -13,16 +21,17 @@ Zwei Sorten Tools:
   - **`coach_frage`** fragt den Coach der App selbst. Der antwortet mit dem
     getunten Sportmediziner-Prompt aus translations.py, dafür über Haiku.
 
-Start:
-    COACH_URL=https://ki-coach-app-production.up.railway.app python coach_mcp.py
+Start lokal (stdio):
+    python coach_mcp.py
 
-Einrichten (Claude Code):
-    claude mcp add -s user ki-coach -- /pfad/zu/.venv/bin/python /pfad/zu/coach_mcp.py
+Start als Web-Service:
+    MCP_TRANSPORT=http MCP_TOKEN=<geheim> PORT=8000 python coach_mcp.py
 
-Einrichten (Claude Desktop): siehe CLAUDE.md → MCP-Server.
+Einrichten: siehe CLAUDE.md → MCP-Server.
 """
 import json
 import os
+import secrets
 import sys
 
 import httpx
@@ -33,7 +42,9 @@ COACH_URL = os.environ.get(
 ).rstrip("/")
 TIMEOUT = float(os.environ.get("COACH_MCP_TIMEOUT", "60"))
 
-mcp = FastMCP("ki-coach")
+# stateless_http: jeder Request steht für sich. Hinter dem Railway-Proxy ist das
+# robuster als serverseitige Sessions, und die Tools brauchen keinen Zustand.
+mcp = FastMCP("ki-coach", stateless_http=True)
 
 
 async def _get(pfad: str, **params) -> dict:
@@ -195,6 +206,70 @@ async def app_status() -> str:
     return json.dumps({"url": COACH_URL, **daten}, ensure_ascii=False, indent=2)
 
 
+def _bearer(scope) -> str:
+    for key, value in scope.get("headers") or []:
+        if key == b"authorization":
+            roh = value.decode("latin-1").strip()
+            return roh[7:].strip() if roh[:7].lower() == "bearer " else ""
+    return ""
+
+
+async def _antwort(send, status: int, text: str) -> None:
+    body = text.encode("utf-8")
+    await send({"type": "http.response.start", "status": status,
+                "headers": [(b"content-type", b"text/plain; charset=utf-8"),
+                            (b"content-length", str(len(body)).encode())]})
+    await send({"type": "http.response.body", "body": body})
+
+
+def build_http_app(token: str):
+    """Streamable-HTTP-App mit Bearer-Token davor.
+
+    Bewusst rohes ASGI statt Starlette-Middleware: unabhängig von der
+    starlette-Version, die `mcp` gerade mitbringt. `/health` bleibt offen, damit
+    der Railway-Healthcheck ohne Token durchkommt — er verrät nichts.
+    """
+    inner = mcp.streamable_http_app()
+
+    async def app(scope, receive, send):
+        if scope["type"] != "http":
+            await inner(scope, receive, send)          # lifespan, websocket
+            return
+        if scope.get("path", "").rstrip("/") == "/health":
+            await _antwort(send, 200, "ok")
+            return
+        # compare_digest: kein Timing-Seitenkanal beim Token-Vergleich.
+        if not secrets.compare_digest(_bearer(scope), token):
+            await _antwort(send, 401, "Unauthorized — Bearer-Token fehlt oder falsch.")
+            return
+        await inner(scope, receive, send)
+
+    return app
+
+
+def main() -> None:
+    transport = os.environ.get("MCP_TRANSPORT", "stdio").strip().lower()
+    if transport in ("stdio", ""):
+        print(f"ki-coach MCP (stdio) → {COACH_URL}", file=sys.stderr)
+        mcp.run(transport="stdio")
+        return
+    if transport not in ("http", "streamable-http"):
+        raise SystemExit(f"MCP_TRANSPORT='{transport}' unbekannt — 'stdio' oder 'http'.")
+
+    token = os.environ.get("MCP_TOKEN", "").strip()
+    if len(token) < 32:
+        raise SystemExit(
+            "MCP_TOKEN fehlt oder ist zu kurz (mindestens 32 Zeichen). Der Server "
+            "wäre sonst öffentlich: Gesundheitsdaten lesbar und der Anthropic-Key "
+            "über coach_frage nutzbar. Token erzeugen: python -c "
+            "\"import secrets;print(secrets.token_urlsafe(32))\""
+        )
+
+    import uvicorn
+    port = int(os.environ.get("PORT", "8000"))
+    print(f"ki-coach MCP (http) auf :{port} → {COACH_URL}", file=sys.stderr)
+    uvicorn.run(build_http_app(token), host="0.0.0.0", port=port, log_level="info")
+
+
 if __name__ == "__main__":
-    print(f"ki-coach MCP → {COACH_URL}", file=sys.stderr)
-    mcp.run(transport="stdio")
+    main()

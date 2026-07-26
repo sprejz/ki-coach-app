@@ -358,6 +358,56 @@ async def main():
     pruefe("mcp" not in (_WURZEL / "requirements.txt").read_text(encoding="utf-8"),
            "mcp steht NICHT in der Railway-requirements.txt")
 
+    # v2.7.6: Railway-Volume. Ohne DATA_DIR verlor jeder Deploy Profil,
+    # Baseline und Schlafverlauf — der Container hat kein persistentes FS.
+    print("\n=== Persistenter Zustand / Volume (v2.7.6) ===")
+    import shutil as _shutil
+    import tempfile
+    original_dir = app.DATA_DIR
+    tmp = Path(tempfile.mkdtemp(prefix="voltest-"))
+    try:
+        app.DATA_DIR = tmp / "frisch"          # existiert noch nicht: wie ein neues Volume
+        info = app._init_data_dir()
+        pruefe(info["persistent"] is True, "DATA_DIR abweichend vom Repo gilt als persistent")
+        pruefe(info["writable"] is True and info["error"] is None, "DATA_DIR ist beschreibbar")
+        pruefe(set(info["seeded"]) == {"athlete.json", "baseline.json", "sleep_history.json"},
+               "leeres Volume wird mit allen Zustandsdateien geseedet")
+        pruefe((app.DATA_DIR / "athlete.json").exists(),
+               "athlete.json liegt im Volume — sonst hätte die App kein Profil")
+        zweiter = app._init_data_dir()
+        pruefe(zweiter["seeded"] == [],
+               "zweiter Start seedet NICHT nochmal (überschreibt keine Änderungen)")
+        # Kernversprechen: eine Änderung im Volume übersteht einen Neustart.
+        (app.DATA_DIR / "sleep_history.json").write_text('[{"date":"2026-07-26"}]',
+                                                         encoding="utf-8")
+        app._init_data_dir()
+        pruefe('2026-07-26' in (app.DATA_DIR / "sleep_history.json").read_text(encoding="utf-8"),
+               "geschriebene Daten überleben einen Neustart")
+    finally:
+        app.DATA_DIR = original_dir
+        _shutil.rmtree(tmp, ignore_errors=True)
+
+    pruefe(app.DATA_DIR == original_dir, "DATA_DIR nach dem Test zurückgesetzt")
+    version = await app.api_version()
+    pruefe("storage" in version and "persistent" in version["storage"],
+           "/api/version zeigt, ob der Zustand persistent liegt")
+    pruefe("DATA_DIR" in inspect.getsource(app._init_data_dir),
+           "DATA_DIR ist per ENV steuerbar (lokal unverändert)")
+
+    print("\n=== MCP über HTTP (v2.7.6) ===")
+    pruefe("MCP_TOKEN" in _MCP and "compare_digest" in _MCP,
+           "HTTP-Modus prüft einen Bearer-Token zeitkonstant")
+    pruefe("mindestens 32 Zeichen" in _MCP,
+           "zu kurzer oder fehlender Token verhindert den Start")
+    pruefe('"/health"' in _MCP,
+           "/health bleibt offen für den Railway-Healthcheck")
+    pruefe('transport="stdio"' in _MCP and "streamable_http_app" in _MCP,
+           "beide Betriebsarten teilen sich dieselben Tools")
+    pruefe((_WURZEL / "Dockerfile.mcp").exists(),
+           "eigenes Dockerfile — das App-Image bleibt unangetastet")
+    pruefe("requirements-mcp.txt" in (_WURZEL / "Dockerfile.mcp").read_text(encoding="utf-8"),
+           "Dockerfile.mcp installiert NICHT die App-Requirements")
+
     print(f"\n{'=' * 44}")
     if fehler:
         print(f"FEHLGESCHLAGEN — {len(fehler)} Problem(e)")

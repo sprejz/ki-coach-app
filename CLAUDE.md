@@ -1,4 +1,4 @@
-# KI Coach App — v2.7.5
+# KI Coach App — v2.7.6
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -22,7 +22,14 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 - `TP_MCP_URL` — TrainingPeaks MCP: `https://trainingpeaks-mcp-production-1a4f.up.railway.app/mcp` (optional; ohne → TP-Endpoints liefern `{"available": false}` bzw. HTTP 400)
 - `APP_LANG` — `de` (Default) oder `en`
 - `COACH_AGENTS` — `1`/`true`/`on` aktiviert die Agent-Pipeline. **Default aus** → Monolith-Prompt
+- `DATA_DIR` — Verzeichnis für schreibbaren Zustand (`athlete.json`, `baseline.json`, `sleep_history.json`). **Auf Railway `/data` mit gemountetem Volume**, sonst ist nach jedem Deploy alles weg. Ohne die Variable = Repo-Verzeichnis (lokal)
 - `PORT` — Railway setzt automatisch
+
+**MCP-Service (zweiter Railway-Service, `Dockerfile.mcp`):**
+- `MCP_TRANSPORT` — `http` (im Dockerfile gesetzt) oder `stdio`
+- `MCP_TOKEN` — Bearer-Token, **Pflicht im HTTP-Modus**, min. 32 Zeichen. Ohne startet der Server nicht
+- `COACH_URL` — URL der App (Default: die Produktions-URL)
+- `RAILWAY_DOCKERFILE_PATH` — `Dockerfile.mcp`
 
 **Kein Auth-Layer.** Der PIN-Schutz aus v2.6.86 wurde in v2.6.87 wieder entfernt; Google OAuth ist geplant, aber nicht implementiert. Die App ist derzeit öffentlich erreichbar.
 
@@ -31,10 +38,11 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.7.5)
+├── CLAUDE.md            ← diese Datei (v2.7.6)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
-├── coach_mcp.py         ← MCP-Server (lokal, stdio) für Claude Desktop + Claude Code
+├── coach_mcp.py         ← MCP-Server für Claude Desktop + Code (stdio lokal / HTTP remote)
 ├── requirements-mcp.txt ← nur für coach_mcp.py, eigenes venv (.venv-mcp)
+├── Dockerfile.mcp       ← Image des MCP-Service (zweiter Railway-Service)
 ├── orchestrator.py      ← Kontrollfluss der Agent-Pipeline
 ├── nutrition.py         ← Ernährungstabelle (deterministisch, von beiden Pfaden genutzt)
 ├── training_load.py     ← CTL/ATL/TSB aus der TSS-Historie (deterministisch)
@@ -344,6 +352,39 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
 
+### v2.7.6 — Persistenter Zustand + MCP aus dem Internet
+
+**1. Railway-Volume (`DATA_DIR`).** Railway-Container haben ein flüchtiges Dateisystem: jeder Deploy startet einen neuen Container, und alles Geschriebene ist weg. Damit verlor die App bei jedem Deploy still `sleep_history.json`, über den Profil-Tab geänderte `athlete.json` und eine neu berechnete `baseline.json` — das Ziel von v2.6.25 (Schlafverlauf geräteübergreifend) war faktisch nie erfüllt.
+
+- Alle drei Zustandsdateien liegen jetzt unter **`DATA_DIR`** (Default = Repo-Verzeichnis, lokal ändert sich nichts).
+- **Seeding beim Start:** fehlt eine Datei im Volume, wird sie einmalig aus dem Repo kopiert. Ohne das hätte ein frisches Volume kein Athletenprofil und `load_athlete()` würde beim ersten Request fehlschlagen. Beim zweiten Start wird **nicht** erneut geseedet — sonst würden Änderungen überschrieben.
+- `GET /api/version` liefert einen `storage`-Block (`dir`, `persistent`, `writable`, `seeded`, `error`). **`persistent: false` heißt: Volume fehlt.** Gleiche Idee wie der `agents`-Block aus v2.7.3.
+
+Railway-Setup: Service → *Volumes* → Mount auf `/data`, dann `DATA_DIR=/data` setzen.
+
+**2. MCP-Server aus dem Internet erreichbar.** `coach_mcp.py` kann jetzt beides, mit **denselben Tools**:
+
+| Modus | Wann | Schutz |
+|---|---|---|
+| `stdio` (Default) | lokal auf dem Mac | keine offene Fläche |
+| `MCP_TRANSPORT=http` | Railway-Service, weltweit | Bearer-Token (`MCP_TOKEN`) |
+
+- **Ohne `MCP_TOKEN` (min. 32 Zeichen) startet der HTTP-Modus nicht.** Ein offener MCP-Server würde Gesundheitsdaten preisgeben und über `coach_frage` den Anthropic-Key verbrennen. Token-Vergleich über `secrets.compare_digest`.
+- `/health` bleibt ohne Token erreichbar (Railway-Healthcheck), verrät aber nichts.
+- Auth als **rohes ASGI-Wrapper**, nicht als Starlette-Middleware — unabhängig davon, welche starlette-Version `mcp` gerade mitbringt.
+- `stateless_http=True`: jeder Request steht für sich, robuster hinter dem Railway-Proxy.
+
+**Eigener Service, eigenes Image (`Dockerfile.mcp`).** `mcp` verlangt `starlette>=0.49`, `fastapi 0.111` erlaubt `<0.38`. Ein gemeinsames Image würde einen FastAPI-Sprung in der App erzwingen — geprüft, `fastapi 0.140` funktioniert, aber die App entscheidet morgens um 6 über echtes Training, also bleibt sie unangetastet. Zweiter Service = Abschalten ist ein Klick. In Railway: gleiches Repo, `RAILWAY_DOCKERFILE_PATH=Dockerfile.mcp`.
+
+Anbinden nach dem Deploy:
+```
+claude mcp add -s user ki-coach-remote --transport http \
+  https://<mcp-service>.up.railway.app/mcp --header "Authorization: Bearer <MCP_TOKEN>"
+```
+Claude Desktop über `mcp-remote` (wie beim TrainingPeaks-MCP), zusätzliche args: `--header "Authorization: Bearer <MCP_TOKEN>"`.
+
+**Weiterhin nur lesend** — kein `tp/apply` über MCP.
+
 ### v2.7.5 — Der Coach ist aus Claude Desktop und Claude Code abfragbar
 Ein MCP-Server macht die App außerhalb der PWA nutzbar. **`coach_mcp.py` läuft lokal auf dem Mac über stdio** und spricht die Railway-App per HTTPS an — bewusst *nicht* als Endpoint in `app.py`: ein öffentlicher MCP-Server wäre eine zweite ungesicherte Angriffsfläche, solange es kein Auth gibt.
 
@@ -450,6 +491,9 @@ CLAUDE.md aus Code + Commit-History neu aufgebaut (stand noch auf v2.1.0). Korri
 
 ### MyFitnessPal MCP — explizit auf „später"
 MFP MCP auf Railway (`MFP_USERNAME`/`MFP_PASSWORD`), Kalorienbilanz im Abend-Check gegen Trainingsverbrauch.
+
+### Sicherheit — der MCP-Token schützt nicht die App
+Der MCP-Service hat seit v2.7.6 einen Bearer-Token. **Die App selbst hat weiterhin keinen.** Wer die App-URL kennt, kann `POST /api/coach/chat` direkt aufrufen und damit denselben Anthropic-Key verbrennen und dieselben Daten lesen — der MCP-Token ist also nicht die schwächste Stelle, sondern die App. Das bleibt der Google-OAuth-Punkt unten. Der Token liegt außerdem im Klartext in `~/.claude.json` bzw. der Claude-Desktop-Config.
 
 ### Technische Altlasten
 - `build_pain_rules()` gibt `""` zurück → `pain_thresholds` in `athlete.json` ist ungenutzt
