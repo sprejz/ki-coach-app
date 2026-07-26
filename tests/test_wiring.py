@@ -227,7 +227,9 @@ async def main():
     # Pipeline importierbar und eingeschaltet ist, und jede Antwort muss
     # verraten, welcher Pfad sie erzeugt hat.
     print("\n=== Diagnose (v2.7.3) ===")
-    _INDEX = (Path(__file__).parent.parent / "templates" / "index.html").read_text(encoding="utf-8")
+    _WURZEL = Path(__file__).parent.parent
+    _INDEX = (_WURZEL / "templates" / "index.html").read_text(encoding="utf-8")
+    _TRANS = (_WURZEL / "translations.py").read_text(encoding="utf-8")
     st = app.agents_status()
     pruefe(set(st) == {"importable", "enabled", "env", "import_error",
                        "anthropic_version"}, "agents_status hat alle Felder")
@@ -242,8 +244,8 @@ async def main():
     version = (await app.api_version())
     pruefe(version.get("agents") == st, "/api/version liefert den Status mit")
 
-    for name, fn in (("check-abend", app.check_abend),
-                     ("check-morgen", app.check_morgen),
+    for name, fn in (("check-abend", app._check_abend_run),
+                     ("check-morgen", app._check_morgen_run),
                      ("Chat", app.coach_chat),
                      ("Analyse", app._run_analysis_job_fast)):
         quelle = inspect.getsource(fn)
@@ -253,6 +255,83 @@ async def main():
     pruefe('_pipeline" in data' in _INDEX or "engineNote(data._pipeline)" in _INDEX,
            "Frontend zeigt den benutzten Pfad an")
     pruefe("renderAgentsStatus" in _INDEX, "About-Tab rendert den Pipeline-Status")
+
+    # v2.7.4: die Checks laufen als Hintergrund-Job. Der POST darf nicht mehr
+    # blockieren, das Ergebnis kommt per Polling, und die Stufen des
+    # Orchestrators müssen bis in den Job durchschlagen.
+    print("\n=== Job-Queue für die Checks (v2.7.4) ===")
+    app._check_jobs.clear()
+    job_id = app._check_job_start()
+    pruefe(app._check_jobs[job_id]["status"] == "pending", "neuer Job startet als pending")
+
+    stufen = []
+    async def lauf_ok(progress):
+        for s in orchestrator.STUFEN:
+            progress(s)
+            stufen.append(app._check_jobs[job_id]["stage"])
+        return {"status": "green", "_pipeline": "agents"}
+
+    await app._run_check_job(job_id, lauf_ok)
+    pruefe(stufen == list(orchestrator.STUFEN), "jede Stufe landet sichtbar im Job")
+    fertig = app._check_jobs[job_id]
+    pruefe(fertig["status"] == "done" and fertig["result"]["status"] == "green",
+           "Ergebnis liegt nach dem Lauf im Job")
+
+    async def lauf_kaputt(progress):
+        raise RuntimeError("simulierter Ausfall")
+
+    job2 = app._check_job_start()
+    await app._run_check_job(job2, lauf_kaputt)
+    pruefe(app._check_jobs[job2]["status"] == "error",
+           "ein Fehler wird zum Job-Status, nicht zum ewigen Spinner")
+    pruefe("simulierter Ausfall" in app._check_jobs[job2]["error"],
+           "die Fehlerursache steht im Job")
+
+    # Abgelaufene Jobs müssen verschwinden — der Store ist prozesslokal und
+    # wächst sonst mit jedem Check.
+    app._check_jobs["uralt"] = {"status": "done", "ts": 0}
+    app._check_job_start()
+    pruefe("uralt" not in app._check_jobs, "abgelaufene Jobs werden aufgeräumt")
+
+    quelle_ab = inspect.getsource(app.check_abend)
+    quelle_mo = inspect.getsource(app.check_morgen)
+    pruefe("job_id" in quelle_ab and "job_id" in quelle_mo,
+           "beide Check-Endpoints antworten mit einer job_id")
+    # asyncio hält nur schwache Referenzen — ohne _check_tasks dürfte der GC
+    # einen laufenden Check einsammeln.
+    pruefe("_check_task_spawn" in quelle_ab and "_check_task_spawn" in quelle_mo,
+           "Tasks werden über den Store gestartet, nicht referenzlos")
+    pruefe("_check_tasks.add" in inspect.getsource(app._check_task_spawn),
+           "die Task-Referenz wird gehalten")
+    pruefe("await csv_file.read()" in quelle_mo,
+           "die CSV wird im Request gelesen, nicht erst im Hintergrundtask")
+    pruefe("progress" in inspect.signature(orchestrator.run_check).parameters,
+           "run_check nimmt den progress-Callback")
+    pruefe("runCheck(" in _INDEX and "/api/check/" in _INDEX,
+           "Frontend pollt den Job-Status")
+    pruefe("sr.status === 404" in _INDEX,
+           "Frontend bricht ab, wenn der Job weg ist (Neustart)")
+    for s in orchestrator.STUFEN:
+        pruefe(f'"stage_{s}"' in _TRANS, f"Stufe '{s}' hat einen UI-Text")
+
+    # Der echte Orchestrator (mit den Agent-Attrappen von oben) muss die
+    # Stufen tatsächlich melden — sonst bleibt der Spinner stumm.
+    # Der Fallback-Test oben hat den Mediziner absichtlich zerschossen.
+    medic.run = attrappe("medic", FAKE_MEDIC)
+    echte_stufen = []
+    await app._try_agent_check(
+        athlete={"name": "Hendrik", "nutrition": {"rules": []}, "races": []},
+        baseline=None, weather={"description": "Sonnig", "temp_max": 20},
+        koerper={"symptome": "keine", "geplante_einheiten": ["Run"]},
+        tp_workouts=[{"id": "1", "sport": "Run", "title": "Lauf",
+                      "duration_min": 60, "description": "Z2"}],
+        sleep=None, wasser_temp=None, tag="morgen",
+        progress=echte_stufen.append,
+    )
+    pruefe(echte_stufen[:2] == ["spezialisten", "chefcoach"],
+           "der echte Orchestrator meldet seine Stufen der Reihe nach")
+    pruefe(set(echte_stufen) <= set(orchestrator.STUFEN),
+           "es werden nur bekannte Stufen gemeldet")
 
     print(f"\n{'=' * 44}")
     if fehler:

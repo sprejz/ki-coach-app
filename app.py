@@ -34,7 +34,7 @@ except Exception as _agent_err:          # pragma: no cover
     _AGENTS_IMPORTABLE = False
     _AGENTS_IMPORT_ERROR = str(_agent_err)
 
-APP_VERSION = "2.7.3"
+APP_VERSION = "2.7.4"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -93,6 +93,16 @@ _tp_http_long = httpx.Client(
 
 # In-memory Job-Store für Workout-Analysen
 _analysis_jobs: dict = {}  # job_id -> {"status":"pending"|"done"|"error", "result":{}, "error":"..."}
+
+# In-memory Job-Store für Abend-/Morgen-Check (v2.7.4). Die Agent-Pipeline
+# braucht 11–19 s — zu lang, um einen Request offen zu halten (Proxy-Timeouts,
+# abbrechende Mobilverbindungen). Der Check läuft im Hintergrund, das Frontend
+# pollt. `stage` trägt die aktuelle Orchestrator-Stufe für die Anzeige.
+_check_jobs: dict = {}     # job_id -> {"status","stage","result","error","ts"}
+_CHECK_JOB_TTL = 900       # 15 min — danach ist ein Ergebnis ohnehin wertlos
+# asyncio hält nur schwache Referenzen auf Tasks: ohne eigene Referenz darf der
+# GC einen laufenden Check mitten im Lauf einsammeln.
+_check_tasks: set = set()
 
 # ── TP Workout Cache + Background Refresh ────────────────────────────────────
 import time as _time
@@ -1669,7 +1679,7 @@ async def _fetch_training_load(athlete: dict):
 
 
 async def _try_agent_check(*, athlete, baseline, weather, koerper, tp_workouts,
-                           sleep, wasser_temp, tag):
+                           sleep, wasser_temp, tag, progress=None):
     """Führt die Agent-Pipeline aus. Gibt None zurück, wenn sie fehlschlägt —
     dann übernimmt der alte Monolith-Prompt. Ein Fehler hier darf den
     Morgen-Check nie blockieren."""
@@ -1691,6 +1701,7 @@ async def _try_agent_check(*, athlete, baseline, weather, koerper, tp_workouts,
             load=load,
             woche=woche,
             tage_bis_a=tage_bis(a_race.get("date")) if a_race else None,
+            progress=progress,
         )
     except Exception as e:
         logger.error("Agent-Pipeline fehlgeschlagen (%.1fs), Fallback auf Monolith: %s: %s",
@@ -1707,9 +1718,79 @@ async def _try_agent_check(*, athlete, baseline, weather, koerper, tp_workouts,
     return result
 
 
+def _check_job_start() -> str:
+    """Legt einen Job an und räumt abgelaufene weg (der Store ist prozesslokal)."""
+    jetzt = _time.time()
+    for alt in [k for k, v in _check_jobs.items() if jetzt - v.get("ts", 0) > _CHECK_JOB_TTL]:
+        _check_jobs.pop(alt, None)
+    job_id = uuid.uuid4().hex[:10]
+    _check_jobs[job_id] = {"status": "pending", "stage": None, "ts": jetzt}
+    return job_id
+
+
+def _check_task_spawn(job_id: str, lauf) -> None:
+    """Startet den Job und hält die Task-Referenz, bis er fertig ist."""
+    task = asyncio.create_task(_run_check_job(job_id, lauf))
+    _check_tasks.add(task)
+    task.add_done_callback(_check_tasks.discard)
+
+
+def _melde(progress, stufe: str) -> None:
+    """progress ist optional — Tests und der Monolith-Pfad rufen ohne."""
+    if progress:
+        progress(stufe)
+
+
+def _check_job_stage(job_id: str, stage: str) -> None:
+    job = _check_jobs.get(job_id)
+    if job:
+        job["stage"] = stage
+
+
+async def _run_check_job(job_id: str, lauf) -> None:
+    """Fährt einen Check im Hintergrund und legt das Ergebnis in den Store.
+
+    `lauf` bekommt den progress-Callback und liefert den Frontend-Vertrag.
+    Fehler landen als `status: error` im Job — ein unbehandelter Task-Fehler
+    würde das Frontend sonst ewig pollen lassen.
+    """
+    t0 = _time.time()
+    try:
+        result = await lauf(lambda stufe: _check_job_stage(job_id, stufe))
+        _check_jobs[job_id] = {"status": "done", "stage": "fertig",
+                               "result": result, "ts": _time.time()}
+        logger.info("check job %s fertig in %.1fs (%s)", job_id, _time.time() - t0,
+                    result.get("_pipeline"))
+    except HTTPException as e:
+        logger.error("check job %s fehlgeschlagen: %s", job_id, e.detail)
+        _check_jobs[job_id] = {"status": "error", "error": str(e.detail)[:300],
+                               "ts": _time.time()}
+    except Exception as e:
+        logger.error("check job %s fehlgeschlagen: %s: %s", job_id, type(e).__name__, e)
+        _check_jobs[job_id] = {"status": "error", "error": f"{type(e).__name__}: {e}"[:300],
+                               "ts": _time.time()}
+
+
+@app.get("/api/check/{job_id}")
+async def check_status(job_id: str):
+    job = _check_jobs.get(job_id)
+    if not job:
+        # Häufigster Grund: Railway hat den Prozess neu gestartet. Der Job ist
+        # dann weg und kommt nicht wieder — das Frontend muss aufhören zu pollen.
+        raise HTTPException(404, T["err_check_job_gone"])
+    return JSONResponse(job, headers=_NO_CACHE)
+
+
 @app.post("/api/check-abend")
 async def check_abend(request: Request):
+    """Nimmt den Fragebogen an und startet den Check im Hintergrund."""
     data = await request.json()
+    job_id = _check_job_start()
+    _check_task_spawn(job_id, lambda progress: _check_abend_run(data, progress))
+    return JSONResponse({"job_id": job_id}, headers=_NO_CACHE)
+
+
+async def _check_abend_run(data: dict, progress) -> dict:
     athlete = await load_athlete_merged()
     baseline = load_baseline()
 
@@ -1752,6 +1833,7 @@ async def check_abend(request: Request):
             sleep=None,
             wasser_temp=data.get("wasser_temp"),
             tag=f"morgen, {tomorrow}",
+            progress=progress,
         )
         if agent_result is not None:
             return agent_result
@@ -1798,8 +1880,11 @@ async def check_abend(request: Request):
         f"{T['prompt_abend_units'].format(units=units_str)}"
     )
 
+    # to_thread: call_claude ist synchron und würde sonst den Event-Loop und
+    # damit das Polling des Frontends blockieren.
+    _melde(progress, "monolith")
     try:
-        result = call_claude(system, user_msg)
+        result = await asyncio.to_thread(call_claude, system, user_msg)
         result["weather"] = weather
         result["_pipeline"] = "monolith"
         return result
@@ -1822,6 +1907,32 @@ async def check_morgen(
     weather_data: str = Form(""),
     csv_file: Optional[UploadFile] = File(None),
 ):
+    """Nimmt den Fragebogen an und startet den Check im Hintergrund.
+
+    Die CSV muss hier gelesen werden, solange der Request-Body noch offen ist —
+    im Hintergrundtask wäre der Stream zu.
+    """
+    csv_bytes = None
+    if csv_file and csv_file.filename:
+        csv_bytes = await csv_file.read()
+    felder = {
+        "knie": knie, "achilles_l": achilles_l, "achilles_r": achilles_r,
+        "waden": waden, "muedigkeit": muedigkeit, "muskelkater": muskelkater,
+        "symptome": symptome, "geplante_einheiten": geplante_einheiten,
+        "weather_data": weather_data,
+    }
+    job_id = _check_job_start()
+    _check_task_spawn(job_id, lambda progress: _check_morgen_run(felder, csv_bytes, progress))
+    return JSONResponse({"job_id": job_id}, headers=_NO_CACHE)
+
+
+async def _check_morgen_run(felder: dict, csv_bytes, progress) -> dict:
+    knie = felder["knie"]; achilles_l = felder["achilles_l"]
+    achilles_r = felder["achilles_r"]; waden = felder["waden"]
+    muedigkeit = felder["muedigkeit"]; muskelkater = felder["muskelkater"]
+    symptome = felder["symptome"]; geplante_einheiten = felder["geplante_einheiten"]
+    weather_data = felder["weather_data"]
+
     athlete = await load_athlete_merged()
     baseline = load_baseline()
     system = build_system_prompt(athlete, baseline)
@@ -1840,9 +1951,9 @@ async def check_morgen(
 
     sleep_text = ""
     sleep_result = None
-    if csv_file and csv_file.filename:
+    if csv_bytes:
         try:
-            content = await csv_file.read()
+            content = csv_bytes
             sd = parse_autosleep_csv(content)
             sleep_result = flag_sleep(sd, baseline)
             d = sd
@@ -1885,6 +1996,7 @@ AutoSleep (letzte Nacht):
             sleep={**sd, "flags": sleep_result["flags"]} if sleep_result else None,
             wasser_temp=None,
             tag=f"heute, {date.today().strftime('%d.%m.%Y')}",
+            progress=progress,
         )
         if agent_result is not None:
             if sleep_result:
@@ -1925,8 +2037,9 @@ AutoSleep (letzte Nacht):
         f"{T['prompt_morgen_units'].format(units=units_str)}"
     )
 
+    _melde(progress, "monolith")
     try:
-        result = call_claude(system, user_msg)
+        result = await asyncio.to_thread(call_claude, system, user_msg)
         if weather:
             result["weather"] = weather
         if sleep_result:

@@ -141,6 +141,11 @@ TRANSLATIONS = {
         "err_profile_load":  "Athleten-Profil konnte nicht geladen werden.",
         "err_save":          "Fehler beim Speichern",
         "claude_analyzing":  "Claude analysiert…",
+        # Stufen der Agent-Pipeline, gemeldet vom Orchestrator (v2.7.4)
+        "stage_spezialisten": "Sportmediziner, Wetter und Periodisierung prüfen…",
+        "stage_chefcoach":    "Chefcoach entscheidet…",
+        "stage_architekt":    "Workout-Architekt formuliert aus…",
+        "stage_monolith":     "Coach denkt nach…",
         "tp_applying":       "Wird in TrainingPeaks übernommen…",
         # Claude prompts — system
         "prompt_system": (
@@ -314,6 +319,7 @@ TRANSLATIONS = {
         "err_claude_json":      "Ungültiges JSON von Claude: {e}",
         "err_weather_na":       "Wetterdaten nicht verfügbar",
         "err_csv_empty":        "CSV ist leer",
+        "err_check_job_gone":   "Check nicht mehr verfügbar — der Server wurde vermutlich neu gestartet. Bitte nochmal starten.",
     },
 
     "en": {
@@ -455,6 +461,11 @@ TRANSLATIONS = {
         "err_profile_load":  "Failed to load athlete profile.",
         "err_save":          "Error saving",
         "claude_analyzing":  "Claude is analysing…",
+        # Agent pipeline stages, reported by the orchestrator (v2.7.4)
+        "stage_spezialisten": "Sports physician, weather and periodisation reviewing…",
+        "stage_chefcoach":    "Head coach deciding…",
+        "stage_architekt":    "Workout architect drafting…",
+        "stage_monolith":     "Coach thinking…",
         "tp_applying":       "Applying to TrainingPeaks…",
         # Claude prompts — system
         "prompt_system": (
@@ -624,5 +635,6 @@ TRANSLATIONS = {
         "err_claude_json":      "Invalid JSON from Claude: {e}",
         "err_weather_na":       "Weather data unavailable",
         "err_csv_empty":        "CSV is empty",
+        "err_check_job_gone":   "Check no longer available — the server was probably restarted. Please start again.",
     },
 }

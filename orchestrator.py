@@ -16,7 +16,7 @@ Deterministisch, ohne Modell:
 """
 import asyncio
 import logging
-from typing import Optional
+from typing import Callable, Optional
 
 from agents import architect, head_coach, medic, periodizer, weather
 from agents.base import HAIKU
@@ -32,6 +32,11 @@ _SPORT_MAP = {
     "run": "Laufen", "lauf": "Laufen",
     "strength": "Kraft", "kraft": "Kraft",
 }
+
+
+# Stufen, die `run_check` über den progress-Callback meldet. Der Orchestrator
+# kennt bewusst keine UI-Texte — er liefert Schlüssel, das Frontend die Worte.
+STUFEN = ("spezialisten", "chefcoach", "architekt")
 
 
 def normalize_sport(sport: str) -> str:
@@ -103,12 +108,25 @@ async def run_check(
     woche: Optional[list] = None,
     tage_bis_a: Optional[int] = None,
     model: str = HAIKU,
+    progress: Optional[Callable[[str], None]] = None,
 ) -> dict:
     """Führt den kompletten Check aus und liefert den Frontend-Vertrag.
 
     Der Aufrufer hängt nur noch `weather` und ggf. `sleep_flags` an.
+
+    `progress` wird vor jeder Stufe mit einem Schlüssel aus STUFEN gerufen —
+    der Check läuft 11–19 s, ohne Rückmeldung wäre das ein toter Spinner. Ein
+    Fehler im Callback darf den Check nie kippen.
     """
     tp_workouts = tp_workouts or []
+
+    def melde(stufe: str) -> None:
+        if progress is None:
+            return
+        try:
+            progress(stufe)
+        except Exception as e:          # pragma: no cover — reine Anzeige
+            logger.warning("progress-Callback fehlgeschlagen (%s): %s", stufe, e)
 
     sportarten = list(dict.fromkeys(
         normalize_sport(w.get("sport", "")) for w in tp_workouts
@@ -118,6 +136,7 @@ async def run_check(
 
     # Stufe 1: die Spezialisten sind voneinander unabhängig → parallel.
     # asyncio.to_thread, weil das anthropic-SDK hier synchron aufgerufen wird.
+    melde("spezialisten")
     aufgaben = [
         asyncio.to_thread(
             medic.run, koerper=koerper, sportarten=sportarten,
@@ -150,6 +169,7 @@ async def run_check(
     )
 
     # Stufe 2: der Chefcoach entscheidet — ohne auszuformulieren.
+    melde("chefcoach")
     entscheidung = await asyncio.to_thread(
         head_coach.run,
         athlete=athlete, a_race=a_race, medic=medic_result, wetter=weather_result,
@@ -157,8 +177,11 @@ async def run_check(
     )
 
     # Stufe 3: der Architekt formuliert die MOD-Einheiten aus — parallel.
+    # Ohne MOD läuft hier kein Modell, dann ist die Stufe auch keine Meldung wert.
     wetter_zeile = _wetter_zeile(weather_data)
     einheiten = entscheidung.get("sportarten", [])
+    if any(e.get("badge") == "MOD" for e in einheiten):
+        melde("architekt")
     ergebnisse = await asyncio.gather(*[
         _baue_einheit(
             entscheidung=e,

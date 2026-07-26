@@ -1,4 +1,4 @@
-# KI Coach App — v2.7.3
+# KI Coach App — v2.7.4
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -31,7 +31,7 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.7.3)
+├── CLAUDE.md            ← diese Datei (v2.7.4)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
 ├── orchestrator.py      ← Kontrollfluss der Agent-Pipeline
 ├── nutrition.py         ← Ernährungstabelle (deterministisch, von beiden Pfaden genutzt)
@@ -60,6 +60,8 @@ ki-coach-app/
 5. **Chat** — freier Coach-Chat mit TP- und Wetterkontext
 6. **Profil** — Athletendaten, Rennen, Baseline-Manager
 7. **About** — Version, Infos
+
+**Checks laufen asynchron** (v2.7.4): `POST /api/check-abend` bzw. `check-morgen` liefern sofort eine `job_id`, das Frontend pollt `GET /api/check/{job_id}` und zeigt dabei die aktuelle Orchestrator-Stufe.
 
 **Startverhalten:** `GET /api/startup` liefert Wetter heute + morgen parallel. TP-Workouts werden **beim Server-Start** für 7 Tage in einem einzigen MCP-Call geprefetcht und im Frontend als Inline-Spinner nachgeladen — Splash blockiert nicht mehr.
 
@@ -253,7 +255,8 @@ JSON wird über `_extract_json()` robust geparst (Markdown-Fences, `raw_decode` 
 | `GET /api/tp/workouts?day=…` · `POST /api/tp/refresh` | TP-Workouts / Force-Refresh |
 | `GET /api/tp/workouts/history?days=5` | Abgeschlossene Einheiten |
 | `POST /api/tp/apply` | GO/MOD/SKIP/Override in TP schreiben |
-| `POST /api/check-abend` · `POST /api/check-morgen` | Die zwei Checks |
+| `POST /api/check-abend` · `POST /api/check-morgen` | Die zwei Checks — liefern sofort `{"job_id": …}` |
+| `GET /api/check/{job_id}` | Job-Status der Checks (`pending`/`done`/`error` + `stage`) |
 | `POST /api/coach/chat` | Coach-Chat |
 | `POST /api/workout/analyze` · `GET /api/workout/analyze/{job_id}` | Analyse + Polling |
 | `POST /api/admin/backfill-weather?days=30` | Wetter-Backfill |
@@ -337,6 +340,17 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.7.4 — Checks laufen als Hintergrund-Job
+Die Agent-Pipeline braucht 11–19 s. Ein so lange offener Request überlebt weder Proxy-Timeouts noch wechselnden Mobilfunk — dieselbe Begründung wie beim Analyse-Tab in v2.6.5.
+
+- **`POST /api/check-abend` / `check-morgen`** antworten jetzt in ~20 ms mit `{"job_id": …}`. Der Check läuft als Hintergrund-Task, das Frontend pollt `GET /api/check/{job_id}` alle 1,2 s. **Am Ergebnis-JSON ändert sich nichts** — `showResult` und `applyToTP` bekommen dasselbe wie vorher.
+- **Fortschrittsanzeige.** `run_check` nimmt einen `progress`-Callback und meldet vor jeder Stufe einen Schlüssel aus `orchestrator.STUFEN` (`spezialisten` → `chefcoach` → `architekt`, letzteres nur wenn es MOD-Einheiten gibt). Der Job trägt ihn als `stage`, das Frontend zeigt den Text aus `translations.py` (`stage_*`). Der Orchestrator kennt weiterhin keine UI-Texte.
+- **Der Monolith-Pfad läuft jetzt über `asyncio.to_thread`.** `call_claude` ist synchron und hätte im Hintergrundtask den Event-Loop und damit das Polling blockiert. Vorher fiel das nicht auf, weil der Request ohnehin wartete.
+- **Zwei Fallstricke, bewusst behandelt:** die CSV des Morgen-Checks wird noch im Request gelesen (im Task wäre der Stream zu), und laufende Tasks liegen in `_check_tasks` — `asyncio` hält nur schwache Referenzen, der GC dürfte einen laufenden Check sonst einsammeln.
+- **Jobs sind prozesslokal** (`_check_jobs`, TTL 15 min). Ein Railway-Neustart verliert sie; das Polling bekommt dann 404 und bricht mit klarer Meldung ab statt ewig zu drehen. Dazu ein Deckel von 5 min im Frontend.
+
+Keine Verhaltensänderung an den Urteilen. Die Wartezeit wird **nicht kürzer** — sie ist nur nicht mehr an einen offenen Request gebunden und sichtbar belegt.
 
 ### v2.7.3 — Läuft die Pipeline? Ohne Logs beantwortbar
 Nach dem Aktivieren von `COACH_AGENTS=1` in Railway war nicht feststellbar, ob die Pipeline wirklich läuft — der Fallback auf den Monolith ist absichtlich still und schreibt nur ins Log. Zwei Diagnosepunkte in der App selbst:

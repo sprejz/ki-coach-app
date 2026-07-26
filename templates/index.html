@@ -1499,13 +1499,12 @@ async function submitAbend(e) {
     wasser_temp: document.getElementById('wasser-temp')?.value || null,
   };
   try {
-    const r = await fetch('/api/check-abend', {
+    const result = await runCheck('/api/check-abend', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body),
     });
-    if (!r.ok) { const t = await r.text(); throw new Error(t); }
-    showResult(await r.json(), body, 'abend');
+    showResult(result, body, 'abend');
   } catch(err) {
     showError(err.message || String(err));
   } finally {
@@ -1538,15 +1537,13 @@ async function submitMorgen(e) {
     wasser_temp: document.getElementById('wasser-temp-morgen')?.value || null,
   };
   try {
-    const r = await fetch('/api/check-morgen', { method: 'POST', body: formData });
-    if (!r.ok) { const t = await r.text(); throw new Error(t); }
+    const data = await runCheck('/api/check-morgen', { method: 'POST', body: formData });
     const formSnapshot = {
       waden:      parseFloat(document.getElementById('waden-morgen').value),
       knie:       parseFloat(document.getElementById('knie-morgen').value),
       achilles_l: parseFloat(document.getElementById('achilles-l-morgen').value),
       achilles_r: parseFloat(document.getElementById('achilles-r-morgen').value),
     };
-    const data = await r.json();
     showResult(data, formSnapshot, 'morgen');
     // If CSV was uploaded, save sleep data to localStorage so Erholung tab persists
     if (csvFile && data.sleep_flags?.data) {
@@ -2945,6 +2942,43 @@ function esc(s) {
 }
 function setLoading(v) {
   document.getElementById('loading-overlay').style.display = v ? 'flex' : 'none';
+  if (!v) setLoadingText(null);
+}
+
+function setLoadingText(stage) {
+  const el = document.getElementById('loading-text');
+  if (!el) return;
+  el.textContent = (stage && T['stage_' + stage]) || T.claude_analyzing;
+}
+
+// Der Check läuft seit v2.7.4 als Hintergrund-Job: POST liefert sofort eine
+// job_id, das Ergebnis kommt per Polling. Ein 15 s offener Request überlebte
+// weder Proxy-Timeouts noch wechselnden Mobilfunk.
+const CHECK_POLL_MS      = 1200;
+const CHECK_TIMEOUT_MS   = 5 * 60 * 1000;
+
+async function runCheck(url, init) {
+  const r = await fetch(url, init);
+  if (!r.ok) throw new Error(await r.text());
+  const { job_id } = await r.json();
+  if (!job_id) throw new Error('Keine job_id vom Server');
+
+  const deadline = Date.now() + CHECK_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await new Promise(res => setTimeout(res, CHECK_POLL_MS));
+    const sr = await fetch(`/api/check/${job_id}`, { cache: 'no-store' });
+    if (sr.status === 404) {
+      // Prozess neu gestartet — der Job kommt nicht wieder, Polling beenden.
+      const d = await sr.json().catch(() => ({}));
+      throw new Error(d.detail || 'Check nicht mehr verfügbar');
+    }
+    if (!sr.ok) throw new Error(await sr.text());
+    const job = await sr.json();
+    if (job.status === 'done')  return job.result;
+    if (job.status === 'error') throw new Error(job.error || 'Check fehlgeschlagen');
+    setLoadingText(job.stage);
+  }
+  throw new Error('Check dauert ungewöhnlich lange — bitte nochmal versuchen');
 }
 function showError(msg) {
   const el = document.getElementById('error-banner');
