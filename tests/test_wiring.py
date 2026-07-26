@@ -223,6 +223,37 @@ async def main():
     del os.environ["COACH_AGENTS"]
     pruefe(app.agents_enabled() is False, "ohne ENV bleibt sie aus (sicherer Default)")
 
+    # v2.7.3: Diagnose ohne Railway-Log. /api/version muss sagen, ob die
+    # Pipeline importierbar und eingeschaltet ist, und jede Antwort muss
+    # verraten, welcher Pfad sie erzeugt hat.
+    print("\n=== Diagnose (v2.7.3) ===")
+    _INDEX = (Path(__file__).parent.parent / "templates" / "index.html").read_text(encoding="utf-8")
+    st = app.agents_status()
+    pruefe(set(st) == {"importable", "enabled", "env", "import_error",
+                       "anthropic_version"}, "agents_status hat alle Felder")
+    pruefe(st["enabled"] is False and st["env"] is None,
+           "ohne ENV meldet der Status ehrlich 'aus'")
+    os.environ["COACH_AGENTS"] = "1"
+    st = app.agents_status()
+    pruefe(st["enabled"] is True and st["env"] == "1",
+           "mit ENV=1 meldet der Status 'an' und zeigt den Rohwert")
+    pruefe(st["importable"] is True and st["import_error"] is None,
+           "Pipeline ist importierbar, kein Importfehler")
+    version = (await app.api_version())
+    pruefe(version.get("agents") == st, "/api/version liefert den Status mit")
+
+    for name, fn in (("check-abend", app.check_abend),
+                     ("check-morgen", app.check_morgen),
+                     ("Chat", app.coach_chat),
+                     ("Analyse", app._run_analysis_job_fast)):
+        quelle = inspect.getsource(fn)
+        pruefe('"_pipeline"] = "monolith"' in quelle or '"_pipeline": "monolith"' in quelle,
+               f"{name} markiert den Monolith-Pfad")
+
+    pruefe('_pipeline" in data' in _INDEX or "engineNote(data._pipeline)" in _INDEX,
+           "Frontend zeigt den benutzten Pfad an")
+    pruefe("renderAgentsStatus" in _INDEX, "About-Tab rendert den Pipeline-Status")
+
     print(f"\n{'=' * 44}")
     if fehler:
         print(f"FEHLGESCHLAGEN — {len(fehler)} Problem(e)")

@@ -1,4 +1,4 @@
-# KI Coach App — v2.7.2
+# KI Coach App — v2.7.3
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -31,7 +31,7 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.7.2)
+├── CLAUDE.md            ← diese Datei (v2.7.3)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
 ├── orchestrator.py      ← Kontrollfluss der Agent-Pipeline
 ├── nutrition.py         ← Ernährungstabelle (deterministisch, von beiden Pfaden genutzt)
@@ -243,7 +243,7 @@ JSON wird über `_extract_json()` robust geparst (Markdown-Fences, `raw_decode` 
 | Endpoint | Zweck |
 |---|---|
 | `GET /` | Frontend (no-cache Header) |
-| `GET /api/version` | Versionsstring |
+| `GET /api/version` | Version + Pipeline-Diagnose (`agents`: importable/enabled/env/import_error/anthropic_version) |
 | `GET /api/startup` | Wetter heute + morgen parallel |
 | `GET /manifest.json` | PWA-Manifest |
 | `GET /api/athlete` · `POST /api/athlete/update` | Profil lesen/schreiben (GET inkl. TP-Rennen) |
@@ -337,6 +337,14 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.7.3 — Läuft die Pipeline? Ohne Logs beantwortbar
+Nach dem Aktivieren von `COACH_AGENTS=1` in Railway war nicht feststellbar, ob die Pipeline wirklich läuft — der Fallback auf den Monolith ist absichtlich still und schreibt nur ins Log. Zwei Diagnosepunkte in der App selbst:
+
+- **`GET /api/version`** liefert jetzt einen `agents`-Block: `importable`, `enabled`, `env` (Rohwert von `COACH_AGENTS`), `import_error`, `anthropic_version`. Die drei Zustände haben verschiedene Ursachen: `importable: false` = Deploy kaputt (meist `anthropic < 0.120.0`, das `output_config` braucht), `enabled: false` bei `importable: true` = ENV fehlt. Im **About-Tab** steht das im Klartext.
+- **`_pipeline`** (`agents` | `monolith`) hängt jetzt an *jeder* Antwort — Abend, Morgen, Chat, Analyse. Vorher setzten nur die Agent-Pfade das Feld, ein Fallback war von außen nicht von „ENV aus" zu unterscheiden. Unter der Dark Card und unter dem Coach-Urteil steht dazu eine Punkt-Zeile (grün = Agents, orange = Monolith).
+
+Keine Verhaltensänderung an den Checks. Der Wiring-Test prüft beide Zustände von `agents_status()`, das Monolith-Marking in allen vier Pfaden und die Frontend-Anzeige.
 
 ### v2.7.2 — Zwei Prompt-Fehler aus dem ersten Live-Test
 Erster Lauf gegen die echte API: 8 von 9 Fixtures grün, zwei inhaltliche Fehler gefunden, die offline unsichtbar waren.

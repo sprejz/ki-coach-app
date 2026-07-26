@@ -34,7 +34,7 @@ except Exception as _agent_err:          # pragma: no cover
     _AGENTS_IMPORTABLE = False
     _AGENTS_IMPORT_ERROR = str(_agent_err)
 
-APP_VERSION = "2.7.2"
+APP_VERSION = "2.7.3"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -49,6 +49,26 @@ def agents_enabled() -> bool:
     return _AGENTS_IMPORTABLE and os.environ.get("COACH_AGENTS", "").strip().lower() in (
         "1", "true", "yes", "on",
     )
+
+
+def agents_status() -> dict:
+    """Diagnose für /api/version: warum läuft (oder läuft nicht) die Pipeline?
+
+    Ohne das musste man dafür ins Railway-Log. `importable=false` heißt
+    Deploy-Problem (meist anthropic < 0.120.0, das `output_config` braucht),
+    `enabled=false` bei importable=true heißt: ENV COACH_AGENTS nicht gesetzt.
+    """
+    try:
+        anthropic_version = anthropic.__version__
+    except Exception:
+        anthropic_version = "?"
+    return {
+        "importable": _AGENTS_IMPORTABLE,
+        "enabled": agents_enabled(),
+        "env": os.environ.get("COACH_AGENTS", "") or None,
+        "import_error": _AGENTS_IMPORT_ERROR or None,
+        "anthropic_version": anthropic_version,
+    }
 
 app = FastAPI()
 
@@ -932,7 +952,7 @@ async def index(request: Request):
 
 @app.get("/api/version")
 async def api_version():
-    return {"version": APP_VERSION}
+    return {"version": APP_VERSION, "agents": agents_status()}
 
 
 
@@ -1154,7 +1174,7 @@ async def coach_chat(request: Request):
         messages=messages,
     )
     reply = msg.content[0].text.strip()
-    return JSONResponse({"reply": reply}, headers=_NO_CACHE)
+    return JSONResponse({"reply": reply, "_pipeline": "monolith"}, headers=_NO_CACHE)
 
 
 @app.post("/api/baseline/calculate")
@@ -1781,6 +1801,7 @@ async def check_abend(request: Request):
     try:
         result = call_claude(system, user_msg)
         result["weather"] = weather
+        result["_pipeline"] = "monolith"
         return result
     except json.JSONDecodeError as e:
         raise HTTPException(500, T["err_claude_json"].format(e=e))
@@ -1910,6 +1931,7 @@ AutoSleep (letzte Nacht):
             result["weather"] = weather
         if sleep_result:
             result["sleep_flags"] = sleep_result
+        result["_pipeline"] = "monolith"
         return result
     except json.JSONDecodeError as e:
         raise HTTPException(500, T["err_claude_json"].format(e=e))
@@ -2054,6 +2076,7 @@ def _run_analysis_job_agent(job_id: str, **kwargs):
         result = analyst.run(**kwargs)
         logger.info("analysis job %s done (agent): bewertung=%s datenlage=%s",
                     job_id, result.get("bewertung"), result.get("datenlage"))
+        result["_pipeline"] = "agents"
         _analysis_jobs[job_id] = {"status": "done", "result": result}
     except Exception as e:
         logger.error("analysis job %s error (agent): %s: %s", job_id, type(e).__name__, e)
@@ -2081,6 +2104,7 @@ def _run_analysis_job_fast(job_id: str, key: str, prompt: str):
             m = _re.search(r'\{.*\}', raw, _re.DOTALL)
             result = json.loads(m.group()) if m else {"bewertung": "ok", "urteil": raw[:400], "naechster_schritt": ""}
         logger.info("analysis job %s done (fast): bewertung=%s", job_id, result.get("bewertung"))
+        result["_pipeline"] = "monolith"
         _analysis_jobs[job_id] = {"status": "done", "result": result}
     except Exception as e:
         logger.error("analysis job %s error (fast): %s", job_id, e)

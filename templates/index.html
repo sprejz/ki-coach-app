@@ -1181,6 +1181,10 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
           <div>Zielzeit: 10:50h</div>
         </div>
         <div style="margin-bottom:16px">
+          <div style="color:var(--text);font-weight:600;margin-bottom:4px">Coach-Engine</div>
+          <div id="about-agents">wird geladen…</div>
+        </div>
+        <div style="margin-bottom:16px">
           <div style="color:var(--text);font-weight:600;margin-bottom:4px">Stack</div>
           <div>Backend: Python / FastAPI</div>
           <div>KI: Claude Sonnet (Anthropic)</div>
@@ -1288,12 +1292,37 @@ function showSplash(statusText) {
   if (statusText) setSplashStatus(statusText);
 }
 
+// Übersetzt den agents-Block aus /api/version in Klartext. Die drei Zustände
+// haben verschiedene Ursachen: nicht importierbar = Deploy kaputt (meist
+// anthropic < 0.120.0), importierbar aber aus = ENV COACH_AGENTS fehlt.
+function renderAgentsStatus(a) {
+  const el = document.getElementById('about-agents');
+  if (!el) return;
+  if (!a) { el.textContent = 'unbekannt'; return; }
+  let line, color;
+  if (!a.importable) {
+    line = 'Agent-Pipeline nicht importierbar'; color = '#E24B4A';
+  } else if (!a.enabled) {
+    line = 'Monolith-Prompt (COACH_AGENTS aus)'; color = '#EF9F27';
+  } else {
+    line = 'Agent-Pipeline aktiv'; color = '#1D9E75';
+  }
+  let h = `<div style="color:${color}">${line}</div>`;
+  h += `<div>COACH_AGENTS: ${a.env ? esc(a.env) : '<span style="color:#E24B4A">nicht gesetzt</span>'}</div>`;
+  h += `<div>anthropic ${esc(a.anthropic_version || '?')}</div>`;
+  if (a.import_error) {
+    h += `<div style="color:#E24B4A;word-break:break-word">${esc(a.import_error)}</div>`;
+  }
+  el.innerHTML = h;
+}
+
 // ── init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   setSplashProgress(0);
   fetch('/api/version').then(r => r.json()).then(d => {
     const el = document.getElementById('splash-version');
     if (el) el.textContent = 'v' + d.version;
+    renderAgentsStatus(d.agents);
   }).catch(() => {});
   setSplashStatus(T.loading_data);
   try {
@@ -1675,8 +1704,23 @@ function buildResult(data, fd, type) {
   }
 
   h += `</div>`; // .dark-card
+  // Welcher Pfad hat geantwortet? Ohne das war nur im Railway-Log sichtbar,
+  // ob die Agent-Pipeline lief oder still auf den Monolith zurückgefallen ist.
+  h += engineNote(data._pipeline);
   h += `<button class="btn-back" onclick="backToForm()">← Zurück zum Formular</button>`;
   return h;
+}
+
+// "agents" = Pipeline lief. "monolith" = alter Prompt (ENV aus ODER Fallback
+// nach einem Fehler — welches von beidem, sagt /api/version im About-Tab).
+function engineNote(pipeline) {
+  if (!pipeline) return '';
+  const agents = pipeline === 'agents';
+  const label  = agents ? 'Agent-Pipeline' : 'Monolith-Prompt';
+  const color  = agents ? '#1D9E75' : '#EF9F27';
+  return `<div style="text-align:center;font-size:11px;color:var(--muted);margin-top:10px;letter-spacing:.3px">
+    <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${color};margin-right:6px;vertical-align:middle"></span>${label}
+  </div>`;
 }
 
 function toggleOverride(idx) {
@@ -2585,7 +2629,8 @@ function renderAnalysisCard(data) {
           <div style="font-size:10px;font-weight:700;color:var(--muted2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Nächster Schritt</div>
           <p style="font-size:13px;color:var(--text);line-height:1.5;margin:0">${esc(next)}</p>
         </div>` : ''}
-    </div>`;
+    </div>
+    ${engineNote(data._pipeline)}`;
 }
 
 // ── Wetter direkt im Browser von Open-Meteo laden (Railway kann es nicht) ────
