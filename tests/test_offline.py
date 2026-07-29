@@ -17,6 +17,7 @@ from agents import allgemeinmedic, analyst, architect, chat, fueling, head_coach
 from orchestrator import _baue_einheit, normalize_sport  # noqa: E402
 from tests import fixtures as fx  # noqa: E402
 from training_load import compute_pmc, tage_bis, tss_pro_tag, wochenstruktur  # noqa: E402
+import strava  # noqa: E402
 
 fehler = []
 
@@ -329,6 +330,65 @@ pruefe("Kein Tempo" in arch_in, "Architekt bekommt die Tempo-Sperre")
 pruefe("Start vor 09:00" in arch_in, "Architekt bekommt den Zusatzhinweis")
 pruefe("4×8 min @ 5:20/km" in arch_in, "Architekt bekommt das Original als Vorlage")
 pruefe("286 W" in arch_in, "Architekt bekommt die Schwellenwerte")
+
+print("\n=== Strava-Integration (strava.py) ===")
+STRAVA_LAUF = {
+    "id": 111, "sport_type": "Run", "start_date_local": "2026-07-26T07:00:00",
+    "moving_time": 3600, "distance": 10000.0,
+    "average_heartrate": 152, "max_heartrate": 168, "average_cadence": 86,
+}
+STRAVA_LAPS_LAUF = [
+    {"elapsed_time": 600, "distance": 2000.0, "average_heartrate": 148, "average_speed": 2000 / 600},
+    {"elapsed_time": 660, "distance": 2000.0, "average_heartrate": 155, "average_speed": 2000 / 660},
+]
+fit_shape = strava._activity_to_fit_shape(STRAVA_LAUF, STRAVA_LAPS_LAUF)
+pruefe(fit_shape.get("dauer_min") == 60.0, "Strava-Lauf: Dauer aus moving_time (60 min)")
+pruefe(fit_shape.get("distanz_km") == 10.0, "Strava-Lauf: Distanz aus distance (10 km)")
+pruefe(fit_shape.get("avg_hr") == 152 and fit_shape.get("max_hr") == 168,
+       "Strava-Lauf: Herzfrequenz übernommen")
+pruefe(fit_shape.get("avg_kadenz") == 86, "Strava-Lauf: Kadenz übernommen")
+pruefe(fit_shape.get("avg_pace_min_km") == "6:00", "Strava-Lauf: Pace aus distance/moving_time (10km/60min)")
+pruefe("avg_power_w" not in fit_shape, "Strava-Lauf ohne Leistungsmesser erfindet kein avg_power_w")
+pruefe(len(fit_shape.get("laps", [])) == 2, "Strava-Lauf: beide Laps übernommen")
+pruefe(fit_shape["laps"][0]["pace"] == "5:00", "Lap 1: Pace korrekt berechnet (2km/10min)")
+pruefe(fit_shape["laps"][0]["km"] == 2.0 and fit_shape["laps"][0]["t_min"] == 10.0,
+       "Lap 1: Distanz und Dauer korrekt umgerechnet")
+
+STRAVA_RAD = {
+    "id": 222, "sport_type": "Ride", "start_date_local": "2026-07-26T09:00:00",
+    "moving_time": 7200, "distance": 60000.0,
+    "average_watts": 180.4, "max_watts": 420, "weighted_average_watts": 195,
+    "average_heartrate": 140, "max_heartrate": 165, "kilojoules": 1296.0,
+}
+rad_shape = strava._activity_to_fit_shape(STRAVA_RAD, [])
+pruefe(rad_shape.get("avg_power_w") == 180, "Strava-Rad: Ø Leistung übernommen (gerundet)")
+pruefe(rad_shape.get("max_power_w") == 420, "Strava-Rad: Max-Leistung übernommen")
+pruefe(rad_shape.get("normalized_power_w") == 195, "Strava-Rad: NP aus weighted_average_watts")
+pruefe(rad_shape.get("total_work_kj") == 1296.0, "Strava-Rad: Arbeit aus kilojoules übernommen")
+pruefe("laps" not in rad_shape, "Ohne Laps wird keine leere Liste erfunden")
+
+KANDIDATEN_TAG = [
+    {"id": 1, "sport_type": "Run", "start_date_local": "2026-07-26T07:00:00",
+     "moving_time": 3600, "distance": 10000},
+    {"id": 2, "sport_type": "Ride", "start_date_local": "2026-07-26T17:00:00",
+     "moving_time": 5400, "distance": 40000},
+]
+pruefe(strava.match_activity(KANDIDATEN_TAG, "Run")["id"] == 1,
+       "match_activity filtert nach Sportart-Gruppe (Run)")
+pruefe(strava.match_activity(KANDIDATEN_TAG, "Bike")["id"] == 2,
+       "match_activity mappt TP 'Bike' auf Stravas 'Ride'")
+pruefe(strava.match_activity([], "Run") is None, "match_activity ohne Kandidaten liefert None")
+
+KANDIDATEN_ZWEI_LAEUFE = [
+    {"id": 10, "sport_type": "Run", "start_date_local": "2026-07-26T06:30:00",
+     "moving_time": 1200, "distance": 3000},
+    {"id": 11, "sport_type": "Run", "start_date_local": "2026-07-26T17:00:00",
+     "moving_time": 3600, "distance": 10000},
+]
+pruefe(strava.match_activity(KANDIDATEN_ZWEI_LAEUFE, "Run", "2026-07-26T06:35:00")["id"] == 10,
+       "match_activity wählt bei Zeithinweis die zeitlich nächste Aktivität")
+pruefe(strava.match_activity(KANDIDATEN_ZWEI_LAEUFE, "Run", "")["id"] == 11,
+       "match_activity wählt ohne Zeithinweis die längste Aktivität")
 
 print(f"\n{'=' * 40}")
 if fehler:

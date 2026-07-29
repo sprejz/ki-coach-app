@@ -1,4 +1,4 @@
-# KI Coach App — v2.7.8
+# KI Coach App — v2.7.9
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -22,7 +22,9 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 - `TP_MCP_URL` — TrainingPeaks MCP: `https://trainingpeaks-mcp-production-1a4f.up.railway.app/mcp` (optional; ohne → TP-Endpoints liefern `{"available": false}` bzw. HTTP 400)
 - `APP_LANG` — `de` (Default) oder `en`
 - `COACH_AGENTS` — `1`/`true`/`on` aktiviert die Agent-Pipeline. **Default aus** → Monolith-Prompt
-- `DATA_DIR` — Verzeichnis für schreibbaren Zustand (`athlete.json`, `baseline.json`, `sleep_history.json`). **Auf Railway `/data` mit gemountetem Volume**, sonst ist nach jedem Deploy alles weg. Ohne die Variable = Repo-Verzeichnis (lokal)
+- `DATA_DIR` — Verzeichnis für schreibbaren Zustand (`athlete.json`, `baseline.json`, `sleep_history.json`, `strava_token.json`). **Auf Railway `/data` mit gemountetem Volume**, sonst ist nach jedem Deploy alles weg. Ohne die Variable = Repo-Verzeichnis (lokal)
+- `STRAVA_CLIENT_ID` / `STRAVA_CLIENT_SECRET` — Strava-API-App (optional; ohne → Analyse-Tab bleibt beim manuellen FIT-Upload wie bisher)
+- `STRAVA_REFRESH_TOKEN` — einmaliger Seed aus der manuellen OAuth-Autorisierung (siehe „Workout-Analyse"). Die App verwaltet danach ihren eigenen, aktuellen Stand in `DATA_DIR/strava_token.json` — Strava tauscht das Refresh-Token bei jedem Refresh potenziell aus
 - `PORT` — Railway setzt automatisch
 
 **MCP-Service (zweiter Railway-Service, `Dockerfile.mcp`):**
@@ -38,7 +40,7 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.7.8)
+├── CLAUDE.md            ← diese Datei (v2.7.9)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
 ├── coach_mcp.py         ← MCP-Server für Claude Desktop + Code (stdio lokal / HTTP remote)
 ├── requirements-mcp.txt ← nur für coach_mcp.py, eigenes venv (.venv-mcp)
@@ -46,6 +48,7 @@ ki-coach-app/
 ├── orchestrator.py      ← Kontrollfluss der Agent-Pipeline
 ├── nutrition.py         ← Ernährungstabelle (deterministisch, von beiden Pfaden genutzt)
 ├── training_load.py     ← CTL/ATL/TSB aus der TSS-Historie (deterministisch)
+├── strava.py            ← Strava-Auto-Match für die Analyse (OAuth direkt per httpx, kein MCP)
 ├── agents/              ← base, medic, allgemeinmedic, weather, periodizer, head_coach, architect, fueling, analyst, chat
 ├── prompts/de/          ← statische Agent-Prompts, einer je Agent
 ├── tests/               ← fixtures.py, test_offline.py, test_wiring.py, test_live.py
@@ -202,16 +205,23 @@ TP unterstützt kein Supplementary Unicode → 🔥 wurde durch ♨️ ersetzt (
 `GET /api/tp/workouts/history?days=5` → abgeschlossene Einheiten, nur Rad/Schwimmen/Lauf, SKIP-Einheiten ausgeblendet, mit Wettersymbol.
 
 `POST /api/workout/analyze` (Multipart, optional FIT-Datei):
-1. FIT-Datei sofort mit **fitdecode** parsen (v2.6.90 — `fitparse` verstand neuere Garmin-Protokolle nicht): Dauer, Distanz, Ø/Max Power, NP, Ø/Max HF, Kadenz, Pace, TSS, Arbeit + bis zu 20 Laps
+1. **Datenquelle bestimmen** (v2.7.9), Priorität: hochgeladene FIT-Datei (bewusste Nutzerentscheidung, gewinnt immer) → **Strava-Auto-Match** → nur TP-Ist/-Plan. FIT-Datei sofort mit **fitdecode** parsen (v2.6.90 — `fitparse` verstand neuere Garmin-Protokolle nicht): Dauer, Distanz, Ø/Max Power, NP, Ø/Max HF, Kadenz, Pace, TSS, Arbeit + bis zu 20 Laps. Ohne Upload versucht `strava.py` per Datum+Sportart die passende Strava-Aktivität zu finden und in **dieselbe Dict-Form** zu bringen — der Analyst sieht keinen Unterschied zwischen FIT-Upload und Strava-Treffer, beides sind echte Gerätemesswerte. Ohne `STRAVA_CLIENT_ID` oder ohne Treffer bleibt alles wie vor v2.7.9.
 2. Archiv-Wetter für das konkrete Workout-Zeitfenster (Priorität: TP-Startzeit → FIT-Startzeit → Tagesfallback)
 3. TP-Workout direkt per MCP holen
 4. Prompt bauen: unterscheidet **Ist-Daten** (`tssActual`, HF, Pace, `perceivedExertion`/RPE …) von reinen **Plan-Daten** und weist Claude an, auch ohne Ist-Werte zu bewerten (v2.6.94)
 5. Job-Queue: Thread + `job_id`, Frontend pollt `GET /api/workout/analyze/{job_id}` (v2.6.5 — direkter Call lief in 60s-Timeouts)
 
-Antwort-JSON: `{"bewertung":"gut|ok|verbesserungsbedarf","urteil":"…","naechster_schritt":"…","ernaehrung_einschaetzung":"…"}`
+Antwort-JSON: `{"bewertung":"gut|ok|verbesserungsbedarf","urteil":"…","naechster_schritt":"…","ernaehrung_einschaetzung":"…","quelle":"fit_upload|strava|null"}`
 Prompt-Leitlinie: keine erfundenen Kritikpunkte, echte Zahlen statt Floskeln (v2.6.91).
 
 `ernaehrung_einschaetzung` (v2.7.8) — Einschätzung, ob die Verpflegung zur Dauer/Intensität passte (Splits/HF-Drift, RPE, Dauer gegen die Tabellen-Basis aus `nutrition_for_duration()`), leer wenn die Datenlage nicht reicht. Erfindet keine eigenen Gramm-/ml-Zahlen — die kommen als `ernaehrung_basis` fertig berechnet in den Prompt.
+
+### Strava-Integration (v2.7.9)
+`strava.py` — kein eigener MCP-Service wie bei TrainingPeaks, sondern direkte `httpx`-Calls (Stravas REST-API ist dafür einfach genug), analog zur Wetter-Anbindung. `agents/analyst.py` bleibt unverändert: Strava-Werte laufen als derselbe `fit`-Parameter durch die bestehende Logik.
+
+- **Auth:** OAuth2 mit Refresh-Token. Einmalige Browser-Autorisierung (`https://www.strava.com/oauth/authorize?...&redirect_uri=http://localhost&scope=activity:read_all`, Code aus der (absichtlich fehlschlagenden) Redirect-URL kopieren, gegen Tokens tauschen) liefert den initialen `STRAVA_REFRESH_TOKEN`. Danach verwaltet die App ihren eigenen, aktuellen Stand in `DATA_DIR/strava_token.json` — bewusst **nicht** in `_STATE_FILES` (`app.py`), damit diese Secret-Datei nie aus dem Repo geseedet wird.
+- **Matching:** Aktivitäten des Zieldatums (±1 Tag Zeitzonen-Puffer) nach Sportart-Gruppe gefiltert (`Run`/`Bike`/`Swim`), bei mehreren Kandidaten die zeitlich nächste zur TP-Startzeit, sonst die längste.
+- **Datenquelle nie erfunden:** ohne Treffer, ohne Credentials oder bei einem Fehler (abgelaufenes Token, Netzwerk) fällt die Analyse lautlos auf den bisherigen Ablauf zurück (TP-Ist/-Plan) — blockiert nie.
 
 ---
 
@@ -364,6 +374,16 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.7.9 — Strava-Integration für die Analyse
+Der Analyse-Tab brauchte bisher immer einen manuellen FIT-Datei-Export+Upload für echte Messwerte (HF, Pace, Power, Splits) — sonst bewertete der Analyst nur anhand der TP-Plandaten. Die meisten Aktivitäten syncen aber automatisch zu Strava.
+
+- **`strava.py`** (neu) holt bei fehlendem FIT-Upload die zu Datum+Sportart passende Strava-Aktivität und bringt sie in **exakt dieselbe Dict-Form** wie `parse_fit_summary()` — `agents/analyst.py` bleibt komplett unangetastet, der Analyst kann Strava- und FIT-Daten nicht unterscheiden (beides sind echte Gerätemesswerte).
+- **Priorität:** hochgeladene FIT-Datei (bewusste Nutzerentscheidung) > Strava-Auto-Match > TP-Ist/-Plan. Ein Strava-Fehler (Token, Netzwerk, kein Treffer) fällt lautlos auf den bisherigen Ablauf zurück, blockiert die Analyse nie.
+- **Bewusst kein eigener MCP-Service** wie bei TrainingPeaks — Stravas REST-API ist einfach genug für direkte `httpx`-Calls, dieselbe Bauart wie die Wetter-Anbindung.
+- **Auth:** OAuth2 mit Refresh-Token, einmalig per Browser-Autorisierung geholt (`STRAVA_REFRESH_TOKEN` als Seed). Die App verwaltet danach ihren eigenen, aktuellen Stand in `DATA_DIR/strava_token.json` — Strava tauscht das Refresh-Token bei jedem Refresh potenziell aus, das muss dauerhaft landen, nicht nur im statischen ENV-Wert. Bewusst **nicht** in `_STATE_FILES` aufgenommen — ein Secret ohne sicheren Repo-Default darf nie geseedet werden.
+- Neues Feld `quelle` (`"fit_upload"|"strava"|null`) an der Job-Antwort, im UI als kleiner Hinweis „🔗 Daten aus Strava" / „📎 Daten aus FIT-Datei" sichtbar — vorher war für den Nutzer nicht erkennbar, woher die Werte kamen.
+- **Wichtige Abgrenzung:** die `mcp__claude_ai_Strava__*`-Tools, die in einer Claude-Code/Claude.ai-Session verfügbar sein können, gehören zu Claude.ai's eigenem Connector und sind an die jeweilige Unterhaltung gebunden — der Railway-Server hat darauf keinen Zugriff. Diese Integration ist komplett unabhängig davon.
 
 ### v2.7.8 — Ernährungsberater
 Ernährung bleibt deterministisch (`nutrition.py`, seit v2.6.99 bewusst so — ein Modell hatte vorher Mengen erfunden). Ein neuer Agent ergänzt das um Kontext, den eine reine Dauer-Tabelle nicht kennt, an drei Stellen — aber nur die erste bekommt einen echten neuen Claude-Call, die anderen zwei werden nur angereichert, um nicht gegen die eigene Kosten-/Latenzdisziplin zu verstoßen (Architekt nur bei MOD, Periodisierer nur mit Belastungsdaten, Checks als Hintergrund-Job wegen der Laufzeit):

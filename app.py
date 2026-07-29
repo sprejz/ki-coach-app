@@ -22,6 +22,7 @@ import anthropic
 from nutrition import nutrition_for_duration
 from training_load import compute_pmc, tage_bis, tss_pro_tag, wochenstruktur
 from translations import TRANSLATIONS
+import strava
 
 # Agent-Pipeline (Sportmediziner + Wetter-Taktiker → Chefcoach). Import bewusst
 # defensiv: fehlt etwas, läuft die App weiter über den alten Monolith-Prompt.
@@ -35,7 +36,7 @@ except Exception as _agent_err:          # pragma: no cover
     _AGENTS_IMPORTABLE = False
     _AGENTS_IMPORT_ERROR = str(_agent_err)
 
-APP_VERSION = "2.7.8"
+APP_VERSION = "2.7.9"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -2289,7 +2290,7 @@ def _run_analysis_job(job_id: str, tp_url: str, key: str, prompt: str):
         _analysis_jobs[job_id] = {"status": "error", "error": str(e)[:300]}
 
 
-def _run_analysis_job_agent(job_id: str, **kwargs):
+def _run_analysis_job_agent(job_id: str, quelle: Optional[str] = None, **kwargs):
     """Analyse über den Performance-Analyst mit erzwungenem Schema.
 
     Im alten Pfad wurde ein Parse-Fehler zu {"bewertung": "ok", ...} — der
@@ -2301,13 +2302,14 @@ def _run_analysis_job_agent(job_id: str, **kwargs):
         logger.info("analysis job %s done (agent): bewertung=%s datenlage=%s",
                     job_id, result.get("bewertung"), result.get("datenlage"))
         result["_pipeline"] = "agents"
+        result["quelle"] = quelle
         _analysis_jobs[job_id] = {"status": "done", "result": result}
     except Exception as e:
         logger.error("analysis job %s error (agent): %s: %s", job_id, type(e).__name__, e)
         _analysis_jobs[job_id] = {"status": "error", "error": str(e)[:300]}
 
 
-def _run_analysis_job_fast(job_id: str, key: str, prompt: str):
+def _run_analysis_job_fast(job_id: str, key: str, prompt: str, quelle: Optional[str] = None):
     """Schneller Pfad wenn FIT-Daten vorhanden — kein MCP nötig."""
     import re as _re
     try:
@@ -2329,6 +2331,7 @@ def _run_analysis_job_fast(job_id: str, key: str, prompt: str):
             result = json.loads(m.group()) if m else {"bewertung": "ok", "urteil": raw[:400], "naechster_schritt": ""}
         logger.info("analysis job %s done (fast): bewertung=%s", job_id, result.get("bewertung"))
         result["_pipeline"] = "monolith"
+        result["quelle"] = quelle
         _analysis_jobs[job_id] = {"status": "done", "result": result}
     except Exception as e:
         logger.error("analysis job %s error (fast): %s", job_id, e)
@@ -2458,6 +2461,23 @@ async def workout_analyze(
     a_race = next((r for r in athlete.get("races", []) if r.get("type") == "A"), {})
     target_date = workout_date or date.today().isoformat()
 
+    # Strava-Auto-Match nur, wenn keine FIT-Datei hochgeladen wurde — eine
+    # manuell hochgeladene Datei ist eine bewusste Nutzerentscheidung und
+    # gewinnt immer. Ein Strava-Fehler (Token, Netzwerk, kein Treffer) fällt
+    # lautlos auf den bisherigen Ablauf zurück, blockiert die Analyse nie.
+    quelle = "fit_upload" if fit_data else None
+    if not fit_data and os.environ.get("STRAVA_CLIENT_ID"):
+        try:
+            strava_data = await strava.fetch_matching_activity_as_fit(
+                target_date=target_date, sport_hint=sport, start_time_hint=start_time,
+            )
+            if strava_data:
+                fit_data = strava_data
+                quelle = "strava"
+                logger.info("workout_analyze: Strava-Match für %s (%s)", workout_id, sport)
+        except Exception as e:
+            logger.warning("workout_analyze: Strava-Abgleich fehlgeschlagen: %s", e)
+
     # Wetter als private_notes in TP hinterlegen (best-effort, description bleibt unangetastet)
     weather_on_date: dict = {}
     if workout_id:
@@ -2518,7 +2538,7 @@ async def workout_analyze(
             logger.warning("workout_analyze: tp_get_workout failed: %s", _te)
 
     job_id = uuid.uuid4().hex[:10]
-    _analysis_jobs[job_id] = {"status": "pending", "has_fit": bool(fit_data)}
+    _analysis_jobs[job_id] = {"status": "pending", "has_fit": bool(fit_data), "quelle": quelle}
 
     if agents_enabled():
         # Belastungslage mitgeben: eine Einheit bei TSB -28 liest sich anders
@@ -2540,16 +2560,17 @@ async def workout_analyze(
                 "sport": sport, "titel": title, "datum": target_date,
                 "fit": fit_data or None, "tp": tp_workout_data or None,
                 "wetter": weather_on_date or None, "load": load,
-                "ernaehrung_basis": ernaehrung_basis,
+                "ernaehrung_basis": ernaehrung_basis, "quelle": quelle,
             }, daemon=True)
     else:
         prompt = _build_analysis_prompt(athlete, a_race, workout_id, sport, title, target_date,
                                         fit_data, weather_on_date, tp_workout_data)
-        t = threading.Thread(target=_run_analysis_job_fast, args=(job_id, key, prompt), daemon=True)
+        t = threading.Thread(target=_run_analysis_job_fast, args=(job_id, key, prompt, quelle), daemon=True)
     t.start()
-    logger.info("analysis job %s started for %s on %s (fit=%s, tp=%s)",
-                job_id, title, target_date, bool(fit_data), bool(tp_workout_data))
-    return JSONResponse({"job_id": job_id, "has_fit": bool(fit_data), "weather": weather_on_date or None},
+    logger.info("analysis job %s started for %s on %s (fit=%s, tp=%s, quelle=%s)",
+                job_id, title, target_date, bool(fit_data), bool(tp_workout_data), quelle)
+    return JSONResponse({"job_id": job_id, "has_fit": bool(fit_data), "quelle": quelle,
+                        "weather": weather_on_date or None},
                         headers=_NO_CACHE)
 
 
