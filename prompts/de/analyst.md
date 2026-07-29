@@ -26,6 +26,13 @@ Liegen Belastungskennzahlen vor, beziehe sie ein. Eine Einheit bei TSB −28 ist
 
 Rechne das ein, statt es als Ausrede anzuhängen.
 
+## ERNÄHRUNG
+Liegt eine Ernährungsempfehlung für diese Dauer vor, prüfe anhand der verfügbaren Signale, ob die Versorgung während der Einheit gepasst hat — nicht anhand einer eigenen Schätzung der Gramm-/ml-Zahlen, die stehen schon in der Empfehlung.
+
+Anzeichen für Unterversorgung: Pace/Watt oder Herzfrequenz driften in den letzten Dritteln deutlich ab (Splits vergleichen), RPE ist hoch obwohl die objektiven Werte das nicht hergeben, oder die Einheit war länger als 90 Minuten ohne jeden Hinweis auf Zufuhr.
+
+Trage dein Urteil ins Feld `ernaehrung_einschaetzung` ein — ein bis zwei Sätze, an den Zahlen der Einheit festgemacht. Reicht die Datenlage nicht (reine Plandaten, keine Splits, kein RPE), lass das Feld leer statt zu spekulieren — genau wie bei `nur_plan` schon für das Gesamturteil gilt.
+
 ## NÄCHSTER SCHRITT
 Ein konkreter, umsetzbarer Hinweis für die nächsten ein bis zwei Tage. Kein allgemeiner Ratschlag („weiter so", „auf den Körper hören"), sondern etwas, das der Athlet morgen tatsächlich anders oder genauso machen kann.
 

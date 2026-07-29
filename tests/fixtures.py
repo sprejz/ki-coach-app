@@ -26,17 +26,30 @@ WETTER_MILD = {
 KOERPER_GESUND = {
     "waden": 0, "knie": 0, "achilles_l": 0, "achilles_r": 0,
     "muedigkeit": 2, "muskelkater": ["keine"], "symptome": "keine",
+    "fieber": None, "blutdruck_sys": None, "blutdruck_dia": None, "medikamente": None,
 }
 
 KOERPER_ACHILLES = {
     "waden": 4, "knie": 1, "achilles_l": 1, "achilles_r": 5,
     "muedigkeit": 3, "muskelkater": ["Beine leicht"], "symptome": "keine",
+    "fieber": None, "blutdruck_sys": None, "blutdruck_dia": None, "medikamente": None,
 }
 
 KOERPER_KRANK = {
     "waden": 1, "knie": 1, "achilles_l": 0, "achilles_r": 0,
     "muedigkeit": 4, "muskelkater": ["keine"], "symptome": "neu mittel",
 }
+
+# Symptome-Pille sagt "keine" — beweist, dass Fieber allein (ohne Pille) den
+# Allgemeinmediziner-Override auslöst.
+KOERPER_FIEBER = {
+    "waden": 0, "knie": 0, "achilles_l": 0, "achilles_r": 0,
+    "muedigkeit": 2, "muskelkater": ["keine"], "symptome": "keine",
+    "fieber": 38.9,
+}
+
+FAKE_FUELING_HITZE = {"relevant": True, "hinweis": "Bei dieser Hitze früher mit dem Trinken beginnen."}
+FAKE_FUELING_LEER = {"relevant": False, "hinweis": ""}
 
 SLEEP_AUFFAELLIG = {
     "hrv": 26.0, "wach_bpm": 62.0, "schlaf_bpm": 70.0, "atmung": 17.9, "effizienz": 79.0,
@@ -153,7 +166,6 @@ CASES = [
         "koerper": KOERPER_GESUND, "weather": WETTER_MILD, "tp": TP_LAUF_INTERVALL,
         "sleep": None,
         "erwartung": {
-            "medic_gesamturteil": ["frei"],
             "laufen_urteil": ["frei"],
             "badges_erlaubt": ["GO"],
         },
@@ -163,7 +175,6 @@ CASES = [
         "koerper": KOERPER_ACHILLES, "weather": WETTER_MILD, "tp": TP_LAUF_INTERVALL,
         "sleep": None,
         "erwartung": {
-            "medic_gesamturteil": ["eingeschraenkt"],
             # Achilles 5/10 plus Waden 4/10 → Laufen darf nicht 'frei' sein
             "laufen_urteil": ["stop", "kein_tempo", "reduziert"],
             "badges_erlaubt": ["MOD", "SKIP"],
@@ -174,7 +185,6 @@ CASES = [
         "koerper": KOERPER_GESUND, "weather": WETTER_GEWITTER, "tp": TP_LAUF_INTERVALL,
         "sleep": None,
         "erwartung": {
-            "medic_gesamturteil": ["frei"],
             "wetter_gesamtlage": ["outdoor_gestrichen", "anpassen"],
             "laufen_empfehlung": ["indoor_wechsel", "gestrichen"],
             "badges_erlaubt": ["MOD", "SKIP"],
@@ -196,7 +206,16 @@ CASES = [
         "koerper": KOERPER_KRANK, "weather": WETTER_MILD, "tp": TP_TAG_MIT_DREI,
         "sleep": SLEEP_AUFFAELLIG,
         "erwartung": {
-            "medic_gesamturteil": ["pause"],
+            "allgemein_gesamturteil": ["pause"],
+            "badges_erlaubt": ["SKIP"],
+        },
+    },
+    {
+        "name": "fieber_allein_ohne_symptome_pause",
+        "koerper": KOERPER_FIEBER, "weather": WETTER_MILD, "tp": TP_LAUF_INTERVALL,
+        "sleep": None,
+        "erwartung": {
+            "allgemein_gesamturteil": ["pause"],
             "badges_erlaubt": ["SKIP"],
         },
     },

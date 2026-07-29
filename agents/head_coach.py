@@ -87,9 +87,20 @@ def _athlete_block(athlete: dict, a_race: Optional[dict]) -> str:
     return "\n".join(lines)
 
 
-def build_input(*, athlete: dict, a_race, medic: dict, wetter: dict,
+def build_input(*, athlete: dict, a_race, medic: dict, wetter: dict, allgemein: dict,
                 tp_workouts: list, tag: str, block: Optional[dict] = None) -> str:
     lines = [f"# Entscheidung für {tag}", "", _athlete_block(athlete, a_race)]
+
+    lines.append("\n## Urteil des Allgemeinmediziners (bindend, stärker als der Sportmediziner)")
+    lines.append(f"- Gesamtlage: {allgemein.get('gesamturteil')}")
+    if allgemein.get("leitbefund"):
+        lines.append(f"- Leitbefund: {allgemein['leitbefund']}")
+    for s in allgemein.get("sportarten", []):
+        lines.append(f"- {s.get('sport')}: **{s.get('urteil')}** — {s.get('grund')}")
+    if allgemein.get("alternativen"):
+        lines.append(f"- Alternativen: {', '.join(allgemein['alternativen'])}")
+    if allgemein.get("hinweis_chronisch"):
+        lines.append(f"- Chronischer Kontext: {allgemein['hinweis_chronisch']}")
 
     if block:
         lines.append("\n## Urteil des Periodisierers")
@@ -104,9 +115,6 @@ def build_input(*, athlete: dict, a_race, medic: dict, wetter: dict,
             lines.append(f"- ⚠️ WARNUNG: {block['warnung']}")
 
     lines.append("\n## Urteil des Sportmediziners")
-    lines.append(f"- Gesamtlage: {medic.get('gesamturteil')}")
-    if medic.get("leitsymptom"):
-        lines.append(f"- Leitsymptom: {medic['leitsymptom']}")
     for s in medic.get("sportarten", []):
         lines.append(f"- {s.get('sport')}: **{s.get('urteil')}** — {s.get('grund')}")
     if medic.get("alternativen"):
@@ -146,13 +154,13 @@ def build_input(*, athlete: dict, a_race, medic: dict, wetter: dict,
     return "\n".join(lines)
 
 
-def run(*, athlete: dict, a_race, medic: dict, wetter: dict, tp_workouts: list,
+def run(*, athlete: dict, a_race, medic: dict, wetter: dict, allgemein: dict, tp_workouts: list,
         tag: str, block: Optional[dict] = None, model: str = HAIKU) -> dict:
     return call_agent(
         prompt=load_prompt("head_coach"),
         schema=SCHEMA,
         user=build_input(athlete=athlete, a_race=a_race, medic=medic, wetter=wetter,
-                         tp_workouts=tp_workouts, tag=tag, block=block),
+                         allgemein=allgemein, tp_workouts=tp_workouts, tag=tag, block=block),
         model=model,
         max_tokens=8000,
         label="head_coach",

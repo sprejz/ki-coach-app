@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from datetime import date, timedelta  # noqa: E402
 
-from agents import analyst, architect, chat, head_coach, medic, periodizer, weather  # noqa: E402
+from agents import allgemeinmedic, analyst, architect, chat, fueling, head_coach, medic, periodizer, weather  # noqa: E402
 from orchestrator import _baue_einheit, normalize_sport  # noqa: E402
 from tests import fixtures as fx  # noqa: E402
 from training_load import compute_pmc, tage_bis, tss_pro_tag, wochenstruktur  # noqa: E402
@@ -94,7 +94,8 @@ pruefe(tage_bis("", ab=HEUTE) is None and tage_bis("kaputt", ab=HEUTE) is None,
        "Ungültiges Datum → None statt Absturz")
 
 print("\n=== Schemas ===")
-for name, schema in [("medic", medic.SCHEMA), ("weather", weather.SCHEMA),
+for name, schema in [("medic", medic.SCHEMA), ("allgemeinmedic", allgemeinmedic.SCHEMA),
+                     ("weather", weather.SCHEMA), ("fueling", fueling.SCHEMA),
                      ("head_coach", head_coach.SCHEMA), ("architect", architect.SCHEMA),
                      ("periodizer", periodizer.SCHEMA), ("analyst", analyst.SCHEMA)]:
     vorher = len(fehler)
@@ -156,6 +157,23 @@ m_in = medic.build_input(koerper=fx.KOERPER_ACHILLES, sportarten=["Laufen"],
 pruefe("Achillessehne rechts: 5/10" in m_in, "Mediziner sieht Achilles rechts 5/10")
 pruefe("Waden: 4/10" in m_in, "Mediziner sieht Waden 4/10")
 pruefe("HRV niedrig" in m_in, "Mediziner sieht die Schlaf-Flags")
+pruefe("symptome" not in m_in.lower() and "krankheit" not in m_in.lower(),
+       "Sportmediziner sieht KEINE Krankheitssymptome mehr (an den Allgemeinmediziner ausgelagert)")
+
+am_in = allgemeinmedic.build_input(koerper=fx.KOERPER_FIEBER, sportarten=["Laufen"],
+                                   chronische_befunde="Asthma", sleep=None, baseline=None)
+pruefe("38.9" in am_in, "Allgemeinmediziner sieht die Fiebertemperatur")
+pruefe("Asthma" in am_in, "Allgemeinmediziner sieht die chronischen Befunde")
+pruefe("nicht gemessen" in am_in, "Fehlende Werte (Blutdruck) werden explizit als fehlend markiert, nicht erfunden")
+
+f_in = fueling.build_input(basis="Während: 90g Carbs/h", sport="Laufen", dauer_min=120,
+                           badge="GO", is_hot=True, temp_max=31, chronische_befunde="Reizdarm")
+pruefe("90g Carbs/h" in f_in, "Fueling-Agent sieht die Tabellen-Basis")
+pruefe("31" in f_in, "Fueling-Agent sieht die Temperatur")
+pruefe("Reizdarm" in f_in, "Fueling-Agent sieht den chronischen Befund")
+f_in_renntag = fueling.build_input(basis="Renntag-Protokoll", sport="Laufen", dauer_min=241,
+                                   badge="GO", ist_renntag=True, rennname="Malbork")
+pruefe("RENNTAG" in f_in_renntag and "Malbork" in f_in_renntag, "Fueling-Agent sieht den Renntag")
 
 w_in = weather.build_input(weather=fx.WETTER_HITZE, sportarten=["Laufen", "Schwimmen"],
                            titel=["Schwellenlauf"], swim_min_c=15)
@@ -168,19 +186,21 @@ hc_in = head_coach.build_input(
              "run_threshold_pace": "5:20", "css_per_100m": "2:20",
              "nutrition": {"rules": [{"duration_min_min": 90, "during": "90g Carbs/h"}]}},
     a_race={"name": "Malbork", "date": "2026-09-06", "goal_total": "10:50"},
-    medic={"gesamturteil": "eingeschraenkt", "leitsymptom": "Achilles rechts 5/10",
-           "sportarten": [{"sport": "Laufen", "urteil": "stop", "grund": "Achilles 5/10"}],
+    medic={"sportarten": [{"sport": "Laufen", "urteil": "stop", "grund": "Achilles 5/10"}],
            "alternativen": ["Aquajogging"], "erholung": "HRV unter Baseline"},
     wetter={"gesamtlage": "anpassen", "hinweis": "31 °C",
             "sportarten": [{"sport": "Laufen", "empfehlung": "zeitfenster",
                             "anpassung": "Pace 5% langsamer", "zeitfenster": "vor 09:00"}],
             "versorgung": "750 ml/h"},
+    allgemein={"gesamturteil": "frei", "leitbefund": "", "sportarten": [],
+               "alternativen": [], "hinweis_chronisch": ""},
     tp_workouts=fx.TP_LAUF_INTERVALL, tag="Sonntag, 26.07.2026",
 )
 pruefe("**stop**" in hc_in, "Chefcoach sieht das medizinische stop-Urteil")
 pruefe("Malbork" in hc_in, "Chefcoach sieht das A-Rennen")
 pruefe("4×8 min @ 5:20/km" in hc_in, "Chefcoach sieht die Original-Beschreibung aus TP")
 pruefe("Carbs" not in hc_in, "Chefcoach sieht KEINE Ernährungsregeln mehr (deterministisch)")
+pruefe("Allgemeinmediziner" in hc_in, "Chefcoach sieht die Sektion des Allgemeinmediziners")
 
 arch_in = architect.build_input(
     athlete={"ftp_watt": 286, "run_threshold_pace": "5:20", "css_per_100m": "2:20",
@@ -206,8 +226,10 @@ pruefe("Tage mit Trainingsdaten im Zeitraum: 27" in per_in,
 
 hc_mit_block = head_coach.build_input(
     athlete={"name": "H"}, a_race=fx.A_RACE_MALBORK,
-    medic={"gesamturteil": "frei", "sportarten": []},
+    medic={"sportarten": []},
     wetter={"gesamtlage": "unkritisch", "sportarten": []},
+    allgemein={"gesamturteil": "frei", "leitbefund": "", "sportarten": [],
+               "alternativen": [], "hinweis_chronisch": ""},
     tp_workouts=[], tag="heute",
     block={"phase": "aufbau", "wochenintention": "Schwellenblock",
            "heute_rolle": "schluesseleinheit", "heute_begruendung": "einzige Intensität",
@@ -220,8 +242,10 @@ pruefe("WARNUNG: Ramp Rate über 7" in hc_mit_block, "Chefcoach sieht die Warnun
 
 hc_ohne_block = head_coach.build_input(
     athlete={"name": "H"}, a_race=None,
-    medic={"gesamturteil": "frei", "sportarten": []},
+    medic={"sportarten": []},
     wetter={"gesamtlage": "unkritisch", "sportarten": []},
+    allgemein={"gesamturteil": "frei", "leitbefund": "", "sportarten": [],
+               "alternativen": [], "hinweis_chronisch": ""},
     tp_workouts=[], tag="heute", block=None,
 )
 pruefe("Periodisierer" not in hc_ohne_block,
@@ -263,6 +287,12 @@ pruefe("NUR Plan-Daten" in an_plan, "Ohne Ist-Werte wird das im Prompt markiert"
 pruefe("Bewerte die Einheit trotzdem" in an_plan,
        "Ohne Ist-Werte wird trotzdem eine Bewertung verlangt")
 
+an_ernaehrung = analyst.build_input(athlete={}, sport="Run", titel="Lauf", datum="2026-07-24",
+                                    fit=None, tp=None, ernaehrung_basis="Während: 90g Carbs/h")
+pruefe("90g Carbs/h" in an_ernaehrung, "Analyst sieht die Ernährungsbasis für diese Dauer")
+pruefe("ernaehrung_einschaetzung" in analyst.SCHEMA["properties"],
+       "Analyst-Schema hat das Ernährungs-Einschätzungsfeld")
+
 print("\n=== Coach-Chat ===")
 ctx = chat.build_context(
     athlete={"name": "Hendrik", "ftp_watt": 286, "weight_kg": 84},
@@ -282,6 +312,17 @@ ctx_leer = chat.build_context(athlete={"name": "H"}, a_race=None, tage_bis_a=Non
 pruefe("Keine Wetterdaten verfügbar" in ctx_leer, "Ohne Wetter wird das explizit gesagt")
 pruefe("keine Einheiten geplant" in ctx_leer, "Ohne TP-Plan wird das explizit gesagt")
 pruefe("CTL" not in ctx_leer, "Ohne Belastungsdaten steht keine erfundene Kennzahl drin")
+
+ctx_ernaehrung = chat.build_context(
+    athlete={"name": "H", "chronische_befunde": "Reizdarm",
+            "nutrition": {"mix": "Malto+Fructose", "carbs_per_hour_g": 90,
+                          "rules": [{"duration_min_min": 60, "duration_max_min": 180,
+                                     "during": "90g Carbs/h"}]}},
+    a_race=None, tage_bis_a=None,
+)
+pruefe("90 g/h" in ctx_ernaehrung, "Chat kennt die Carbs-Rate")
+pruefe("90g Carbs/h" in ctx_ernaehrung, "Chat kennt die Tabellenzeile für die passende Dauer")
+pruefe("Reizdarm" in ctx_ernaehrung, "Chat kennt die chronischen Befunde (bisher fehlte das im Agent-Pfad)")
 
 pruefe("Zieldauer: 45 min" in arch_in, "Architekt bekommt die Zieldauer")
 pruefe("Kein Tempo" in arch_in, "Architekt bekommt die Tempo-Sperre")

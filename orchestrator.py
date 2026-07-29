@@ -3,9 +3,16 @@
 Der Kontrollfluss liegt hier, nicht bei den Agents — die Agents reden nicht
 miteinander, sie liefern typisierte Urteile an den Orchestrator zurück.
 
-    Mediziner    ┐
-    Wetter       ├─(parallel)─→ Chefcoach ─→ Architekt (nur MOD, parallel) ─→ Vertrag
-    Periodisierer┘
+    Allgemeinmediziner ┐
+    Mediziner          ┤
+    Wetter             ├─(parallel)─→ Chefcoach ─→ Architekt (nur MOD, parallel) ─→ Vertrag
+    Periodisierer      ┘                              └─→ Ernährungsberater (nur mit Grund, pro Einheit)
+
+Sagt der Allgemeinmediziner `gesamturteil: pause`, wird das hart im Code
+durchgesetzt: Chefcoach und Architekt werden übersprungen, jede geplante
+Sportart wird deterministisch auf SKIP gesetzt. Diese Regel ist zu
+sicherheitskritisch (Herzmuskelentzündungsrisiko), um sie allein der
+Prompt-Disziplin eines Modells zu überlassen.
 
 Deterministisch, ohne Modell:
   - GO-Einheiten übernehmen die Original-Beschreibung unverändert
@@ -13,12 +20,20 @@ Deterministisch, ohne Modell:
   - Ernährung kommt aus der Tabelle in athlete.json, nach fertiger Dauer
   - CTL/ATL/TSB werden in training_load.py ausgerechnet, nicht geschätzt
   - Schlaf-Flags, Baseline, Wetterschwellen, tp_apply liegen ohnehin in Code
+  - Allgemeinmediziner-Pause → All-SKIP, siehe oben
+
+Der Ernährungsberater (`agents/fueling.py`) läuft pro Einheit NUR bei Hitze/
+Kälte, chronischen Befunden, Renntag oder Dauer ≥90min — sonst bleibt die
+Ernährung der reine Tabellenstring, ohne Modell-Call. Er ergänzt einen
+Kontextsatz, erfindet aber nie eigene Mengen. Ein Fehler dort wird lokal
+abgefangen, nicht an den Monolith-Fallback durchgereicht — ein fehlender
+Zusatzsatz darf nicht den ganzen Check kosten.
 """
 import asyncio
 import logging
 from typing import Callable, Optional
 
-from agents import architect, head_coach, medic, periodizer, weather
+from agents import allgemeinmedic, architect, fueling, head_coach, medic, periodizer, weather
 from agents.base import HAIKU
 from nutrition import nutrition_for_duration
 
@@ -54,7 +69,8 @@ def _wetter_zeile(w: dict) -> str:
 
 
 async def _baue_einheit(*, entscheidung: dict, workout: Optional[dict], athlete: dict,
-                        wetter_zeile: str, model: str) -> dict:
+                        wetter_zeile: str, model: str, weather_data: Optional[dict] = None,
+                        a_race: Optional[dict] = None, tage_bis_a: Optional[int] = None) -> dict:
     """Baut einen Eintrag im Frontend-Vertrag aus Entscheidung + Original-Workout."""
     badge = entscheidung.get("badge", "GO")
     sport = entscheidung.get("sport", "")
@@ -78,15 +94,46 @@ async def _baue_einheit(*, entscheidung: dict, workout: Optional[dict], athlete:
     elif badge == "SKIP":
         beschreibung = ""
 
+    # Ernährung deterministisch aus der fertigen Dauer — kein Modell.
+    ernaehrung = "" if badge == "SKIP" else nutrition_for_duration(
+        dauer, athlete.get("nutrition", {})
+    )
+
+    # Kontextsensitive Ergänzung — läuft NUR mit einem Grund, kein Modell ohne
+    # Anlass (gleiche Disziplin wie beim Periodisierer: kein Call ohne
+    # belastbaren Input). Die Basiszahlen oben bleiben davon unberührt.
+    wd = weather_data or {}
+    is_hot, is_cold = bool(wd.get("is_hot")), bool(wd.get("is_cold"))
+    # "keine"/"keine bekannt" sind die im Profil üblichen Platzhalter für
+    # "nichts hinterlegt" — als truthy-String würden sie sonst jeden Tag
+    # einen Claude-Call auslösen, ohne dass es einen echten Grund gibt.
+    _roh_chronisch = (athlete.get("chronische_befunde") or "").strip().lower()
+    chronisch = athlete.get("chronische_befunde") if _roh_chronisch not in (
+        "", "keine", "keine bekannt", "nichts", "-", "none"
+    ) else None
+    ist_renntag = tage_bis_a == 0
+    lang = bool(dauer) and dauer >= 90
+    if badge in ("GO", "MOD") and ernaehrung and (is_hot or is_cold or chronisch or lang or ist_renntag):
+        try:
+            zusatz = await asyncio.to_thread(
+                fueling.run, basis=ernaehrung, sport=sport, dauer_min=dauer, badge=badge,
+                is_hot=is_hot, is_cold=is_cold, temp_max=wd.get("temp_max"),
+                chronische_befunde=chronisch, ist_renntag=ist_renntag,
+                rennname=(a_race or {}).get("name"), model=model,
+            )
+            if zusatz.get("relevant") and zusatz.get("hinweis"):
+                ernaehrung = f"{ernaehrung} — {zusatz['hinweis']}"
+        except Exception as e:
+            # Ein fehlender Zusatzsatz darf nie den ganzen Check auf den
+            # Monolith umleiten — anders als bei medic/weather/architect.
+            logger.warning("fueling-Agent fehlgeschlagen, Basis-Ernährung bleibt bestehen: %s", e)
+
     return {
         "sport": sport,
         "badge": badge,
         "details": entscheidung.get("details", ""),
         "beschreibung": beschreibung,
-        # Ernährung deterministisch aus der fertigen Dauer — kein Modell.
-        "ernaehrung": "" if badge == "SKIP" else nutrition_for_duration(
-            dauer, athlete.get("nutrition", {})
-        ),
+        "ernaehrung": ernaehrung,
         "tp_struktur": tp_struktur,
         "distanz_m": distanz_m,
         "_begruendung": entscheidung.get("begruendung", ""),
@@ -133,52 +180,99 @@ async def run_check(
     )) or [normalize_sport(s) for s in koerper.get("geplante_einheiten", [])]
     sportarten = [s for s in dict.fromkeys(sportarten) if s]
     titel = [w.get("title", "") for w in tp_workouts if w.get("title")]
+    wetter_zeile = _wetter_zeile(weather_data)
 
     # Stufe 1: die Spezialisten sind voneinander unabhängig → parallel.
     # asyncio.to_thread, weil das anthropic-SDK hier synchron aufgerufen wird.
+    # Keyed statt positionsbasiert, damit der bedingte Periodisierer-Task das
+    # Zuordnen der übrigen Ergebnisse nicht fragil verschiebt.
     melde("spezialisten")
-    aufgaben = [
-        asyncio.to_thread(
+    aufgaben = {
+        "medic": asyncio.to_thread(
             medic.run, koerper=koerper, sportarten=sportarten,
             sleep=sleep, baseline=baseline, model=model,
         ),
-        asyncio.to_thread(
+        "weather": asyncio.to_thread(
             weather.run, weather=weather_data, sportarten=sportarten, titel=titel,
             swim_min_c=athlete.get("swim_outdoor_min_celsius", 15),
             wasser_temp=wasser_temp, tag=tag, model=model,
         ),
-    ]
+        # Läuft unconditional — Krankheit/Fieber sind immer relevant, anders
+        # als der Periodisierer hat dieser Agent keine TP-Datenabhängigkeit.
+        "allgemein": asyncio.to_thread(
+            allgemeinmedic.run, koerper=koerper, sportarten=sportarten,
+            chronische_befunde=athlete.get("chronische_befunde"),
+            sleep=sleep, baseline=baseline, model=model,
+        ),
+    }
     # Der Periodisierer läuft nur mit Belastungsdaten — ohne TP-Historie hätte
     # er nichts zu beurteilen und würde Zahlen erfinden.
     mit_block = bool(load)
     if mit_block:
-        aufgaben.append(asyncio.to_thread(
+        aufgaben["block"] = asyncio.to_thread(
             periodizer.run, load=load, woche=woche or [], a_race=a_race,
             naechste_rennen=athlete.get("races"), tage_bis_a=tage_bis_a, model=model,
-        ))
+        )
 
-    ergebnis_spezialisten = await asyncio.gather(*aufgaben)
-    medic_result, weather_result = ergebnis_spezialisten[0], ergebnis_spezialisten[1]
-    block_result = ergebnis_spezialisten[2] if mit_block else None
+    ergebnisse = dict(zip(aufgaben.keys(), await asyncio.gather(*aufgaben.values())))
+    medic_result = ergebnisse["medic"]
+    weather_result = ergebnisse["weather"]
+    allgemein_result = ergebnisse["allgemein"]
+    block_result = ergebnisse.get("block")
 
     logger.info(
-        "orchestrator: medic=%s wetter=%s block=%s sportarten=%s",
-        medic_result.get("gesamturteil"), weather_result.get("gesamtlage"),
+        "orchestrator: medic=ok wetter=%s allgemein=%s block=%s sportarten=%s",
+        weather_result.get("gesamtlage"), allgemein_result.get("gesamturteil"),
         f"{block_result.get('phase')}/{block_result.get('heute_rolle')}" if block_result else "—",
         sportarten,
     )
+
+    # Sicherheitsregel: Krankheit/Fieber im Pause-Bereich überschreibt alles,
+    # hart im Code statt per Prompt-Disziplin — Chefcoach/Architekt entfallen.
+    if allgemein_result.get("gesamturteil") == "pause":
+        melde("chefcoach")  # UI erwartet die Stufenfolge, auch ohne Modell-Call
+        leitbefund = allgemein_result.get("leitbefund") or "ärztlicher Befund"
+        grund_by_sport = {s.get("sport"): s.get("grund", "") for s in allgemein_result.get("sportarten", [])}
+        ziel_sportarten = sportarten or [normalize_sport(w.get("sport", "")) for w in tp_workouts]
+        ergebnisse_skip = await asyncio.gather(*[
+            _baue_einheit(
+                entscheidung={
+                    "sport": s, "badge": "SKIP",
+                    "details": f"Pause: {leitbefund}",
+                    "begruendung": grund_by_sport.get(s, leitbefund),
+                    "anpassung": {},
+                },
+                workout=tp_workouts[i] if i < len(tp_workouts) else None,
+                athlete=athlete, wetter_zeile=wetter_zeile, model=model,
+                weather_data=weather_data, a_race=a_race, tage_bis_a=tage_bis_a,
+            )
+            for i, s in enumerate(ziel_sportarten)
+        ])
+        logger.warning(
+            "orchestrator: Allgemeinmediziner gesamturteil=pause — harter STOP, "
+            "Chefcoach/Architekt übersprungen (%s)", leitbefund,
+        )
+        return {
+            "status": "red",
+            "status_text": f"Pause – {leitbefund}",
+            "sportarten": list(ergebnisse_skip),
+            "autosleep_summary": None,
+            "wetter_hinweis": wetter_zeile,
+            "prep": "Kein Training heute. Erhole dich, beobachte die Symptome, bei Verschlechterung ärztlich abklären.",
+            "_agents": {"medic": medic_result, "wetter": weather_result, "block": block_result,
+                        "allgemein": allgemein_result},
+        }
 
     # Stufe 2: der Chefcoach entscheidet — ohne auszuformulieren.
     melde("chefcoach")
     entscheidung = await asyncio.to_thread(
         head_coach.run,
         athlete=athlete, a_race=a_race, medic=medic_result, wetter=weather_result,
-        tp_workouts=tp_workouts, tag=tag, block=block_result, model=model,
+        allgemein=allgemein_result, tp_workouts=tp_workouts, tag=tag, block=block_result, model=model,
     )
 
     # Stufe 3: der Architekt formuliert die MOD-Einheiten aus — parallel.
     # Ohne MOD läuft hier kein Modell, dann ist die Stufe auch keine Meldung wert.
-    wetter_zeile = _wetter_zeile(weather_data)
     einheiten = entscheidung.get("sportarten", [])
     if any(e.get("badge") == "MOD" for e in einheiten):
         melde("architekt")
@@ -187,6 +281,7 @@ async def run_check(
             entscheidung=e,
             workout=tp_workouts[i] if i < len(tp_workouts) else None,
             athlete=athlete, wetter_zeile=wetter_zeile, model=model,
+            weather_data=weather_data, a_race=a_race, tage_bis_a=tage_bis_a,
         )
         for i, e in enumerate(einheiten)
     ])
@@ -202,6 +297,6 @@ async def run_check(
         "autosleep_summary": entscheidung.get("autosleep_summary"),
         "wetter_hinweis": entscheidung.get("wetter_hinweis", ""),
         "prep": entscheidung.get("prep", ""),
-        "_agents": {"medic": medic_result, "wetter": weather_result,
-                    "block": block_result},
+        "_agents": {"medic": medic_result, "wetter": weather_result, "block": block_result,
+                    "allgemein": allgemein_result},
     }

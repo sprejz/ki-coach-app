@@ -40,6 +40,10 @@ TRANSLATIONS = {
         "lbl_mud_hint":      "1 = frisch · 5 = erschöpft",
         "lbl_muskelkater":   "Muskelkater",
         "lbl_symptome":      "Symptome",
+        "lbl_fieber":        "Fieber",
+        "lbl_blutdruck":     "Blutdruck",
+        "lbl_medikamente":   "Medikamente",
+        "lbl_chron_befunde": "Chronische Befunde",
         "lbl_wasser_temp":   "Wassertemperatur Freibad",
         "lbl_optional":      "optional",
         "lbl_no_pain":       "0 — kein Schmerz",
@@ -189,7 +193,11 @@ TRANSLATIONS = {
             "Zwift ab <5°C oder Regen+Kälte klar empfehlen. "
             "Schwimmen — Freibad unter {swim_min}°C Wassertemperatur auf Hallenbad wechseln, "
             "unter 14°C Kälteschock-Risiko auch für trainierte Schwimmer.\n"
-            "SONSTIGE GRENZEN: Symptome neu schwer→Ruhe\n"
+            "SONSTIGE GRENZEN: Symptome neu schwer→Ruhe · Fieber ≥38°C→mindestens Einschränkung unabhängig vom Symptome-Feld, "
+            "≥38.5°C→Ruhe (Herzmuskelentzündungsrisiko, das strengere der beiden Signale gewinnt) · "
+            "Deutlich erhöhter Blutdruck (≥160/100)→Intensität raus, kein Automatismus bei leicht erhöhten Werten · "
+            "Medikamente (z.B. Antibiotika, Fiebersenker)→Infekt oft noch aktiv, konservativ bleiben auch wenn Symptome 'besser' sagen · "
+            "Chronische Befunde: {chronische_befunde} (senkt die Schwelle für Vorsicht bei akuten Signalen, erzwingt aber nichts allein)\n"
             "WEICHE SIGNALE: Müdigkeit ≥4→Intensität raus · Schlafdauer ignorieren, primär HRV+WachBPM\n"
             "Ernährung ab 90min: {carbs}g/h+{salt} Saltstick/h; Hitze>{heat_thr}°C: {fluid_heat}ml+{salt_heat}x Saltstick/h\n"
             "ENTSCHEIDUNGSREGEL: Triff immer eine klare Entscheidung — GO, MOD oder STOP. "
@@ -360,6 +368,10 @@ TRANSLATIONS = {
         "lbl_mud_hint":      "1 = fresh · 5 = exhausted",
         "lbl_muskelkater":   "Muscle Soreness",
         "lbl_symptome":      "Symptoms",
+        "lbl_fieber":        "Fever",
+        "lbl_blutdruck":     "Blood Pressure",
+        "lbl_medikamente":   "Medications",
+        "lbl_chron_befunde": "Chronic Conditions",
         "lbl_wasser_temp":   "Pool Water Temperature",
         "lbl_optional":      "optional",
         "lbl_no_pain":       "0 — no pain",
@@ -509,7 +521,11 @@ TRANSLATIONS = {
             "clearly recommend Zwift at <5°C or rain+cold. "
             "Swimming — switch outdoor pool below {swim_min}°C water temperature to indoor pool, "
             "below 14°C cold shock risk even for trained swimmers.\n"
-            "OTHER LIMITS: symptoms new severe→rest\n"
+            "OTHER LIMITS: symptoms new severe→rest · fever ≥38°C→at least restricted regardless of the symptoms field, "
+            "≥38.5°C→rest (myocarditis risk, the stricter of the two signals wins) · "
+            "markedly elevated blood pressure (≥160/100)→remove intensity, no automatic rule for mildly elevated values · "
+            "medications (e.g. antibiotics, fever reducers)→infection often still active, stay conservative even if symptoms say 'better' · "
+            "chronic conditions: {chronische_befunde} (lowers the caution threshold for acute signals, but never forces a restriction alone)\n"
             "SOFT SIGNALS: fatigue ≥4→remove intensity · ignore sleep duration, use HRV+AwakeBPM\n"
             "Nutrition from 90min: {carbs}g/h+{salt} salt/h; heat>{heat_thr}°C: {fluid_heat}ml+{salt_heat}x salt/h\n"
             "DECISION RULE: Always make a clear decision — GO, MOD or STOP. "

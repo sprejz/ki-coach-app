@@ -1,4 +1,4 @@
-"""Sportmediziner — beurteilt ausschließlich Körpersignale."""
+"""Allgemeinmediziner — beurteilt Krankheit und Ganzkörper-Befunde, überschreibt alles."""
 import logging
 from typing import Optional
 
@@ -11,6 +11,15 @@ URTEILE = ["frei", "reduziert", "kein_tempo", "stop"]
 SCHEMA = {
     "type": "object",
     "properties": {
+        "gesamturteil": {
+            "type": "string",
+            "enum": ["frei", "eingeschraenkt", "pause"],
+            "description": "Gesamtlage aus Sicht des Allgemeinmediziners. 'pause' ist bindend für ALLE Sportarten.",
+        },
+        "leitbefund": {
+            "type": "string",
+            "description": "Auffälligster Befund mit Wert, z.B. 'Fieber 38.6°C' oder 'Symptome neu schwer'. Leer wenn unauffällig.",
+        },
         "sportarten": {
             "type": "array",
             "description": "Ein Eintrag pro relevanter Sportart.",
@@ -30,12 +39,13 @@ SCHEMA = {
             "description": "Ausweich-Sportarten bei Einschränkung, z.B. 'Aquajogging'. Leer wenn nichts eingeschränkt ist.",
             "items": {"type": "string"},
         },
-        "erholung": {
+        "hinweis_chronisch": {
             "type": "string",
-            "description": "Ein Satz zu HRV-Trend und WachBPM. Schlafdauer ausdrücklich nicht bewerten.",
+            "description": "Ein Satz, wie chronische Befunde die heutige Einschätzung beeinflusst haben. "
+                           "Leer, wenn keine hinterlegt sind oder ohne Einfluss.",
         },
     },
-    "required": ["sportarten", "alternativen", "erholung"],
+    "required": ["gesamturteil", "leitbefund", "sportarten", "alternativen", "hinweis_chronisch"],
     "additionalProperties": False,
 }
 
@@ -44,23 +54,29 @@ def build_input(
     *,
     koerper: dict,
     sportarten: list,
+    chronische_befunde: Optional[str] = None,
     sleep: Optional[dict] = None,
     baseline: Optional[dict] = None,
 ) -> str:
-    """Baut die User-Message aus Fragebogen, geplanten Sportarten und Schlafdaten."""
-    lines = ["## Körperwerte heute"]
-    for label, key, unit in [
-        ("Waden", "waden", "/10"),
-        ("Knie", "knie", "/10"),
-        ("Achillessehne links", "achilles_l", "/10"),
-        ("Achillessehne rechts", "achilles_r", "/10"),
-        ("Müdigkeit", "muedigkeit", "/5"),
-    ]:
-        lines.append(f"- {label}: {koerper.get(key, 0)}{unit}")
-    mk = koerper.get("muskelkater") or ["keine"]
-    if isinstance(mk, str):
-        mk = [mk]
-    lines.append(f"- Muskelkater: {', '.join(mk)}")
+    """Baut die User-Message aus Krankheits-/Ganzkörpersignalen, Profil-Kontext und Schlafdaten."""
+    lines = ["## Krankheits- und Ganzkörper-Signale heute"]
+    lines.append(f"- Symptome: {koerper.get('symptome', 'keine')}")
+
+    fieber = koerper.get("fieber")
+    lines.append(f"- Fieber: {fieber}°C" if fieber not in (None, "") else "- Fieber: nicht gemessen")
+
+    sys_, dia = koerper.get("blutdruck_sys"), koerper.get("blutdruck_dia")
+    if sys_ not in (None, "") and dia not in (None, ""):
+        lines.append(f"- Blutdruck: {sys_}/{dia} mmHg")
+    else:
+        lines.append("- Blutdruck: nicht gemessen")
+
+    medikamente = koerper.get("medikamente")
+    lines.append(f"- Medikamente: {medikamente}" if medikamente else "- Medikamente: keine")
+
+    lines.append(
+        f"\n## Chronische Befunde (Athletenprofil, gilt dauerhaft)\n{chronische_befunde or 'keine bekannt'}"
+    )
 
     if sleep:
         lines.append("\n## AutoSleep letzte Nacht")
@@ -88,16 +104,27 @@ def build_input(
             lines.append(f"- {label}: Median {b.get('median', '?')} / Flag {grenze}")
 
     lines.append(f"\n## Geplante Sportarten\n{', '.join(sportarten) if sportarten else 'keine bekannt'}")
-    lines.append("\nBeurteile die Körpersignale und gib pro geplanter Sportart ein Belastungsurteil.")
+    lines.append("\nBeurteile die Krankheits-/Ganzkörperlage und gib pro geplanter Sportart ein Belastungsurteil.")
     return "\n".join(lines)
 
 
-def run(*, koerper: dict, sportarten: list, sleep=None, baseline=None, model: str = HAIKU) -> dict:
+def run(
+    *,
+    koerper: dict,
+    sportarten: list,
+    chronische_befunde: Optional[str] = None,
+    sleep=None,
+    baseline=None,
+    model: str = HAIKU,
+) -> dict:
     return call_agent(
-        prompt=load_prompt("medic"),
+        prompt=load_prompt("allgemeinmedic"),
         schema=SCHEMA,
-        user=build_input(koerper=koerper, sportarten=sportarten, sleep=sleep, baseline=baseline),
+        user=build_input(
+            koerper=koerper, sportarten=sportarten,
+            chronische_befunde=chronische_befunde, sleep=sleep, baseline=baseline,
+        ),
         model=model,
         max_tokens=2000,
-        label="medic",
+        label="allgemeinmedic",
     )

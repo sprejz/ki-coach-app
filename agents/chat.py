@@ -32,6 +32,31 @@ def build_context(*, athlete: dict, a_race: Optional[dict], tage_bis_a: Optional
         lines.append(f"- A-Rennen: {a_race.get('name')} am {a_race.get('date')}"
                      + (f", noch {tage_bis_a} Tage" if tage_bis_a is not None else "")
                      + (f", Zielzeit {a_race['goal_total']} h" if a_race.get("goal_total") else ""))
+    if athlete.get("chronische_befunde"):
+        lines.append(f"- Chronische Befunde: {athlete['chronische_befunde']}")
+
+    n = athlete.get("nutrition") or {}
+    if n:
+        lines.append("\n## Ernährungsregeln (Tabelle des Athleten — echte Zahlen, nutze sie wörtlich)")
+        lines.append(
+            f"- Mix: {n.get('mix', '?')} · Carbs: {n.get('carbs_per_hour_g', '?')} g/h · "
+            f"Flüssigkeit: {n.get('fluid_per_hour_ml', '?')} ml/h "
+            f"(Hitze ab {n.get('heat_threshold_celsius', '?')} °C: {n.get('fluid_heat_per_hour_ml', '?')} ml/h) · "
+            f"Salz: {n.get('salt_per_hour', '?')} Saltstick/h (Hitze: {n.get('salt_heat_per_hour', '?')})"
+        )
+        for rule in n.get("rules", []):
+            lo, hi = rule.get("duration_min_min", 0), rule.get("duration_max_min")
+            dauer_label = f"{lo}–{hi} min" if hi else f"ab {lo} min"
+            teile = [t for t in (
+                f"Vorher: {rule['before']}" if rule.get("before") else "",
+                f"Während: {rule['during']}" if rule.get("during") else "",
+                f"Nachher: {rule['after']}" if rule.get("after") else "",
+            ) if t]
+            lines.append(f"  - {dauer_label}: {' | '.join(teile)}")
+        lines.append(
+            "Nutze diese Zahlen wörtlich, wenn er nach Ernährung fragt. Erfinde keine "
+            "eigenen Gramm-/ml-Werte — was hier nicht steht, weißt du nicht."
+        )
 
     if load:
         lines.append("\n## Belastungslage")

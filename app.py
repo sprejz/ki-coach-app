@@ -881,6 +881,7 @@ def build_system_prompt(athlete: dict, baseline: Optional[dict]) -> str:
         salt_heat=n.get("salt_heat_per_hour", 2),
         swim_min=athlete.get("swim_outdoor_min_celsius", 15),
         pain_rules=build_pain_rules(athlete.get("pain_thresholds", {})),
+        chronische_befunde=athlete.get("chronische_befunde") or "keine bekannt",
     )
 
 
@@ -1464,6 +1465,10 @@ async def tp_apply(request: Request):
     achilles_l  = body.get("achilles_l", 0)
     achilles_r  = body.get("achilles_r", 0)
     muedigkeit  = body.get("muedigkeit", 1)
+    fieber        = body.get("fieber")
+    blutdruck_sys = body.get("blutdruck_sys")
+    blutdruck_dia = body.get("blutdruck_dia")
+    medikamente   = body.get("medikamente", "")
     day_offset  = 0 if day == "today" else 1
     target_date = (date.today() + timedelta(days=day_offset)).isoformat()
     athlete     = load_athlete()
@@ -1613,7 +1618,7 @@ async def tp_apply(request: Request):
                 desc_parts.append(coach_rec)
             if orig_desc:
                 desc_parts.append(f"Original:\n{orig_desc}")
-            nutr = nutrition_for_duration(new_duration, athlete.get("nutrition", {}))
+            nutr = op.get("ernaehrung") or nutrition_for_duration(new_duration, athlete.get("nutrition", {}))
             if nutr:
                 desc_parts.append(f"ERNÄHRUNG: {nutr}")
 
@@ -1654,13 +1659,32 @@ async def tp_apply(request: Request):
                 actions.append({"workout_id": workout_id, "badge": badge, "status": "error",
                                 "detail": f"Neues Workout nicht erstellt: {e}"})
 
-    # Kalendernotiz bei Krankheit (einmalig, unabhängig von Workout-Anzahl)
-    if had_skip_stop and "neu schwer" in symptome:
+    # Kalendernotiz bei Krankheit (einmalig, unabhängig von Workout-Anzahl).
+    # Fieber ≥38.0°C löst die Notiz allein aus, unabhängig von der Symptome-
+    # Pille — im Zweifel konservativ, schlimmstenfalls eine überflüssige Notiz.
+    try:
+        fieber_num = float(fieber) if fieber not in (None, "") else None
+    except (TypeError, ValueError):
+        fieber_num = None
+
+    krank_grund = []
+    if "neu schwer" in symptome or "schlechter" in symptome:
+        krank_grund.append(f"Symptome: {symptome}")
+    if fieber_num is not None and fieber_num >= 38.0:
+        krank_grund.append(f"Fieber {fieber_num}°C")
+
+    if had_skip_stop and krank_grund:
         note_title = "🤧 Krank – Training gestrichen (KI)"
-        note_text  = (
-            f"Symptome: {symptome}. Alle Einheiten gestrichen.\n"
+        zusatz = []
+        if blutdruck_sys and blutdruck_dia:
+            zusatz.append(f"Blutdruck: {blutdruck_sys}/{blutdruck_dia} mmHg")
+        if medikamente:
+            zusatz.append(f"Medikamente: {medikamente}")
+        note_text = (
+            f"{'; '.join(krank_grund)}. Alle Einheiten gestrichen.\n"
             f"Knie: {knie}/10, Achilles L: {achilles_l}/10, "
             f"Achilles R: {achilles_r}/10, Müdigkeit: {muedigkeit}/5."
+            + ("\n" + "\n".join(zusatz) if zusatz else "")
         )
         logger.info("tp_apply: creating sick-note for %s", target_date)
         try:
@@ -1891,6 +1915,10 @@ async def _check_abend_run(data: dict, progress) -> dict:
                 "achilles_l": data.get("achilles_l", 0), "achilles_r": data.get("achilles_r", 0),
                 "muedigkeit": data.get("muedigkeit", 1), "muskelkater": muskelkater,
                 "symptome": data.get("symptome", "keine"),
+                "fieber": data.get("fieber") or None,
+                "blutdruck_sys": data.get("blutdruck_sys") or None,
+                "blutdruck_dia": data.get("blutdruck_dia") or None,
+                "medikamente": data.get("medikamente") or None,
                 "geplante_einheiten": einheiten,
             },
             tp_workouts=tp_workouts_data or [],
@@ -1939,7 +1967,10 @@ async def _check_abend_run(data: dict, progress) -> dict:
         f"- Achillessehne R: {data.get('achilles_r', 0)}/10\n"
         f"- Müdigkeit: {data.get('muedigkeit', 1)}/5\n"
         f"- Muskelkater: {', '.join(muskelkater)}\n"
-        f"- Symptome: {data.get('symptome', 'keine')}\n\n"
+        f"- Symptome: {data.get('symptome', 'keine')}\n"
+        f"- Fieber: {data.get('fieber') or 'nicht gemessen'}\n"
+        f"- Blutdruck: {(str(data['blutdruck_sys']) + '/' + str(data['blutdruck_dia']) + ' mmHg') if data.get('blutdruck_sys') and data.get('blutdruck_dia') else 'nicht gemessen'}\n"
+        f"- Medikamente: {data.get('medikamente') or 'keine'}\n\n"
         f"Wetter morgen: {weather_summary}{tp_ctx}\n\n"
         f"{T['prompt_abend_units'].format(units=units_str)}"
     )
@@ -1967,6 +1998,10 @@ async def check_morgen(
     muedigkeit: str = Form("1"),
     muskelkater: str = Form("keine"),
     symptome: str = Form("keine"),
+    fieber: str = Form(""),
+    blutdruck_sys: str = Form(""),
+    blutdruck_dia: str = Form(""),
+    medikamente: str = Form(""),
     geplante_einheiten: str = Form(""),
     weather_data: str = Form(""),
     csv_file: Optional[UploadFile] = File(None),
@@ -1982,7 +2017,10 @@ async def check_morgen(
     felder = {
         "knie": knie, "achilles_l": achilles_l, "achilles_r": achilles_r,
         "waden": waden, "muedigkeit": muedigkeit, "muskelkater": muskelkater,
-        "symptome": symptome, "geplante_einheiten": geplante_einheiten,
+        "symptome": symptome,
+        "fieber": fieber, "blutdruck_sys": blutdruck_sys, "blutdruck_dia": blutdruck_dia,
+        "medikamente": medikamente,
+        "geplante_einheiten": geplante_einheiten,
         "weather_data": weather_data,
     }
     job_id = _check_job_start()
@@ -1996,6 +2034,8 @@ async def _check_morgen_run(felder: dict, csv_bytes, progress) -> dict:
     muedigkeit = felder["muedigkeit"]; muskelkater = felder["muskelkater"]
     symptome = felder["symptome"]; geplante_einheiten = felder["geplante_einheiten"]
     weather_data = felder["weather_data"]
+    fieber = felder["fieber"]; blutdruck_sys = felder["blutdruck_sys"]
+    blutdruck_dia = felder["blutdruck_dia"]; medikamente = felder["medikamente"]
 
     athlete = await load_athlete_merged()
     baseline = load_baseline()
@@ -2054,6 +2094,10 @@ AutoSleep (letzte Nacht):
                 "muedigkeit": muedigkeit,
                 "muskelkater": [x.strip() for x in muskelkater.split(",") if x.strip()] or ["keine"],
                 "symptome": symptome,
+                "fieber": fieber or None,
+                "blutdruck_sys": blutdruck_sys or None,
+                "blutdruck_dia": blutdruck_dia or None,
+                "medikamente": medikamente or None,
                 "geplante_einheiten": [x.strip() for x in geplante_einheiten.split(",") if x.strip()],
             },
             tp_workouts=cached.get("workouts") or [],
@@ -2095,7 +2139,10 @@ AutoSleep (letzte Nacht):
         f"- Achillessehne R: {achilles_r}/10\n"
         f"- Müdigkeit: {muedigkeit}/5\n"
         f"- Muskelkater: {muskelkater}\n"
-        f"- Symptome: {symptome}"
+        f"- Symptome: {symptome}\n"
+        f"- Fieber: {fieber or 'nicht gemessen'}\n"
+        f"- Blutdruck: {(blutdruck_sys + '/' + blutdruck_dia + ' mmHg') if blutdruck_sys and blutdruck_dia else 'nicht gemessen'}\n"
+        f"- Medikamente: {medikamente or 'keine'}"
         f"{sleep_text}\n\n"
         f"Wetter heute: {weather_summary}\n\n"
         f"{T['prompt_morgen_units'].format(units=units_str)}"
@@ -2477,12 +2524,23 @@ async def workout_analyze(
         # Belastungslage mitgeben: eine Einheit bei TSB -28 liest sich anders
         # als dieselbe bei TSB +5.
         load, _ = await _fetch_training_load(athlete)
+        # Ernährungsbasis für den Analyst — Dauer Ist vor Plan, nichts erfinden.
+        _dauer_fuer_ernaehrung = (
+            fit_data.get("dauer_min")
+            or (round(tp_workout_data["totalTime"] / 60) if tp_workout_data.get("totalTime") else None)
+            or (round(tp_workout_data["totalTimePlanned"] / 60) if tp_workout_data.get("totalTimePlanned") else None)
+        )
+        ernaehrung_basis = (
+            nutrition_for_duration(_dauer_fuer_ernaehrung, athlete.get("nutrition", {}))
+            if _dauer_fuer_ernaehrung else ""
+        )
         t = threading.Thread(
             target=_run_analysis_job_agent, kwargs={
                 "job_id": job_id, "athlete": athlete, "a_race": a_race,
                 "sport": sport, "titel": title, "datum": target_date,
                 "fit": fit_data or None, "tp": tp_workout_data or None,
                 "wetter": weather_on_date or None, "load": load,
+                "ernaehrung_basis": ernaehrung_basis,
             }, daemon=True)
     else:
         prompt = _build_analysis_prompt(athlete, a_race, workout_id, sport, title, target_date,

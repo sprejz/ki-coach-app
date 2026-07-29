@@ -28,8 +28,14 @@ SCHEMA = {
             "enum": ["fit", "tp_ist", "nur_plan"],
             "description": "Worauf die Bewertung beruht.",
         },
+        "ernaehrung_einschaetzung": {
+            "type": "string",
+            "description": "Einschätzung, ob Energie-/Flüssigkeitszufuhr während der Einheit ausreichend "
+                           "war — anhand RPE, Splits/HF-Drift und Dauer gegen die Tabellen-Basis. Leer, "
+                           "wenn die Datenlage dafür nicht reicht.",
+        },
     },
-    "required": ["bewertung", "urteil", "naechster_schritt", "datenlage"],
+    "required": ["bewertung", "urteil", "naechster_schritt", "datenlage", "ernaehrung_einschaetzung"],
     "additionalProperties": False,
 }
 
@@ -71,7 +77,7 @@ def datenlage(fit: Optional[dict], tp: Optional[dict]) -> str:
 def build_input(*, athlete: dict, sport: str, titel: str, datum: str,
                 a_race: Optional[dict] = None, fit: Optional[dict] = None,
                 tp: Optional[dict] = None, wetter: Optional[dict] = None,
-                load: Optional[dict] = None) -> str:
+                load: Optional[dict] = None, ernaehrung_basis: Optional[str] = None) -> str:
     lines = ["## Athlet"]
     lines.append(f"- FTP Rad: {athlete.get('ftp_watt', '?')} W")
     lines.append(f"- Laufschwelle: {athlete.get('run_threshold_pace', '?')} /km")
@@ -82,6 +88,8 @@ def build_input(*, athlete: dict, sport: str, titel: str, datum: str,
                      f"Zielzeit {a_race.get('goal_total', '?')} h")
 
     lines.append(f"\n## Einheit\n- Sport: {sport or 'unbekannt'}\n- Titel: {titel or sport}\n- Datum: {datum}")
+    if ernaehrung_basis:
+        lines.append(f"\n## Ernährungsempfehlung für diese Dauer (Tabelle, bereits feststehend)\n{ernaehrung_basis}")
 
     if wetter and wetter.get("description"):
         if "avg_temp" in wetter:
@@ -140,12 +148,13 @@ def build_input(*, athlete: dict, sport: str, titel: str, datum: str,
 
 
 def run(*, athlete: dict, a_race=None, sport: str = "", titel: str = "", datum: str = "",
-        fit=None, tp=None, wetter=None, load=None, model: str = HAIKU) -> dict:
+        fit=None, tp=None, wetter=None, load=None, ernaehrung_basis=None, model: str = HAIKU) -> dict:
     return call_agent(
         prompt=load_prompt("analyst"),
         schema=SCHEMA,
         user=build_input(athlete=athlete, a_race=a_race, sport=sport, titel=titel,
-                         datum=datum, fit=fit, tp=tp, wetter=wetter, load=load),
+                         datum=datum, fit=fit, tp=tp, wetter=wetter, load=load,
+                         ernaehrung_basis=ernaehrung_basis),
         model=model,
         max_tokens=2000,
         label="analyst",

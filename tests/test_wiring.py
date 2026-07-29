@@ -15,7 +15,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 os.environ["COACH_AGENTS"] = "1"
 os.environ.setdefault("ANTHROPIC_API_KEY", "dummy-fuer-test")
 
+import agents.allgemeinmedic as allgemeinmedic  # noqa: E402
 import agents.architect as architect  # noqa: E402
+import agents.fueling as fueling  # noqa: E402
 import agents.head_coach as head_coach  # noqa: E402
 import agents.medic as medic  # noqa: E402
 import agents.periodizer as periodizer  # noqa: E402
@@ -35,9 +37,17 @@ def pruefe(bedingung, text):
 
 
 FAKE_MEDIC = {
-    "gesamturteil": "eingeschraenkt", "leitsymptom": "Achilles rechts 5/10",
     "sportarten": [{"sport": "Laufen", "urteil": "stop", "grund": "Achilles rechts 5/10"}],
     "alternativen": ["Aquajogging"], "erholung": "HRV im Rahmen",
+}
+FAKE_ALLGEMEIN_FREI = {
+    "gesamturteil": "frei", "leitbefund": "", "sportarten": [],
+    "alternativen": [], "hinweis_chronisch": "",
+}
+FAKE_ALLGEMEIN_PAUSE = {
+    "gesamturteil": "pause", "leitbefund": "Fieber 38.9°C",
+    "sportarten": [{"sport": "Laufen", "urteil": "stop", "grund": "Fieber 38.9°C"}],
+    "alternativen": [], "hinweis_chronisch": "",
 }
 FAKE_WETTER = {
     "gesamtlage": "anpassen", "hinweis": "31 °C, sonnig",
@@ -63,6 +73,8 @@ FAKE_ARCHITEKT = {
     "beschreibung": "40 min ganz locker (6:30–7:05/km)\nHITZE: 750ml/h",
     "dauer_min": 40, "tp_struktur": None, "distanz_m": None,
 }
+FAKE_FUELING_HITZE = fx.FAKE_FUELING_HITZE
+FAKE_FUELING_LEER = fx.FAKE_FUELING_LEER
 FAKE_BLOCK = {
     "phase": "aufbau", "wochenintention": "Schwellenblock, zweite Woche",
     "heute_rolle": "schluesseleinheit", "heute_begruendung": "einzige Intensität der Woche",
@@ -81,13 +93,17 @@ def attrappe(name, antwort):
 
 medic.run = attrappe("medic", FAKE_MEDIC)
 weather.run = attrappe("weather", FAKE_WETTER)
+allgemeinmedic.run = attrappe("allgemeinmedic", FAKE_ALLGEMEIN_FREI)
 head_coach.run = attrappe("head_coach", FAKE_COACH)
 architect.run = attrappe("architect", FAKE_ARCHITEKT)
 periodizer.run = attrappe("periodizer", FAKE_BLOCK)
+fueling.run = attrappe("fueling", FAKE_FUELING_HITZE)
 # Der Orchestrator hat die Module beim Import gebunden — Attrappen nachziehen.
 orchestrator.medic, orchestrator.weather = medic, weather
+orchestrator.allgemeinmedic = allgemeinmedic
 orchestrator.head_coach, orchestrator.architect = head_coach, architect
 orchestrator.periodizer = periodizer
+orchestrator.fueling = fueling
 
 # Kein TP-MCP im Test: Belastungsdaten werden direkt eingespeist.
 app._fetch_training_load = lambda athlete: asyncio.sleep(
@@ -105,7 +121,8 @@ async def main():
                      {"duration_min_min": 60, "duration_max_min": 180, "during": "90g Carbs/h"},
                  ]},
                  "races": [{"name": "Malbork", "date": "2099-09-06", "priority": "A",
-                            "goal_total": "10:50"}]},
+                            "goal_total": "10:50"}],
+                 "chronische_befunde": "keine"},
         baseline={"SchlafHRV": {"median": 35, "flag_low": 29}},
         weather={"description": "Sonnig", "temp_max": 31.0, "temp_min": 19.0,
                  "rain_prob": 5, "is_hot": True},
@@ -147,8 +164,16 @@ async def main():
     lauf, rad = ergebnis["sportarten"]
     pruefe(lauf["beschreibung"].startswith("40 min ganz locker"), "MOD nutzt den Architekten-Text")
     pruefe(rad["beschreibung"] == "2h Z2, 117-130 bpm", "GO übernimmt das Original ZEICHENGENAU")
-    pruefe(lauf["ernaehrung"] == "Während: Wasser reicht", "MOD: Ernährung nach neuer Dauer (40 min)")
-    pruefe(rad["ernaehrung"] == "Während: 90g Carbs/h", "GO: Ernährung nach Originaldauer (120 min)")
+    # Hitze (is_hot=True) triggert den Ernährungsberater — Basiszahlen bleiben
+    # erhalten, der Fueling-Hinweis wird nur angehängt.
+    pruefe(lauf["ernaehrung"].startswith("Während: Wasser reicht"),
+           "MOD: Ernährung nach neuer Dauer (40 min), Basis erhalten")
+    pruefe(rad["ernaehrung"].startswith("Während: 90g Carbs/h"),
+           "GO: Ernährung nach Originaldauer (120 min), Basis erhalten")
+    pruefe(" — " in lauf["ernaehrung"] and " — " in rad["ernaehrung"],
+           "Bei Hitze wird der Fueling-Hinweis an beide Einheiten angehängt")
+    pruefe(len(mitschrieb.get("fueling", [])) == 2,
+           "Ernährungsberater läuft für beide Einheiten (GO und MOD) bei Hitze")
 
     print("\n=== Eingaben kommen bei den Agents an ===")
     m = mitschrieb["medic_last"]
@@ -165,12 +190,19 @@ async def main():
     h = mitschrieb["head_coach_last"]
     pruefe(h["medic"] == FAKE_MEDIC, "Chefcoach bekommt das Mediziner-Urteil")
     pruefe(h["wetter"] == FAKE_WETTER, "Chefcoach bekommt das Wetter-Urteil")
+    pruefe(h["allgemein"] == FAKE_ALLGEMEIN_FREI, "Chefcoach bekommt das Allgemeinmediziner-Urteil")
     pruefe(h["a_race"] and h["a_race"]["name"] == "Malbork", "Chefcoach bekommt das A-Rennen")
     pruefe("achilles_r" not in str(h.get("koerper", "")), "Chefcoach sieht KEINE Rohwerte mehr")
+
+    al = mitschrieb["allgemeinmedic_last"]
+    pruefe(al["chronische_befunde"] == "keine", "Allgemeinmediziner bekommt die chronischen Befunde aus dem Profil")
+    pruefe(ergebnis["_agents"]["allgemein"] == FAKE_ALLGEMEIN_FREI,
+           "Allgemeinmediziner-Urteil hängt am Ergebnis (für Debugging sichtbar)")
 
     print("\n=== Ohne TP-Belastungsdaten ===")
     mitschrieb.pop("periodizer", None)
     app._fetch_training_load = lambda athlete: asyncio.sleep(0, result=(None, None))
+    fueling_calls_vorher = len(mitschrieb.get("fueling", []))
     ohne = await app._try_agent_check(
         athlete={"name": "Hendrik", "races": [], "nutrition": {"rules": []}},
         baseline=None, weather={"description": "Sonnig", "temp_max": 20.0},
@@ -185,6 +217,97 @@ async def main():
     pruefe(mitschrieb["head_coach_last"]["block"] is None,
            "Chefcoach bekommt block=None statt erfundener Zahlen")
     pruefe(ohne["_agents"]["block"] is None, "Blockurteil ist None, nicht leer erfunden")
+    pruefe(len(mitschrieb.get("fueling", [])) == fueling_calls_vorher,
+           "Ernährungsberater läuft NICHT ohne Grund (mildes Wetter, 40min, keine Befunde) — Kostendisziplin")
+
+    print("\n=== Ernährungsberater: Gating ===")
+    # Chronischer Befund allein (mildes Wetter, kurze Dauer) muss auch ohne
+    # Hitze auslösen.
+    fueling.run = attrappe("fueling", FAKE_FUELING_LEER)
+    orchestrator.fueling = fueling
+    fueling_calls_vorher = len(mitschrieb.get("fueling", []))
+    mit_befund = await app._try_agent_check(
+        athlete={"name": "Hendrik", "races": [], "nutrition": {"rules": [
+            {"duration_min_min": 0, "duration_max_min": 60, "during": "Wasser reicht"}]},
+            "chronische_befunde": "Reizdarm"},
+        baseline=None, weather={"description": "Sonnig", "temp_max": 20.0},
+        koerper={"symptome": "keine"},
+        tp_workouts=[{"id": "1", "sport": "Run", "title": "Lauf", "duration_min": 40,
+                      "description": "40 min locker"}],
+        sleep=None, wasser_temp=None, tag="heute",
+    )
+    pruefe(mit_befund is not None, "Check läuft mit chronischem Befund durch")
+    pruefe(len(mitschrieb.get("fueling", [])) == fueling_calls_vorher + 1,
+           "Chronischer Befund allein (ohne Hitze) triggert den Ernährungsberater")
+    pruefe(mitschrieb["fueling_last"]["chronische_befunde"] == "Reizdarm",
+           "Ernährungsberater bekommt den chronischen Befund")
+    pruefe("relevant=false" not in str(mit_befund["sportarten"][0]["ernaehrung"]),
+           "relevant=false hängt KEINEN Hinweis an (FAKE_FUELING_LEER)")
+
+    # "keine"/"keine bekannt" sind Platzhalter, kein echter Befund — dürfen
+    # den Call nicht auslösen (Regressionsschutz für den Truthy-String-Bug).
+    fueling_calls_vorher = len(mitschrieb.get("fueling", []))
+    platzhalter = await app._try_agent_check(
+        athlete={"name": "Hendrik", "races": [], "nutrition": {"rules": [
+            {"duration_min_min": 0, "duration_max_min": 60, "during": "Wasser reicht"}]},
+            "chronische_befunde": "keine bekannt"},
+        baseline=None, weather={"description": "Sonnig", "temp_max": 20.0},
+        koerper={"symptome": "keine"},
+        tp_workouts=[{"id": "1", "sport": "Run", "title": "Lauf", "duration_min": 40,
+                      "description": "40 min locker"}],
+        sleep=None, wasser_temp=None, tag="heute",
+    )
+    pruefe(platzhalter is not None
+           and len(mitschrieb.get("fueling", [])) == fueling_calls_vorher,
+           "'keine bekannt' als chronischer Befund triggert NICHT (Platzhalter, kein echter Befund)")
+
+    # Ein Fehler im Ernährungsberater darf den Check nie kippen — anders als
+    # bei medic/weather/architect wird das lokal abgefangen.
+    def fueling_kaputt(**kwargs):
+        raise RuntimeError("simulierter Fueling-Ausfall")
+    fueling.run = fueling_kaputt
+    orchestrator.fueling = fueling
+    trotz_fehler = await app._try_agent_check(
+        athlete={"name": "Hendrik", "races": [], "nutrition": {"rules": [
+            {"duration_min_min": 0, "duration_max_min": 60, "during": "Wasser reicht"}]}},
+        baseline=None, weather={"description": "Sonnig", "temp_max": 31.0, "is_hot": True},
+        koerper={"symptome": "keine"},
+        tp_workouts=[{"id": "1", "sport": "Run", "title": "Lauf", "duration_min": 40,
+                      "description": "40 min locker"}],
+        sleep=None, wasser_temp=None, tag="heute",
+    )
+    pruefe(trotz_fehler is not None and trotz_fehler.get("_pipeline") == "agents",
+           "Ein Fueling-Fehler kippt den Check NICHT auf den Monolith-Fallback")
+    pruefe(trotz_fehler["sportarten"][0]["ernaehrung"] == "Während: Wasser reicht",
+           "Bei Fueling-Fehler bleibt die reine Tabellen-Basis erhalten")
+    fueling.run = attrappe("fueling", FAKE_FUELING_HITZE)
+    orchestrator.fueling = fueling
+
+    print("\n=== Allgemeinmediziner pause = harter Stop (Sicherheitsregel) ===")
+    allgemeinmedic.run = attrappe("allgemeinmedic", FAKE_ALLGEMEIN_PAUSE)
+    orchestrator.allgemeinmedic = allgemeinmedic
+    head_coach_calls_vorher = len(mitschrieb.get("head_coach", []))
+    architect_calls_vorher = len(mitschrieb.get("architect", []))
+    pause_ergebnis = await app._try_agent_check(
+        athlete={"name": "Hendrik", "races": [], "nutrition": {"rules": []}, "chronische_befunde": "keine"},
+        baseline=None, weather={"description": "Sonnig", "temp_max": 20.0},
+        koerper={"symptome": "keine", "fieber": 38.9, "geplante_einheiten": ["Run", "Bike"]},
+        tp_workouts=[{"id": "1", "sport": "Run", "title": "Lauf", "duration_min": 40, "description": "Z2"},
+                     {"id": "2", "sport": "Bike", "title": "Rad", "duration_min": 60, "description": "Z2"}],
+        sleep=None, wasser_temp=None, tag="heute",
+    )
+    pruefe(pause_ergebnis is not None and all(s["badge"] == "SKIP" for s in pause_ergebnis["sportarten"]),
+           "gesamturteil=pause erzwingt SKIP für JEDE Sportart, ausnahmslos")
+    pruefe(len(mitschrieb.get("head_coach", [])) == head_coach_calls_vorher,
+           "Chefcoach wird bei pause NICHT aufgerufen (harter Stop im Code, nicht im Prompt)")
+    pruefe(len(mitschrieb.get("architect", [])) == architect_calls_vorher,
+           "Architekt wird bei pause NICHT aufgerufen")
+    pruefe(pause_ergebnis["_agents"]["allgemein"]["gesamturteil"] == "pause",
+           "Allgemeinmediziner-Urteil hängt sichtbar am Ergebnis")
+    pruefe(pause_ergebnis["status"] == "red", "Status ist 'red' bei Pause")
+    # Zurück auf 'frei', damit spätere Tests nicht versehentlich kurzgeschlossen werden.
+    allgemeinmedic.run = attrappe("allgemeinmedic", FAKE_ALLGEMEIN_FREI)
+    orchestrator.allgemeinmedic = allgemeinmedic
 
     print("\n=== Coach-Chat und Analyst verdrahtet ===")
     import agents.analyst as analyst_mod
@@ -255,6 +378,12 @@ async def main():
     pruefe('_pipeline" in data' in _INDEX or "engineNote(data._pipeline)" in _INDEX,
            "Frontend zeigt den benutzten Pfad an")
     pruefe("renderAgentsStatus" in _INDEX, "About-Tab rendert den Pipeline-Status")
+
+    print("\n=== Ernährungsberater: tp/apply nutzt vorgerechneten Wert (v2.8) ===")
+    pruefe("ernaehrung:    sportarten[i]?.ernaehrung" in _INDEX,
+           "Frontend schickt die berechnete Ernährung mit in die tp/apply-Operation")
+    pruefe('op.get("ernaehrung")' in inspect.getsource(app.tp_apply),
+           "tp_apply nutzt die vorgerechnete Ernährung statt eines zweiten Claude-Calls")
 
     # v2.7.4: die Checks laufen als Hintergrund-Job. Der POST darf nicht mehr
     # blockieren, das Ergebnis kommt per Polling, und die Stufen des

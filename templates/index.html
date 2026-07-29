@@ -917,6 +917,33 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
         </div>
       </div>
 
+      <!-- Fieber / Blutdruck / Medikamente -->
+      <div class="form-section">
+        <div class="field-label" style="margin-bottom:10px">
+          <span>{{ T.lbl_fieber }}</span>
+          <span style="font-size:12px;color:var(--muted)">{{ T.lbl_optional }}</span>
+        </div>
+        <input type="number" id="fieber-abend" class="text-input" placeholder="z.B. 37.8" min="34" max="42" step="0.1">
+      </div>
+      <div class="form-section">
+        <div class="field-label" style="margin-bottom:10px">
+          <span>{{ T.lbl_blutdruck }}</span>
+          <span style="font-size:12px;color:var(--muted)">{{ T.lbl_optional }}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="number" id="blutdruck-sys-abend" class="text-input" placeholder="120" style="max-width:80px">
+          <span style="color:var(--muted)">/</span>
+          <input type="number" id="blutdruck-dia-abend" class="text-input" placeholder="80" style="max-width:80px">
+        </div>
+      </div>
+      <div class="form-section">
+        <div class="field-label" style="margin-bottom:10px">
+          <span>{{ T.lbl_medikamente }}</span>
+          <span style="font-size:12px;color:var(--muted)">{{ T.lbl_optional }}</span>
+        </div>
+        <input type="text" id="medikamente-abend" class="text-input" placeholder="z.B. Antibiotikum seit 2 Tagen">
+      </div>
+
       <!-- TP Workouts morgen (auto-geladen) -->
       <div class="form-section" id="abend-tp-section">
         <div class="field-label" style="margin-bottom:8px">
@@ -1038,6 +1065,33 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
         </div>
       </div>
 
+      <!-- Fieber / Blutdruck / Medikamente -->
+      <div class="form-section">
+        <div class="field-label" style="margin-bottom:10px">
+          <span>{{ T.lbl_fieber }}</span>
+          <span style="font-size:12px;color:var(--muted)">{{ T.lbl_optional }}</span>
+        </div>
+        <input type="number" id="fieber-morgen" class="text-input" placeholder="z.B. 37.8" min="34" max="42" step="0.1">
+      </div>
+      <div class="form-section">
+        <div class="field-label" style="margin-bottom:10px">
+          <span>{{ T.lbl_blutdruck }}</span>
+          <span style="font-size:12px;color:var(--muted)">{{ T.lbl_optional }}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="number" id="blutdruck-sys-morgen" class="text-input" placeholder="120" style="max-width:80px">
+          <span style="color:var(--muted)">/</span>
+          <input type="number" id="blutdruck-dia-morgen" class="text-input" placeholder="80" style="max-width:80px">
+        </div>
+      </div>
+      <div class="form-section">
+        <div class="field-label" style="margin-bottom:10px">
+          <span>{{ T.lbl_medikamente }}</span>
+          <span style="font-size:12px;color:var(--muted)">{{ T.lbl_optional }}</span>
+        </div>
+        <input type="text" id="medikamente-morgen" class="text-input" placeholder="z.B. Antibiotikum seit 2 Tagen">
+      </div>
+
       <!-- AutoSleep CSV -->
       <div class="form-section">
         <div class="field-label" style="margin-bottom:6px">
@@ -1120,6 +1174,10 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
         <div class="field-row">
           <div class="field-label"><span>{{ T.lbl_swim_min }}</span><span style="font-size:12px;color:var(--muted)">{{ T.lbl_swim_min_unit }}</span></div>
           <input type="number" id="s-swim-min" class="text-input" placeholder="15">
+        </div>
+        <div class="field-row" style="align-items:flex-start">
+          <div class="field-label"><span>{{ T.lbl_chron_befunde }}</span></div>
+          <textarea id="s-chron-befunde" class="text-input" rows="3" placeholder="z.B. Asthma, Bluthochdruck-Medikation"></textarea>
         </div>
       </div>
       <button type="button" class="btn-submit" onclick="saveProfile()">{{ T.btn_save }}</button>
@@ -1483,6 +1541,10 @@ async function submitAbend(e) {
     muedigkeit:         parseInt(getMuedigkeit(), 10),
     muskelkater:        getMulti('muskelkater'),
     symptome:           getRadio('symptome-abend'),
+    fieber:             document.getElementById('fieber-abend')?.value || null,
+    blutdruck_sys:      document.getElementById('blutdruck-sys-abend')?.value || null,
+    blutdruck_dia:      document.getElementById('blutdruck-dia-abend')?.value || null,
+    medikamente:        document.getElementById('medikamente-abend')?.value || null,
     geplante_einheiten: tpWorkoutsAbend.map(w => w.sport).filter(Boolean),
     wasser_temp:        document.getElementById('wasser-temp')?.value || null,
     tp_workouts:        tpWorkoutsAbend.length ? tpWorkoutsAbend : undefined,
@@ -1496,6 +1558,10 @@ async function submitAbend(e) {
     muedigkeit:  body.muedigkeit,
     muskelkater: Array.isArray(body.muskelkater) ? body.muskelkater.join(', ') : '-',
     symptome:    body.symptome,
+    fieber:        body.fieber,
+    blutdruck_sys: body.blutdruck_sys,
+    blutdruck_dia: body.blutdruck_dia,
+    medikamente:   body.medikamente,
     wasser_temp: document.getElementById('wasser-temp')?.value || null,
   };
   try {
@@ -1523,6 +1589,10 @@ async function submitMorgen(e) {
   formData.append('muedigkeit',          getMuedigkeit('muedigkeit-morgen-group'));
   formData.append('muskelkater',         getMulti('muskelkater-morgen').join(','));
   formData.append('symptome',            getRadio('symptome-morgen'));
+  formData.append('fieber',              document.getElementById('fieber-morgen')?.value || '');
+  formData.append('blutdruck_sys',       document.getElementById('blutdruck-sys-morgen')?.value || '');
+  formData.append('blutdruck_dia',       document.getElementById('blutdruck-dia-morgen')?.value || '');
+  formData.append('medikamente',         document.getElementById('medikamente-morgen')?.value || '');
   formData.append('geplante_einheiten',  tpWorkoutsMorgen.map(w => w.sport).join(','));
   if (weatherToday) formData.append('weather_data', JSON.stringify(weatherToday));
   const csvFile = document.getElementById('csv-upload')?.files[0];
@@ -1534,6 +1604,10 @@ async function submitMorgen(e) {
     muedigkeit:  parseInt(getMuedigkeit('muedigkeit-morgen-group'), 10),
     muskelkater: getMulti('muskelkater-morgen').join(', ') || '-',
     symptome:    getRadio('symptome-morgen'),
+    fieber:        document.getElementById('fieber-morgen')?.value || null,
+    blutdruck_sys: document.getElementById('blutdruck-sys-morgen')?.value || null,
+    blutdruck_dia: document.getElementById('blutdruck-dia-morgen')?.value || null,
+    medikamente:   document.getElementById('medikamente-morgen')?.value || null,
     wasser_temp: document.getElementById('wasser-temp-morgen')?.value || null,
   };
   try {
@@ -1785,6 +1859,7 @@ function fillProfileForm(a) {
   set('s-run-threshold', a.run_threshold_pace);
   set('s-css', a.css_per_100m);
   set('s-swim-min', a.swim_outdoor_min_celsius);
+  set('s-chron-befunde', a.chronische_befunde);
 
   const list = document.getElementById('races-list');
   if (list && a.races) {
@@ -1816,6 +1891,7 @@ async function saveProfile() {
     run_threshold_pace: get('s-run-threshold') || athlete.run_threshold_pace,
     css_per_100m: get('s-css') || athlete.css_per_100m,
     swim_outdoor_min_celsius: parseFloat(get('s-swim-min')) || athlete.swim_outdoor_min_celsius,
+    chronische_befunde: get('s-chron-befunde') || athlete.chronische_befunde,
     updated: new Date().toISOString().slice(0, 10),
   };
   try {
@@ -2614,6 +2690,7 @@ function renderAnalysisCard(data) {
   // Support both old format (zusammenfassung etc.) and new format (urteil + naechster_schritt)
   const urteil = data.urteil || data.zusammenfassung || '';
   const next   = data.naechster_schritt || data.empfehlung || '';
+  const ernaehrung = data.ernaehrung_einschaetzung || '';
   return `
     <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:14px;margin-top:6px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -2625,6 +2702,11 @@ function renderAnalysisCard(data) {
         <div style="border-top:1px solid rgba(255,255,255,.06);padding-top:10px">
           <div style="font-size:10px;font-weight:700;color:var(--muted2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Nächster Schritt</div>
           <p style="font-size:13px;color:var(--text);line-height:1.5;margin:0">${esc(next)}</p>
+        </div>` : ''}
+      ${ernaehrung ? `
+        <div style="border-top:1px solid rgba(255,255,255,.06);padding-top:10px;margin-top:10px">
+          <div style="font-size:10px;font-weight:700;color:var(--muted2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Ernährung</div>
+          <p style="font-size:13px;color:var(--text);line-height:1.5;margin:0">🍎 ${esc(ernaehrung)}</p>
         </div>` : ''}
     </div>
     ${engineNote(data._pipeline)}`;
@@ -2820,6 +2902,7 @@ async function applyToTP() {
         user_override: isOverride,
         sport:         w.sport || '',
         description:   sportarten[i]?.beschreibung || sportarten[i]?.details || '',
+        ernaehrung:    sportarten[i]?.ernaehrung || '',
         reason:        origBadge === 'MOD' ? buildModReason(currentFormData) : '',
         duration_min:  w.duration_min || null,
         tss:           w.tss || null,
@@ -2841,6 +2924,10 @@ async function applyToTP() {
         achilles_l: currentFormData?.achilles_l ?? 0,
         achilles_r: currentFormData?.achilles_r ?? 0,
         muedigkeit: currentFormData?.muedigkeit ?? 1,
+        fieber:        currentFormData?.fieber        ?? null,
+        blutdruck_sys: currentFormData?.blutdruck_sys ?? null,
+        blutdruck_dia: currentFormData?.blutdruck_dia ?? null,
+        medikamente:   currentFormData?.medikamente   ?? '',
       }),
     });
     if (!r.ok) {
@@ -2925,6 +3012,7 @@ function buildModReason(fd) {
   if ((fd.muedigkeit || 0) >= 4)       parts.push(`Müdigkeit ${fd.muedigkeit}/5`);
   const sym = fd.symptome || '';
   if (sym && sym !== 'keine' && sym !== 'besser') parts.push(sym);
+  if (fd.fieber && parseFloat(fd.fieber) >= 38.0) parts.push(`Fieber ${fd.fieber}°C`);
   return parts.length ? parts.join(', ') : 'KI-Anpassung';
 }
 

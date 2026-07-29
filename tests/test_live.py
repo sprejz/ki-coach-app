@@ -39,6 +39,7 @@ ATHLET = {
     "name": "Hendrik", "weight_kg": 84, "ftp_watt": 286,
     "run_threshold_pace": "5:20", "css_per_100m": "2:20",
     "swim_outdoor_min_celsius": 15,
+    "chronische_befunde": "keine bekannt",
     "nutrition": {
         "mix": "Maltodextrin 19 + Fruchtzucker 2:1",
         "carbs_per_hour_g": 90, "fluid_per_hour_ml": 600,
@@ -80,15 +81,24 @@ async def lauf_fall(fall: dict) -> dict:
     dauer = time.monotonic() - t0
     med = hc["_agents"]["medic"]
     wet = hc["_agents"]["wetter"]
+    allg = hc["_agents"]["allgemein"]
 
     print(f"\n{GRAU}── Sportmediziner{RESET}")
-    print(f"   Gesamturteil: {med['gesamturteil']}")
-    if med.get("leitsymptom"):
-        print(f"   Leitsymptom:  {med['leitsymptom']}")
     for s in med["sportarten"]:
         print(f"   {s['sport']:<11} {s['urteil']:<11} {kuerze(s['grund'], 150)}")
     if med.get("alternativen"):
         print(f"   Alternativen: {', '.join(med['alternativen'])}")
+
+    print(f"\n{GRAU}── Allgemeinmediziner{RESET}")
+    print(f"   Gesamturteil: {allg['gesamturteil']}")
+    if allg.get("leitbefund"):
+        print(f"   Leitbefund:   {allg['leitbefund']}")
+    for s in allg["sportarten"]:
+        print(f"   {s['sport']:<11} {s['urteil']:<11} {kuerze(s['grund'], 150)}")
+    if allg.get("alternativen"):
+        print(f"   Alternativen: {', '.join(allg['alternativen'])}")
+    if allg.get("hinweis_chronisch"):
+        print(f"   Chron. Kontext: {kuerze(allg['hinweis_chronisch'], 150)}")
 
     print(f"\n{GRAU}── Wetter-Taktiker{RESET}")
     print(f"   Gesamtlage: {wet['gesamtlage']}")
@@ -124,8 +134,8 @@ async def lauf_fall(fall: dict) -> dict:
     def hol(liste, sport, feld):
         return next((x[feld] for x in liste if x["sport"] == sport), None)
 
-    if "medic_gesamturteil" in e and med["gesamturteil"] not in e["medic_gesamturteil"]:
-        probleme.append(f"medic.gesamturteil={med['gesamturteil']}, erwartet {e['medic_gesamturteil']}")
+    if "allgemein_gesamturteil" in e and allg["gesamturteil"] not in e["allgemein_gesamturteil"]:
+        probleme.append(f"allgemein.gesamturteil={allg['gesamturteil']}, erwartet {e['allgemein_gesamturteil']}")
     if "wetter_gesamtlage" in e and wet["gesamtlage"] not in e["wetter_gesamtlage"]:
         probleme.append(f"wetter.gesamtlage={wet['gesamtlage']}, erwartet {e['wetter_gesamtlage']}")
     for sport, key in [("Laufen", "laufen_urteil")]:
