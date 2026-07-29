@@ -1,4 +1,4 @@
-# KI Coach App — v2.7.6
+# KI Coach App — v2.7.8
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -38,7 +38,7 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.7.6)
+├── CLAUDE.md            ← diese Datei (v2.7.8)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
 ├── coach_mcp.py         ← MCP-Server für Claude Desktop + Code (stdio lokal / HTTP remote)
 ├── requirements-mcp.txt ← nur für coach_mcp.py, eigenes venv (.venv-mcp)
@@ -46,7 +46,7 @@ ki-coach-app/
 ├── orchestrator.py      ← Kontrollfluss der Agent-Pipeline
 ├── nutrition.py         ← Ernährungstabelle (deterministisch, von beiden Pfaden genutzt)
 ├── training_load.py     ← CTL/ATL/TSB aus der TSS-Historie (deterministisch)
-├── agents/              ← base, medic, weather, periodizer, head_coach, architect, analyst, chat
+├── agents/              ← base, medic, allgemeinmedic, weather, periodizer, head_coach, architect, fueling, analyst, chat
 ├── prompts/de/          ← statische Agent-Prompts, einer je Agent
 ├── tests/               ← fixtures.py, test_offline.py, test_wiring.py, test_live.py
 ├── translations.py      ← UI-Texte + Monolith-Prompts (de/en)
@@ -96,14 +96,22 @@ Multipart-Form (wegen CSV-Upload). Gleicher Fragebogen wie Abend (inkl. Waden, M
 
 **Wichtig:** Seit v2.4.31–v2.4.33 arbeitet der Prompt **nicht mehr mit starren Zahlenschwellen**, sondern mit sportmedizinischem Reasoning. `pain_thresholds` in `athlete.json` ist faktisch toter Ballast — `build_pain_rules()` gibt `""` zurück.
 
-Der System-Prompt (`translations.py` → `prompt_system`) instruiert Claude qualitativ:
+Der System-Prompt (`translations.py` → `prompt_system`) bzw. im Agent-Pfad die Prompts von Sportmediziner und Allgemeinmediziner instruieren Claude qualitativ:
 - **Knie:** Steifigkeit → Umfang/Intensität runter, flach. Schmerz unter Last/Treppe → Lauf STOP, Rad wenn schmerzfrei, Aquajogging. Schwellung/Instabilität/Ruheschmerz → Pause.
 - **Achilles:** Morgensteifigkeit die sich löst → angepasst ok. Schmerz beim Zehenstand/unter Last → Lauf STOP, Rad/Schwimmen ok. Verschlechtert sich verzögert (12–24h) → im Zweifel konservativ.
 - **Waden:** Vorläufer von Achilles-/Soleus-Problemen. Waden + Achilles kombiniert hoch → Lauf STOP.
 - **Muskelkater:** Beine leicht → Z1–Z2 ohne Tempo. Beine stark → max 30min Einrollen. Oberkörper → Schwimmen auf Technik. Überall → Regenerationstag.
-- **Symptome:** neu schwer → Ruhe.
 - **Weiche Signale:** Müdigkeit ≥4 → Intensität raus. **Schlafdauer ignorieren**, primär HRV + WachBPM.
 - **Entscheidungsregel:** immer klar GO / MOD / STOP, keine Rückfragen an den Athleten, im Zweifel konservativ.
+
+### Allgemeinmediziner (v2.7.7) — Krankheit, Fieber, Blutdruck, Medikamente, chronische Befunde
+Eigener Spezialist (`agents/allgemeinmedic.py`), zuständigkeitsmäßig oberhalb des Sportmediziners (`agents/medic.py` beurteilt seither nur noch Knie/Achilles/Waden/Muskelkater, hat `gesamturteil`/`leitsymptom` verloren). Prüfreihenfolge: Fieber → Symptome-Pille → Blutdruck/Medikamente → chronische Befunde als Kontextmodifikator — es gewinnt immer der höchste Schweregrad, kein Mittelwert.
+- **Symptome:** gleich leicht/neu leicht → `eingeschraenkt` (Schwimmen `stop`, Rad/Lauf `kein_tempo`). Schlechter/neu mittel/neu schwer → `pause`, **`stop` für jede Sportart, ausnahmslos**.
+- **Fieber:** ≥ 38 °C → mindestens `eingeschraenkt`, ≥ 38.5 °C → `pause` — unabhängig davon, was die Symptome-Pille sagt, das strengere Signal gewinnt.
+- **Blutdruck:** deutlich erhöht (Richtwert ≥160/100) → mindestens `reduziert`/`kein_tempo`, kein Automatismus bei leicht erhöhten Werten.
+- **Medikamente** (Freitext) und **chronische Befunde** (Profil, `athlete.json` → `chronische_befunde`, gilt dauerhaft) fließen als Kontext ein, senken die Vorsichtsschwelle bei akuten Signalen, erzwingen aber für sich allein nichts.
+- **`gesamturteil: pause` ist ein harter Code-Stop, keine Prompt-Regel:** der Orchestrator (`orchestrator.py`) überspringt Chefcoach und Architekt komplett und setzt jede geplante Sportart deterministisch auf SKIP. Zu sicherheitskritisch (Herzmuskelentzündungsrisiko), um es allein der Prompt-Disziplin eines Modells zu überlassen — dieselbe Art Regel war in v2.7.2 schon einmal beim Sportmediziner falsch gelaufen.
+- Die Krankennotiz in `POST /api/tp/apply` (siehe unten) prüft unabhängig davon zusätzlich Fieber ≥ 38 °C — eigene, konservativere Schwelle ohne LLM-Beteiligung.
 
 ### Wetter-Reasoning (alle drei Sportarten)
 - **Gewitter:** alle Outdoor sofort STOP (Laufen genauso gefährlich wie Rad), Freiwasser sofort raus.
@@ -177,7 +185,7 @@ Serverseitig in `sleep_history.json`, max. 14 Einträge (v2.6.25/v2.6.26 — vor
 | **SKIP / STOP** | Titel → `❌ {Titel} (KI)`. Original wird nicht gelöscht. |
 | **Override** | „Trotzdem"-Button pro MOD/SKIP-Workout (v2.6.76): Titel wird bereinigt, Beschreibung bekommt „Athlete override – eigenes Gefühl" + Wetter, Originalbeschreibung bleibt darunter. |
 
-Zusätzlich: bei SKIP/STOP **und** Symptomen „neu schwer" wird einmalig eine Kalendernotiz `🤧 Krank – Training gestrichen (KI)` mit den Körperwerten angelegt.
+Zusätzlich: bei SKIP/STOP **und** (Symptomen „neu schwer"/„schlechter" **oder** Fieber ≥ 38 °C) wird einmalig eine Kalendernotiz `🤧 Krank – Training gestrichen (KI)` mit den Körperwerten (plus Blutdruck/Medikamente, falls angegeben) angelegt — eigene, unabhängig vom Allgemeinmediziner geprüfte Schwelle, ohne LLM-Beteiligung (v2.7.7).
 
 ### Emoji-Handling
 TP unterstützt kein Supplementary Unicode → 🔥 wurde durch ♨️ ersetzt (v2.6.58), das Hitze-Icon in Titeln später ganz entfernt (v2.6.92). Das Frontend strippt `❌ ↩️ 🔥 ❄️ ☀️ ♨️` und `(KI)`/`(AI)` aus TP-Titeln (`clean_title` bzw. v2.6.93).
@@ -200,8 +208,10 @@ TP unterstützt kein Supplementary Unicode → 🔥 wurde durch ♨️ ersetzt (
 4. Prompt bauen: unterscheidet **Ist-Daten** (`tssActual`, HF, Pace, `perceivedExertion`/RPE …) von reinen **Plan-Daten** und weist Claude an, auch ohne Ist-Werte zu bewerten (v2.6.94)
 5. Job-Queue: Thread + `job_id`, Frontend pollt `GET /api/workout/analyze/{job_id}` (v2.6.5 — direkter Call lief in 60s-Timeouts)
 
-Antwort-JSON: `{"bewertung":"gut|ok|verbesserungsbedarf","urteil":"…","naechster_schritt":"…"}`
+Antwort-JSON: `{"bewertung":"gut|ok|verbesserungsbedarf","urteil":"…","naechster_schritt":"…","ernaehrung_einschaetzung":"…"}`
 Prompt-Leitlinie: keine erfundenen Kritikpunkte, echte Zahlen statt Floskeln (v2.6.91).
+
+`ernaehrung_einschaetzung` (v2.7.8) — Einschätzung, ob die Verpflegung zur Dauer/Intensität passte (Splits/HF-Drift, RPE, Dauer gegen die Tabellen-Basis aus `nutrition_for_duration()`), leer wenn die Datenlage nicht reicht. Erfindet keine eigenen Gramm-/ml-Zahlen — die kommen als `ernaehrung_basis` fertig berechnet in den Prompt.
 
 ---
 
@@ -210,6 +220,7 @@ Freier Text, kein JSON. Kontext:
 - System-Prompt mit Athletenprofil + Baseline
 - TP-Workouts für **heute, morgen** und jeden im Text erwähnten Wochentag (bis 30 Tage voraus, `übermorgen` erkannt) — aus dem Cache
 - Wetter heute + morgen
+- **Ernährungstabelle + chronische Befunde** (v2.7.8) — Mix, Carbs/Flüssigkeit/Salz pro Stunde, die Dauer-Regeln aus `athlete.json` → `nutrition`, damit Ernährungsfragen mit echten Zahlen statt Rateversuchen beantwortet werden. Vorher fehlte das im Agent-Pfad komplett (der Monolith-Fallback hatte es schon).
 - letzte 10 Nachrichten der Historie
 
 Fehlt TP im Cache, wird ein Hintergrund-Refresh gestartet und Claude sagt dem Nutzer, dass die Daten in ~1 Minute da sind (v2.6.32). `max_tokens=1200`.
@@ -306,6 +317,8 @@ text-secondary: #666;
 Regeln stehen in `athlete.json` → `nutrition.rules`, werden von `nutrition_for_duration()` nach Dauer gematcht und bei MOD in die TP-Beschreibung geschrieben.
 **Eigenes Gemisch:** Maltodextrin 19 + Fruchtzucker 2:1, 90g Carbs/h, 600ml/h (750ml/h bei Hitze).
 
+**Ernährungsberater (v2.7.8, `agents/fueling.py`).** Ergänzt die Tabelle um Kontext, den eine reine Dauer-Tabelle nicht kennt — Hitze/Kälte, chronische Befunde, Renntag — als ein angehängter Satz. **Ändert nie die Zahlen selbst** und läuft nur, wenn es einen Grund gibt (Hitze/Kälte-Flag, chronische Befunde gesetzt, Dauer ≥ 90 min oder Renntag); sonst bleibt `ernaehrung` exakt der Tabellenstring, kein zusätzlicher Claude-Call. Ein Fehler dort wird lokal abgefangen und kippt nie den ganzen Check auf den Monolith-Fallback. `POST /api/tp/apply` verwendet für MOD-Workouts die im Check bereits berechnete `ernaehrung` weiter, statt sie mit einem zweiten Live-Call neu zu berechnen.
+
 ---
 
 ## Athleten-Profil
@@ -351,6 +364,29 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.7.8 — Ernährungsberater
+Ernährung bleibt deterministisch (`nutrition.py`, seit v2.6.99 bewusst so — ein Modell hatte vorher Mengen erfunden). Ein neuer Agent ergänzt das um Kontext, den eine reine Dauer-Tabelle nicht kennt, an drei Stellen — aber nur die erste bekommt einen echten neuen Claude-Call, die anderen zwei werden nur angereichert, um nicht gegen die eigene Kosten-/Latenzdisziplin zu verstoßen (Architekt nur bei MOD, Periodisierer nur mit Belastungsdaten, Checks als Hintergrund-Job wegen der Laufzeit):
+
+- **Tages-Check** — `agents/fueling.py` (neu) läuft pro Einheit nur bei Hitze/Kälte, chronischen Befunden, Renntag oder Dauer ≥90min, hängt dann einen Satz an die Tabellen-Basis an. Ohne einen dieser Gründe: kein Call, `ernaehrung` bleibt der reine Tabellenstring. Ein Fehler im Ernährungsberater wird lokal abgefangen statt den ganzen Check auf den Monolith umzuleiten — ein fehlender Zusatzsatz darf nicht so viel kosten wie ein fehlgeschlagener Mediziner-Call.
+- **`POST /api/tp/apply`** verwendet für MOD-Workouts die im Check schon berechnete `ernaehrung` weiter, statt sie mit einem zweiten Live-Call neu zu rechnen — das Frontend schickt sie jetzt in der `operations`-Payload mit.
+- **Coach-Chat** (`agents/chat.py`) — bekommt die Ernährungstabelle (Mix, Carbs/Flüssigkeit/Salz pro Stunde, Dauer-Regeln) und **chronische Befunde** in den Kontext. Nebenbefund: Der Agent-Pfad hatte `chronische_befunde` bisher gar nicht im Chat-Kontext, obwohl der Monolith-Fallback das schon konnte — als kleiner additiver Fix mitgezogen.
+- **Analyse-Tab** (`agents/analyst.py`) — neues Feld `ernaehrung_einschaetzung`: bewertet anhand Splits/HF-Drift/RPE gegen die Tabellen-Basis, ob die Verpflegung während der Einheit gepasst hat. Bleibt leer statt zu spekulieren, wenn die Datenlage nicht reicht — spiegelt dieselbe Ehrlichkeitsregel, die für `datenlage: nur_plan` schon galt.
+- **Bugfix im eigenen Code entdeckt:** `chronische_befunde: "keine"` ist ein nicht-leerer String und damit in Python *truthy* — ohne Fix hätte das Gate bei jedem Athleten, der im Profil schlicht „keine" einträgt, unnötig einen Claude-Call ausgelöst. Platzhalter wie „keine"/„keine bekannt"/„-" zählen jetzt explizit nicht als chronischer Befund.
+
+Keine neue Fragebogen-Frage (z.B. Magen-Darm-Symptome während des Trainings) — bewusst außen vor gelassen, um den Umfang klein zu halten.
+
+### v2.7.7 — Allgemeinmediziner (Krankheit als eigener Spezialist)
+Der Sportmediziner behandelte Krankheit (die „Symptome"-Pille) bisher als bindenden Ganzkörper-Befund mit — fachlich vermischt das Sportverletzungs- mit Allgemeinmedizin. Sauber getrennt:
+
+- **Sportmediziner** (`agents/medic.py`) ist jetzt rein muskuloskelettal — nur noch Knie/Achilles/Waden/Muskelkater. Verliert `gesamturteil`/`leitsymptom`, die es nur für die Krankheits-Logik brauchte.
+- **Allgemeinmediziner** (`agents/allgemeinmedic.py`, neu) übernimmt Krankheit (migrierte Symptome-Pille) und bekommt vier neue Eingaben: **Fieber**, **Blutdruck**, **Medikamente** (alle drei pro Check im Fragebogen) und **chronische Befunde** (einmalig im Profil-Tab, `athlete.json` → `chronische_befunde`, gilt dauerhaft).
+- **`gesamturteil: pause` ist die stärkste Regel der ganzen App** (Herzmuskelentzündungsrisiko bei Training mit Infekt) — durchgesetzt als **harter Code-Stop** im Orchestrator, nicht nur per Prompt-Disziplin: Chefcoach und Architekt werden komplett übersprungen, jede geplante Sportart deterministisch auf SKIP gesetzt. Genau diese Art Regel war beim Sportmediziner in v2.7.2 schon einmal falsch gelaufen, bevor der Prompt nachgeschärft wurde — diesmal sitzt die Garantie im Code.
+- Chefcoach bekommt eine neue, prominenteste Sektion „Urteil des Allgemeinmediziners" — stärker als der Sportmediziner, in der Praxis bekommt er `pause` aber nie zu Gesicht, weil der Orchestrator dann längst selbst entschieden hat.
+- Krankennotiz in `POST /api/tp/apply` erweitert: Fieber ≥ 38 °C löst sie jetzt auch allein aus, unabhängig von der Symptome-Pille — eigene, konservative Schwelle ohne LLM-Beteiligung, absichtlich niedriger als der Agenten-Pause-Wert (38.5 °C), da eine überflüssige Notiz weniger schadet als ein übersehenes Fieber.
+- Ernährungsberater (Ernährung als weiterer möglicher Spezialist) war zu diesem Zeitpunkt bewusst noch nicht Teil der Änderung — siehe v2.7.8.
+
+Tests: `test_offline.py`/`test_wiring.py` prüfen das neue Schema, dass der Sportmediziner keine Krankheits-Referenz mehr sieht (Migrations-Regression), und vor allem, dass `pause` wirklich Chefcoach und Architekt überspringt und jede Sportart auf SKIP zwingt.
 
 ### v2.7.6 — Persistenter Zustand + MCP aus dem Internet
 
