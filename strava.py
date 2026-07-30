@@ -51,10 +51,14 @@ def _load_state() -> dict:
     pfad = _token_file()
     if pfad.exists():
         try:
-            return json.loads(pfad.read_text(encoding="utf-8"))
+            stand = json.loads(pfad.read_text(encoding="utf-8"))
+            logger.info("strava: Token-Stand aus %s geladen (refresh_token vorhanden: %s)",
+                       pfad, bool(stand.get("refresh_token")))
+            return stand
         except Exception as e:
             logger.warning("strava: Token-Datei unlesbar, ignoriere: %s", e)
     seed = os.environ.get("STRAVA_REFRESH_TOKEN")
+    logger.info("strava: keine Token-Datei unter %s, ENV-Seed vorhanden: %s", pfad, bool(seed))
     return {"refresh_token": seed} if seed else {}
 
 
@@ -72,13 +76,19 @@ async def _get_access_token() -> Optional[str]:
     client_id = (os.environ.get("STRAVA_CLIENT_ID") or "").strip()
     client_secret = (os.environ.get("STRAVA_CLIENT_SECRET") or "").strip()
     if not (client_id and client_secret):
+        logger.info("strava: kein Access-Token möglich — STRAVA_CLIENT_ID/SECRET fehlt "
+                   "(id gesetzt: %s, secret gesetzt: %s)", bool(client_id), bool(client_secret))
         return None
     state = _load_state()
     refresh_token = (state.get("refresh_token") or "").strip()
     if not refresh_token:
+        logger.info("strava: kein Access-Token möglich — kein refresh_token in Datei oder ENV-Seed")
         return None
     if state.get("access_token") and state.get("expires_at", 0) > time.time() + 60:
+        logger.info("strava: nutze gecachtes Access-Token (noch gültig)")
         return state["access_token"]
+    logger.info("strava: refreshe Access-Token (client_id=%s, refresh_token endet auf ...%s)",
+               client_id, refresh_token[-6:])
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
