@@ -1,4 +1,4 @@
-# KI Coach App — v2.7.9
+# KI Coach App — v2.7.10
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -40,7 +40,7 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.7.9)
+├── CLAUDE.md            ← diese Datei (v2.7.10)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
 ├── coach_mcp.py         ← MCP-Server für Claude Desktop + Code (stdio lokal / HTTP remote)
 ├── requirements-mcp.txt ← nur für coach_mcp.py, eigenes venv (.venv-mcp)
@@ -50,7 +50,7 @@ ki-coach-app/
 ├── training_load.py     ← CTL/ATL/TSB aus der TSS-Historie (deterministisch)
 ├── strava.py            ← Strava-Auto-Match für die Analyse (OAuth direkt per httpx, kein MCP)
 ├── agents/              ← base, medic, allgemeinmedic, weather, periodizer, head_coach, architect, fueling, analyst, chat
-├── prompts/de/          ← statische Agent-Prompts, einer je Agent
+├── prompts/de/          ← statische Agent-Prompts (meist einer je Agent; architect hat zusätzlich sportspezifische Zusätze)
 ├── tests/               ← fixtures.py, test_offline.py, test_wiring.py, test_live.py
 ├── translations.py      ← UI-Texte + Monolith-Prompts (de/en)
 ├── templates/
@@ -376,6 +376,13 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.7.10 — Sportspezifische Architekt-Prompts
+Der Workout-Architekt (`agents/architect.py`) formulierte Lauf/Rad/Schwimmen bisher mit **einem** generischen Prompt aus. Jetzt bekommt er zusätzlich einen sportspezifischen Zusatz-Prompt — ohne einen einzigen zusätzlichen Claude-Call, da der Architekt ohnehin schon nur bei MOD läuft.
+
+- `agents/architect.py`'s `run()` bekommt einen neuen `sport`-Parameter (die normalisierte Sportart aus dem Chefcoach-Urteil, z.B. „Laufen"), von `orchestrator.py` mitgegeben. `_prompt_fuer_sport()` hängt bei Laufen/Rad/Schwimmen einen sportspezifischen Zusatz an den bestehenden generischen Kern-Prompt an (`prompts/de/architect_run.md`/`_bike.md`/`_swim.md`) — Kraft/Sonstiges bekommen weiterhin nur den Kern, da es dafür keinen Spezialisten gibt.
+- Inhalt der Zusätze: Kadenz-Korridore (Lauf 170–180 Schritte/min, Rad 85–95 rpm Grundlage), Trabpausen in Minuten statt „locker", Rad-Indoor-Hinweis (Watt zuverlässiger als draußen), Schwimm-Intervallnotation (`8×100m, 15s Pause`) und die Regel, bei Oberkörper-Muskelkater auf Technikarbeit umzustellen statt zu streichen. Alle Zusätze sind Formulierungs-/Struktur-Leitlinien für den Architekten, keine neuen Fakten, die der Athlet nicht selbst schon vorgibt — nichts wird erfunden, was nicht aus Original oder Auftrag hervorgeht.
+- `agents/architect.py` bleibt **ein** Modul/Agent, keine drei separaten Agenten — die Kostendisziplin (Architekt nur bei MOD) ändert sich nicht.
 
 ### v2.7.9 — Strava-Integration für die Analyse
 Der Analyse-Tab brauchte bisher immer einen manuellen FIT-Datei-Export+Upload für echte Messwerte (HF, Pace, Power, Splits) — sonst bewertete der Analyst nur anhand der TP-Plandaten. Die meisten Aktivitäten syncen aber automatisch zu Strava.

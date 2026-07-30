@@ -160,6 +160,7 @@ async def main():
     pruefe(a["auftrag"]["begruendung"] == "Achilles rechts 5/10", "Architekt bekommt die Begründung")
     pruefe(a["workout"]["title"] == "Schwellenlauf", "Architekt bekommt das RICHTIGE Workout (Index-Zuordnung)")
     pruefe("31.0 °C" in a["wetter_zeile"], "Architekt bekommt die Wetterzeile")
+    pruefe(a["sport"] == "Laufen", "Architekt bekommt die normalisierte Sportart für den sportspezifischen Prompt")
 
     lauf, rad = ergebnis["sportarten"]
     pruefe(lauf["beschreibung"].startswith("40 min ganz locker"), "MOD nutzt den Architekten-Text")

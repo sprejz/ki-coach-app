@@ -85,7 +85,7 @@ async def _baue_einheit(*, entscheidung: dict, workout: Optional[dict], athlete:
             architect.run, athlete=athlete, workout=workout,
             auftrag={"begruendung": entscheidung.get("begruendung", ""),
                      "anpassung": entscheidung.get("anpassung", {})},
-            wetter_zeile=wetter_zeile, model=model,
+            wetter_zeile=wetter_zeile, sport=sport, model=model,
         )
         beschreibung = gebaut["beschreibung"]
         tp_struktur = gebaut.get("tp_struktur")

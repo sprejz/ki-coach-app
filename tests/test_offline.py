@@ -428,6 +428,21 @@ pruefe(strava.match_activity(KANDIDATEN_ZWEI_RADFAHRTEN, "Bike", "", dauer_hint_
 pruefe(strava.match_activity(KANDIDATEN_ZWEI_RADFAHRTEN, "Bike") is not None,
        "Ganz ohne Zeit- oder Dauerhinweis fällt es auf die längste Aktivität zurück, statt leer zu laufen")
 
+print("\n=== Workout-Architekt: sportspezifische Prompts ===")
+kern_prompt = architect.load_prompt("architect")
+lauf_prompt = architect._prompt_fuer_sport("Laufen")
+rad_prompt = architect._prompt_fuer_sport("Rad")
+schwimm_prompt = architect._prompt_fuer_sport("Schwimmen")
+kraft_prompt = architect._prompt_fuer_sport("Kraft")
+
+pruefe(kern_prompt in lauf_prompt, "Lauf-Prompt enthält weiterhin den generischen Kern")
+pruefe("Lauf-spezifisch" in lauf_prompt and "Kadenz" in lauf_prompt, "Lauf-Prompt hat den Lauf-Zusatz")
+pruefe("Rad-spezifisch" in rad_prompt and "rpm" in rad_prompt, "Rad-Prompt hat den Rad-Zusatz")
+pruefe("Schwimm-spezifisch" in schwimm_prompt and "CSS" in schwimm_prompt, "Schwimm-Prompt hat den Schwimm-Zusatz")
+pruefe(kraft_prompt == kern_prompt, "Kraft/Sonstiges ohne Spezialisten bekommen nur den Kern-Prompt")
+pruefe("Lauf-spezifisch" not in rad_prompt and "Rad-spezifisch" not in lauf_prompt,
+       "Sportarten bekommen nicht versehentlich den falschen Zusatz")
+
 print(f"\n{'=' * 40}")
 if fehler:
     print(f"FEHLGESCHLAGEN — {len(fehler)} Problem(e):")

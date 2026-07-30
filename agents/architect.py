@@ -10,6 +10,20 @@ from .base import HAIKU, call_agent, load_prompt
 
 logger = logging.getLogger(__name__)
 
+# Sportspezifische Zusatz-Prompts (nur Ergänzung, keine Kosten extra — der
+# Architekt lief schon vorher nur bei MOD). Kraft/Sonstiges haben keinen
+# Spezialisten und bekommen nur den generischen Kern-Prompt.
+_SPORT_PROMPT_SCHLUESSEL = {"Laufen": "run", "Rad": "bike", "Schwimmen": "swim"}
+
+
+def _prompt_fuer_sport(sport: str) -> str:
+    kern = load_prompt("architect")
+    schluessel = _SPORT_PROMPT_SCHLUESSEL.get(sport)
+    if not schluessel:
+        return kern
+    zusatz = load_prompt(f"architect_{schluessel}")
+    return f"{kern}\n\n{zusatz}"
+
 # Identisch zur Struktur, die tp_create_workout erwartet. Bewusst nicht rekursiv:
 # ein Wiederholungsblock enthält nur Einzelschritte.
 _STEP = {
@@ -120,13 +134,13 @@ def build_input(*, athlete: dict, workout: dict, auftrag: dict, wetter_zeile: st
 
 
 def run(*, athlete: dict, workout: dict, auftrag: dict, wetter_zeile: str = "",
-        model: str = HAIKU) -> dict:
+        sport: str = "", model: str = HAIKU) -> dict:
     return call_agent(
-        prompt=load_prompt("architect"),
+        prompt=_prompt_fuer_sport(sport),
         schema=SCHEMA,
         user=build_input(athlete=athlete, workout=workout, auftrag=auftrag,
                          wetter_zeile=wetter_zeile),
         model=model,
         max_tokens=4000,
-        label=f"architect[{workout.get('sport', '?')}]",
+        label=f"architect[{sport or workout.get('sport', '?')}]",
     )
