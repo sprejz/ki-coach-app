@@ -154,13 +154,20 @@ def _parse_local(iso_ohne_zone: str) -> Optional[datetime]:
         return None
 
 
-def match_activity(kandidaten: list, sport_hint: str, start_time_hint: str = "") -> Optional[dict]:
+def match_activity(kandidaten: list, sport_hint: str, start_time_hint: str = "",
+                   dauer_hint_min: Optional[float] = None) -> Optional[dict]:
     """Wählt aus den Tageskandidaten die passendste Aktivität.
 
     Erst nach Sportart-Gruppe filtern (falls die Gruppe etwas liefert — sonst
-    lieber ungefiltert weitersuchen als fälschlich leer laufen), danach bei
-    mehreren Treffern die zeitlich nächste zur geplanten Startzeit, ohne
-    Zeithinweis die längste (Haupteinheit vor kurzen Zusatzaktivitäten).
+    lieber ungefiltert weitersuchen als fälschlich leer laufen). Bei mehreren
+    Kandidaten in derselben Gruppe reicht die Sportart allein nicht — TP kennt
+    bei diesem Account so gut wie nie eine Startzeit, dafür oft eine geplante
+    Dauer (z.B. zwei separate Bike-Einheiten am selben Tag, Hin- und
+    Rückfahrt). Zeitnähe zur TP-Startzeit UND Dauernähe zur TP-Planvorgabe
+    fließen als Sekunden-Abweichung ein (beide vorhanden → addiert, nur eine
+    vorhanden → nur die zählt). Ganz ohne Signal bleibt die längste Aktivität
+    die letzte, ehrliche Notlösung — kein Kriterium ist besser als ein
+    erfundenes.
     """
     if not kandidaten:
         return None
@@ -170,13 +177,30 @@ def match_activity(kandidaten: list, sport_hint: str, start_time_hint: str = "")
         gefiltert = [a for a in kandidaten if a.get("sport_type") in gruppe]
         if gefiltert:
             pool = gefiltert
+    if len(pool) == 1:
+        return pool[0]
 
-    hint = _parse_local(start_time_hint) if start_time_hint else None
-    if hint:
-        def naehe(a):
+    hint_zeit = _parse_local(start_time_hint) if start_time_hint else None
+
+    def abweichung_sekunden(a: dict) -> Optional[float]:
+        gesamt = 0.0
+        signal_vorhanden = False
+        if hint_zeit:
             a_dt = _parse_local(a.get("start_date_local", ""))
-            return abs((a_dt - hint).total_seconds()) if a_dt else float("inf")
-        return min(pool, key=naehe)
+            if a_dt:
+                gesamt += abs((a_dt - hint_zeit).total_seconds())
+                signal_vorhanden = True
+        if dauer_hint_min:
+            moving = a.get("moving_time")
+            if moving:
+                gesamt += abs(moving - dauer_hint_min * 60)
+                signal_vorhanden = True
+        return gesamt if signal_vorhanden else None
+
+    bewertet = [(a, abweichung_sekunden(a)) for a in pool]
+    mit_signal = [(a, d) for a, d in bewertet if d is not None]
+    if mit_signal:
+        return min(mit_signal, key=lambda paar: paar[1])[0]
     return max(pool, key=lambda a: a.get("moving_time", 0))
 
 
@@ -248,7 +272,8 @@ def _activity_to_fit_shape(activity: dict, laps: Optional[list]) -> dict:
 
 
 async def fetch_matching_activity_as_fit(*, target_date: str, sport_hint: str = "",
-                                         start_time_hint: str = "") -> Optional[dict]:
+                                         start_time_hint: str = "",
+                                         dauer_hint_min: Optional[float] = None) -> Optional[dict]:
     """Holt die zu Datum+Sportart passende Strava-Aktivität, fertig in der
     FIT-Dict-Form. None ohne Credentials, ohne Token oder ohne Treffer —
     der Aufrufer fällt dann auf den bisherigen Ablauf zurück."""
@@ -257,7 +282,7 @@ async def fetch_matching_activity_as_fit(*, target_date: str, sport_hint: str = 
         return None
     aktivitaeten = await _get_activities(token, target_date)
     kandidaten = [a for a in aktivitaeten if (a.get("start_date_local") or "")[:10] == target_date]
-    treffer = match_activity(kandidaten, sport_hint, start_time_hint)
+    treffer = match_activity(kandidaten, sport_hint, start_time_hint, dauer_hint_min)
     if not treffer:
         return None
     laps = await _get_laps(token, treffer["id"])

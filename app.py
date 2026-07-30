@@ -2461,6 +2461,19 @@ async def workout_analyze(
     a_race = next((r for r in athlete.get("races", []) if r.get("type") == "A"), {})
     target_date = workout_date or date.today().isoformat()
 
+    # TP-Workout direkt vorab holen — kein MCP-Roundtrip durch Claude nötig.
+    # Vor dem Strava-Match geholt: die geplante Dauer hilft beim Abgleich,
+    # wenn TP keine Startzeit kennt (bei diesem Account praktisch immer der Fall).
+    tp_workout_data: dict = {}
+    if workout_id and tp_url:
+        try:
+            tp_workout_data = await call_tp_mcp("tp_get_workout", {"workout_id": workout_id})
+            if not isinstance(tp_workout_data, dict):
+                tp_workout_data = {}
+            logger.info("workout_analyze: tp_get_workout ok for %s", workout_id)
+        except Exception as _te:
+            logger.warning("workout_analyze: tp_get_workout failed: %s", _te)
+
     # Strava-Auto-Match nur, wenn keine FIT-Datei hochgeladen wurde — eine
     # manuell hochgeladene Datei ist eine bewusste Nutzerentscheidung und
     # gewinnt immer. Ein Strava-Fehler (Token, Netzwerk, kein Treffer) fällt
@@ -2468,8 +2481,13 @@ async def workout_analyze(
     quelle = "fit_upload" if fit_data else None
     if not fit_data and os.environ.get("STRAVA_CLIENT_ID"):
         try:
+            dauer_hint_min = (
+                round(tp_workout_data["totalTimePlanned"] / 60)
+                if tp_workout_data.get("totalTimePlanned") else None
+            )
             strava_data = await strava.fetch_matching_activity_as_fit(
                 target_date=target_date, sport_hint=sport, start_time_hint=start_time,
+                dauer_hint_min=dauer_hint_min,
             )
             if strava_data:
                 fit_data = strava_data
@@ -2525,17 +2543,6 @@ async def workout_analyze(
             logger.info("workout_analyze: weather note prepared for %s on %s (not written to TP — field unsupported)", workout_id, target_date)
         except Exception as _we:
             logger.warning("workout_analyze: weather update skipped: %s", _we)
-
-    # TP-Workout direkt vorab holen — kein MCP-Roundtrip durch Claude nötig
-    tp_workout_data: dict = {}
-    if workout_id and tp_url:
-        try:
-            tp_workout_data = await call_tp_mcp("tp_get_workout", {"workout_id": workout_id})
-            if not isinstance(tp_workout_data, dict):
-                tp_workout_data = {}
-            logger.info("workout_analyze: tp_get_workout ok for %s", workout_id)
-        except Exception as _te:
-            logger.warning("workout_analyze: tp_get_workout failed: %s", _te)
 
     job_id = uuid.uuid4().hex[:10]
     _analysis_jobs[job_id] = {"status": "pending", "has_fit": bool(fit_data), "quelle": quelle}

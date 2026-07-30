@@ -390,6 +390,23 @@ pruefe(strava.match_activity(KANDIDATEN_ZWEI_LAEUFE, "Run", "2026-07-26T06:35:00
 pruefe(strava.match_activity(KANDIDATEN_ZWEI_LAEUFE, "Run", "")["id"] == 11,
        "match_activity wählt ohne Zeithinweis die längste Aktivität")
 
+# Realer Fall: TP kennt bei diesem Account praktisch nie eine Startzeit, aber
+# zwei Bike-Einheiten am selben Tag (Hin-/Rückfahrt) sind nur über die
+# geplante Dauer zu unterscheiden — "längste Aktivität" allein würde beide
+# TP-Einträge auf dieselbe Strava-Fahrt matchen.
+KANDIDATEN_ZWEI_RADFAHRTEN = [
+    {"id": 20, "sport_type": "Ride", "start_date_local": "2026-07-26T11:10:00",
+     "moving_time": 3334, "distance": 17342},   # Hinfahrt, ~56 min
+    {"id": 21, "sport_type": "Ride", "start_date_local": "2026-07-26T14:33:00",
+     "moving_time": 4315, "distance": 19754},   # Rückfahrt, ~72 min
+]
+pruefe(strava.match_activity(KANDIDATEN_ZWEI_RADFAHRTEN, "Bike", "", dauer_hint_min=55)["id"] == 20,
+       "match_activity nutzt die geplante Dauer als Tie-Breaker ohne Zeithinweis (Hinfahrt)")
+pruefe(strava.match_activity(KANDIDATEN_ZWEI_RADFAHRTEN, "Bike", "", dauer_hint_min=72)["id"] == 21,
+       "...und erkennt die zweite, längere Einheit desselben Tages korrekt (Rückfahrt)")
+pruefe(strava.match_activity(KANDIDATEN_ZWEI_RADFAHRTEN, "Bike") is not None,
+       "Ganz ohne Zeit- oder Dauerhinweis fällt es auf die längste Aktivität zurück, statt leer zu laufen")
+
 print(f"\n{'=' * 40}")
 if fehler:
     print(f"FEHLGESCHLAGEN — {len(fehler)} Problem(e):")
