@@ -175,6 +175,9 @@ async def main():
            "Bei Hitze wird der Fueling-Hinweis an beide Einheiten angehängt")
     pruefe(len(mitschrieb.get("fueling", [])) == 2,
            "Ernährungsberater läuft für beide Einheiten (GO und MOD) bei Hitze")
+    pruefe(lauf["ernaehrung_von_berater"] is True and rad["ernaehrung_von_berater"] is True,
+           "ernaehrung_von_berater ist explizit gesetzt, statt am Text zu raten")
+    pruefe(ergebnis["_chefcoach_ran"] is True, "_chefcoach_ran ist True im Normalpfad")
 
     print("\n=== Eingaben kommen bei den Agents an ===")
     m = mitschrieb["medic_last"]
@@ -306,6 +309,8 @@ async def main():
     pruefe(pause_ergebnis["_agents"]["allgemein"]["gesamturteil"] == "pause",
            "Allgemeinmediziner-Urteil hängt sichtbar am Ergebnis")
     pruefe(pause_ergebnis["status"] == "red", "Status ist 'red' bei Pause")
+    pruefe(pause_ergebnis["_chefcoach_ran"] is False,
+           "_chefcoach_ran ist explizit False bei Pause, statt aus status_text zu raten")
     # Zurück auf 'frei', damit spätere Tests nicht versehentlich kurzgeschlossen werden.
     allgemeinmedic.run = attrappe("allgemeinmedic", FAKE_ALLGEMEIN_FREI)
     orchestrator.allgemeinmedic = allgemeinmedic

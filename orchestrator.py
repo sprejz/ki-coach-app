@@ -113,6 +113,7 @@ async def _baue_einheit(*, entscheidung: dict, workout: Optional[dict], athlete:
     ) else None
     ist_renntag = tage_bis_a == 0
     lang = bool(dauer) and dauer >= 90
+    ernaehrung_von_berater = False
     if badge in ("GO", "MOD") and ernaehrung and (is_hot or is_cold or chronisch or lang or ist_renntag):
         try:
             zusatz = await asyncio.to_thread(
@@ -123,6 +124,7 @@ async def _baue_einheit(*, entscheidung: dict, workout: Optional[dict], athlete:
             )
             if zusatz.get("relevant") and zusatz.get("hinweis"):
                 ernaehrung = f"{ernaehrung} — {zusatz['hinweis']}"
+                ernaehrung_von_berater = True
         except Exception as e:
             # Ein fehlender Zusatzsatz darf nie den ganzen Check auf den
             # Monolith umleiten — anders als bei medic/weather/architect.
@@ -134,6 +136,7 @@ async def _baue_einheit(*, entscheidung: dict, workout: Optional[dict], athlete:
         "details": entscheidung.get("details", ""),
         "beschreibung": beschreibung,
         "ernaehrung": ernaehrung,
+        "ernaehrung_von_berater": ernaehrung_von_berater,
         "tp_struktur": tp_struktur,
         "distanz_m": distanz_m,
         "_begruendung": entscheidung.get("begruendung", ""),
@@ -261,6 +264,7 @@ async def run_check(
             "prep": "Kein Training heute. Erhole dich, beobachte die Symptome, bei Verschlechterung ärztlich abklären.",
             "_agents": {"medic": medic_result, "wetter": weather_result, "block": block_result,
                         "allgemein": allgemein_result},
+            "_chefcoach_ran": False,
         }
 
     # Stufe 2: der Chefcoach entscheidet — ohne auszuformulieren.
@@ -299,4 +303,5 @@ async def run_check(
         "prep": entscheidung.get("prep", ""),
         "_agents": {"medic": medic_result, "wetter": weather_result, "block": block_result,
                     "allgemein": allgemein_result},
+        "_chefcoach_ran": True,
     }

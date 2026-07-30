@@ -435,6 +435,7 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 .sport-name { font-size: 15px; font-weight: 600; }
 .sport-details { font-size: 13px; color: var(--muted); line-height: 1.5; margin-bottom: 4px; }
 .sport-ernaehrung { font-size: 12px; color: var(--muted2); line-height: 1.4; }
+.sport-coach-tag { font-size: 11px; color: var(--muted); line-height: 1.4; margin: 2px 0 0; }
 
 .prep-section { background: rgba(29,158,117,.05); }
 .prep-text { font-size: 14px; color: var(--text); line-height: 1.6; font-style: italic; }
@@ -1217,6 +1218,9 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
   <!-- About panel -->
   <div class="tab-panel" data-panel="chat">
     <div class="form-card" style="border-top:none;border-radius:0 0 var(--radius) var(--radius);display:flex;flex-direction:column;gap:0;min-height:60vh">
+      <div style="text-align:center;font-size:12px;color:var(--muted);margin-bottom:8px">
+        {{ T.agenten.chefcoach.name }} · {{ T.agenten.chefcoach.rolle }}
+      </div>
       <div id="chat-history" style="flex:1;overflow-y:auto;max-height:55vh;display:flex;flex-direction:column;gap:10px;padding-bottom:8px"></div>
       <div style="display:flex;gap:8px;margin-top:12px;align-items:flex-end">
         <textarea id="chat-input" rows="2" placeholder="Frage deinen Coach…" style="flex:1;background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:8px;padding:10px;color:var(--text);font-size:14px;resize:none;font-family:inherit;line-height:1.4"></textarea>
@@ -1725,6 +1729,10 @@ function buildResult(data, fd, type) {
       const isOverridden = !!userOverrides[idx];
       const bc = isOverridden ? 'badge-override' : (s.badge === 'GO' ? 'badge-go' : s.badge === 'MOD' ? 'badge-mod' : 'badge-skip');
       const badgeLabel = isOverridden ? 'GO ↩' : s.badge;
+      const coachZeile = s.badge === 'MOD'
+        ? `<p class="sport-coach-tag">✍️ ${esc(agentTag(ARCHITEKT_SPORT_KEY[s.sport] || 'architect'))}</p>` : '';
+      const beraterZeile = s.ernaehrung_von_berater
+        ? `<p class="sport-coach-tag">🥕 ${esc(agentTag('fueling'))}</p>` : '';
       h += `<div class="sport-card" id="sport-card-${idx}">
         <div class="sport-header">
           <span class="badge ${bc}" id="sport-badge-${idx}">${esc(badgeLabel)}</span>
@@ -1733,6 +1741,8 @@ function buildResult(data, fd, type) {
         ${s.details ? `<p class="sport-details">${esc(s.details)}</p>` : ''}
         ${s.beschreibung ? `<pre style="font-size:11px;color:var(--muted);line-height:1.55;margin:4px 0 2px;white-space:pre-wrap;font-family:inherit">${esc(s.beschreibung)}</pre>` : ''}
         ${s.ernaehrung ? `<p class="sport-ernaehrung">🍎 ${esc(s.ernaehrung)}</p>` : ''}
+        ${beraterZeile}
+        ${coachZeile}
         ${isNonGo ? `<button class="btn-override${isOverridden ? ' active' : ''}" id="override-btn-${idx}" onclick="toggleOverride(${idx})">${isOverridden ? 'Override aufheben' : 'Trotzdem machen'}</button>` : ''}
       </div>`;
     });
@@ -1777,9 +1787,29 @@ function buildResult(data, fd, type) {
   h += `</div>`; // .dark-card
   // Welcher Pfad hat geantwortet? Ohne das war nur im Railway-Log sichtbar,
   // ob die Agent-Pipeline lief oder still auf den Monolith zurückgefallen ist.
+  h += mitwirkendeNote(data);
   h += engineNote(data._pipeline);
   h += `<button class="btn-back" onclick="backToForm()">← Zurück zum Formular</button>`;
   return h;
+}
+
+// Agenten-Namen (v2.7.11) — T.agenten kommt 1:1 aus translations.py über
+// T_json, keine eigene Plumbing nötig.
+const ARCHITEKT_SPORT_KEY = {"Laufen": "architect_run", "Rad": "architect_bike", "Schwimmen": "architect_swim"};
+function agentTag(schluessel) {
+  const a = T.agenten?.[schluessel];
+  return a ? `${a.name} (${a.rolle})` : '';
+}
+function mitwirkendeNote(data) {
+  const ag = data._agents || {};
+  const namen = [];
+  if (ag.medic)      namen.push(agentTag('medic'));
+  if (ag.allgemein)  namen.push(agentTag('allgemein'));
+  if (ag.wetter)     namen.push(agentTag('wetter'));
+  if (ag.block)      namen.push(agentTag('block'));
+  if (data._chefcoach_ran) namen.push(agentTag('chefcoach'));
+  if (!namen.length) return '';
+  return `<div style="text-align:center;font-size:11px;color:var(--muted);margin-top:6px">Mitgewirkt: ${esc(namen.join(' · '))}</div>`;
 }
 
 // "agents" = Pipeline lief. "monolith" = alter Prompt (ENV aus ODER Fallback
@@ -2715,6 +2745,7 @@ function renderAnalysisCard(data) {
           <p style="font-size:13px;color:var(--text);line-height:1.5;margin:0">🍎 ${esc(ernaehrung)}</p>
         </div>` : ''}
     </div>
+    <div style="text-align:center;font-size:11px;color:var(--muted);margin-top:6px">${esc(agentTag('analyst'))}</div>
     ${quelleNote(data.quelle)}
     ${engineNote(data._pipeline)}`;
 }

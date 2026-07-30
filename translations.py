@@ -47,6 +47,21 @@ TRANSLATIONS = {
         "lbl_wasser_temp":   "Wassertemperatur Freibad",
         "lbl_optional":      "optional",
         "lbl_no_pain":       "0 — kein Schmerz",
+        # Agenten-Namen (v2.7.11) — persönliche Identität pro Spezialist, damit
+        # sichtbar wird, wer geantwortet hat (Dark Card, Analyse-Tab, Chat).
+        "agenten": {
+            "medic":          {"name": "Dr. Nora Vogel",   "rolle": "Sportmedizin"},
+            "allgemein":      {"name": "Dr. Jonas Berger",  "rolle": "Allgemeinmedizin"},
+            "wetter":         {"name": "Mia Sturm",         "rolle": "Wetter-Taktik"},
+            "block":          {"name": "Karl Wenzel",       "rolle": "Periodisierung"},
+            "chefcoach":      {"name": "Coach Tom Reiter",  "rolle": "Chefcoach"},
+            "architect":      {"name": "Coach Lea Fromm",   "rolle": "Kraft & Sonstiges"},
+            "architect_run":  {"name": "Coach Finn Adler",  "rolle": "Laufcoach"},
+            "architect_bike": {"name": "Coach Nils Brandt", "rolle": "Radcoach"},
+            "architect_swim": {"name": "Coach Pia König",   "rolle": "Schwimmcoach"},
+            "fueling":        {"name": "Anna Feld",         "rolle": "Ernährungsberatung"},
+            "analyst":        {"name": "Coach Ben Krause",  "rolle": "Performance-Analyse"},
+        },
         "lbl_max":           "10 — max",
         # CSV upload
         "lbl_csv":           "AutoSleep CSV",
@@ -376,6 +391,19 @@ TRANSLATIONS = {
         "lbl_optional":      "optional",
         "lbl_no_pain":       "0 — no pain",
         "lbl_max":           "10 — max",
+        "agenten": {
+            "medic":          {"name": "Dr. Nora Vogel",   "rolle": "Sports Medicine"},
+            "allgemein":      {"name": "Dr. Jonas Berger",  "rolle": "General Medicine"},
+            "wetter":         {"name": "Mia Sturm",         "rolle": "Weather Tactics"},
+            "block":          {"name": "Karl Wenzel",       "rolle": "Periodization"},
+            "chefcoach":      {"name": "Coach Tom Reiter",  "rolle": "Head Coach"},
+            "architect":      {"name": "Coach Lea Fromm",   "rolle": "Strength & Other"},
+            "architect_run":  {"name": "Coach Finn Adler",  "rolle": "Running Coach"},
+            "architect_bike": {"name": "Coach Nils Brandt", "rolle": "Cycling Coach"},
+            "architect_swim": {"name": "Coach Pia König",   "rolle": "Swimming Coach"},
+            "fueling":        {"name": "Anna Feld",         "rolle": "Nutrition Coaching"},
+            "analyst":        {"name": "Coach Ben Krause",  "rolle": "Performance Analysis"},
+        },
         # CSV upload
         "lbl_csv":           "AutoSleep CSV",
         "lbl_csv_btn":       "Upload CSV",

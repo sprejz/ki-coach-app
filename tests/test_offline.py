@@ -17,6 +17,7 @@ from agents import allgemeinmedic, analyst, architect, chat, fueling, head_coach
 from orchestrator import _baue_einheit, normalize_sport  # noqa: E402
 from tests import fixtures as fx  # noqa: E402
 from training_load import compute_pmc, tage_bis, tss_pro_tag, wochenstruktur  # noqa: E402
+from translations import TRANSLATIONS  # noqa: E402
 import strava  # noqa: E402
 
 fehler = []
@@ -442,6 +443,19 @@ pruefe("Schwimm-spezifisch" in schwimm_prompt and "CSS" in schwimm_prompt, "Schw
 pruefe(kraft_prompt == kern_prompt, "Kraft/Sonstiges ohne Spezialisten bekommen nur den Kern-Prompt")
 pruefe("Lauf-spezifisch" not in rad_prompt and "Rad-spezifisch" not in lauf_prompt,
        "Sportarten bekommen nicht versehentlich den falschen Zusatz")
+
+# --- Agenten-Namen-Registry (translations.py) ---
+_ERWARTETE_AGENTEN_SCHLUESSEL = [
+    "medic", "allgemein", "wetter", "block", "chefcoach",
+    "architect", "architect_run", "architect_bike", "architect_swim",
+    "fueling", "analyst",
+]
+for _sprache in ("de", "en"):
+    _registry = TRANSLATIONS[_sprache].get("agenten", {})
+    for _schluessel in _ERWARTETE_AGENTEN_SCHLUESSEL:
+        _eintrag = _registry.get(_schluessel, {})
+        pruefe(bool(_eintrag.get("name")) and bool(_eintrag.get("rolle")),
+               f"agenten['{_schluessel}'] hat name+rolle ({_sprache})")
 
 print(f"\n{'=' * 40}")
 if fehler:

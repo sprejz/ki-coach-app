@@ -1,4 +1,4 @@
-# KI Coach App — v2.7.10
+# KI Coach App — v2.7.11
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -376,6 +376,16 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.7.11 — Agenten bekommen Namen
+Die App hat inzwischen 11 Agenten-Rollen, aber sichtbar war davon nur ein grün/orange-Punkt (Agent-Pipeline vs. Monolith). Jeder Agent bekommt jetzt eine persönliche Identität, und an den drei Stellen, wo Ergebnisse angezeigt werden, wird sichtbar, wer geantwortet hat.
+
+- **`translations.py`** — neuer Schlüssel `T["agenten"]` (de + en), pro Agent `name` + `rolle` (z.B. `medic` → „Dr. Nora Vogel", „Sportmedizin"). Erreicht das Frontend ohne neue Plumbing, da `T_json` ohnehin komplett an `templates/index.html` durchgereicht wird.
+- **Lauf-/Rad-/Schwimmcoach** (die sportspezifischen Architekt-Prompts aus v2.7.10) bekommen drei eigene Namen (Finn Adler, Nils Brandt, Pia König) statt einer Person mit Sport-Tag.
+- **Coach-Chat** spricht durchgehend als Coach Tom Reiter (Chefcoach) — keine zwölfte, separate Identität; im Chat-Tab steht eine statische Zeile über dem Verlauf.
+- **`orchestrator.py`** — zwei neue, explizite Felder statt Text-Raten: `_chefcoach_ran` (False beim Allgemeinmediziner-Pause-Kurzschluss, sonst True) und `ernaehrung_von_berater` pro Sportart (True nur wenn der Ernährungsberater-Zusatz tatsächlich angehängt wurde).
+- **`templates/index.html`** — Dark Card zeigt pro MOD-Sportart den zuständigen Sport-Coach und ggf. Anna Feld (Ernährungsberaterin), am Kartenfuß eine „Mitgewirkt: …"-Zeile mit allen beteiligten Spezialisten. Analyse-Tab zeigt Coach Ben Krause. Welcher Architekt-Spezialist geschrieben hat, leitet das Frontend selbst aus Sportart+Badge ab — kein neues Backend-Feld nötig.
+- Bewusst nicht abgedeckt: SKIP-Einheiten unter dem Pause-Kurzschluss bekommen keine „Dr. Jonas Berger hat gestoppt"-Zuschreibung; der Chat ordnet keine einzelnen Sätze Unterthemen zu (bleibt eine Stimme).
 
 ### v2.7.10 — Sportspezifische Architekt-Prompts
 Der Workout-Architekt (`agents/architect.py`) formulierte Lauf/Rad/Schwimmen bisher mit **einem** generischen Prompt aus. Jetzt bekommt er zusätzlich einen sportspezifischen Zusatz-Prompt — ohne einen einzigen zusätzlichen Claude-Call, da der Architekt ohnehin schon nur bei MOD läuft.
