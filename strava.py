@@ -69,10 +69,13 @@ async def _get_access_token() -> Optional[str]:
     """Liefert ein gültiges Access-Token, refresht bei Bedarf. None statt Exception,
     wenn Credentials fehlen oder der Refresh fehlschlägt — degradiert wie das
     bestehende TP_MCP_URL-Muster."""
-    if not (os.environ.get("STRAVA_CLIENT_ID") and os.environ.get("STRAVA_CLIENT_SECRET")):
+    client_id = (os.environ.get("STRAVA_CLIENT_ID") or "").strip()
+    client_secret = (os.environ.get("STRAVA_CLIENT_SECRET") or "").strip()
+    if not (client_id and client_secret):
         return None
     state = _load_state()
-    if not state.get("refresh_token"):
+    refresh_token = (state.get("refresh_token") or "").strip()
+    if not refresh_token:
         return None
     if state.get("access_token") and state.get("expires_at", 0) > time.time() + 60:
         return state["access_token"]
@@ -80,12 +83,15 @@ async def _get_access_token() -> Optional[str]:
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post("https://www.strava.com/oauth/token", data={
-                "client_id": os.environ["STRAVA_CLIENT_ID"],
-                "client_secret": os.environ["STRAVA_CLIENT_SECRET"],
+                "client_id": client_id,
+                "client_secret": client_secret,
                 "grant_type": "refresh_token",
-                "refresh_token": state["refresh_token"],
+                "refresh_token": refresh_token,
             })
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                logger.warning("strava: Token-Refresh fehlgeschlagen (%s): %s",
+                               resp.status_code, resp.text[:300])
+                return None
             data = resp.json()
     except Exception as e:
         logger.warning("strava: Token-Refresh fehlgeschlagen: %s", e)
