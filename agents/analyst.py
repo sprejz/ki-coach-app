@@ -49,29 +49,112 @@ _FIT_LABELS = [
     ("sport", "Sport laut FIT", ""), ("sub_sport", "Sub-Sport", ""),
 ]
 
-_TP_LABELS = [
-    ("totalTime", "Dauer Ist (s)"), ("totalTimePlanned", "Dauer Plan (s)"),
-    ("distanceInMeters", "Distanz Ist (m)"), ("distancePlanned", "Distanz Plan (m)"),
-    ("tssActual", "TSS Ist"), ("tssPlanned", "TSS Plan"),
-    ("averageHeartRateInBeatsPerMinute", "Ø HF Ist"),
-    ("maxHeartRateInBeatsPerMinute", "Max HF Ist"),
-    ("averageWatts", "Ø Leistung Ist (W)"), ("normalizedPower", "NP Ist (W)"),
-    ("averagePaceInMinutesPerKilometer", "Ø Pace Ist (min/km)"),
-    ("totalWork", "Gesamtarbeit (kJ)"), ("perceivedExertion", "RPE (1–10)"),
-    ("coachComments", "Coach-Notizen"), ("description", "Beschreibung"),
+# Feldnamen von tp_get_workout (MCP-Server) — snake_case, größtenteils unter
+# "metrics" verschachtelt. Bewusst NICHT die TP-eigenen camelCase-API-Namen
+# (totalTime, tssActual, …): das MCP normalisiert die Antwort um, ein Abgleich
+# gegen echte Live-Daten hat das aufgedeckt (vorher landeten nur "description"
+# und keine einzige Zahl beim Analysten).
+_TP_METRIC_LABELS = [
+    ("duration_actual", "Dauer Ist (min)", 60), ("duration_planned", "Dauer Plan (min)", 60),
+    ("distance_actual_km", "Distanz Ist (km)", 1), ("distance_planned_km", "Distanz Plan (km)", 1),
+    ("tss_actual", "TSS Ist", 1), ("tss_planned", "TSS Plan", 1),
+    ("avg_hr", "Ø HF Ist (bpm)", 1),
+    ("avg_power", "Ø Leistung Ist (W)", 1), ("normalized_power", "NP Ist (W)", 1),
+    ("avg_cadence", "Ø Kadenz Ist", 1),
+    ("calories", "Kalorien Ist", 1),
+]
+# duration_* kommt in Stunden (Bruchzahl) — Faktor 60 rechnet in Minuten um.
+
+_TP_TOP_LABELS = [
+    ("rpe", "RPE (1–10)"), ("feeling", "Gefühl (1–10)"), ("description", "Beschreibung"),
 ]
 
-_IST_SCHLUESSEL = ["tssActual", "averageHeartRateInBeatsPerMinute",
-                   "averagePaceInMinutesPerKilometer", "averageWatts",
-                   "distanceInMeters", "totalTime"]
+# Nur Felder, die zweifelsfrei eine ausgeführte Einheit voraussetzen (Ist-Werte
+# vom Gerät) — duration_actual/tss_actual sind laut Live-Beispiel auch bei
+# reinen Planwerten befüllt, also kein verlässliches Signal.
+_IST_SCHLUESSEL_METRICS = ["avg_hr", "avg_power", "avg_cadence"]
 
 
 def datenlage(fit: Optional[dict], tp: Optional[dict]) -> str:
     if fit:
         return "fit"
-    if tp and any(tp.get(k) for k in _IST_SCHLUESSEL):
+    if tp and any((tp.get("metrics") or {}).get(k) for k in _IST_SCHLUESSEL_METRICS):
         return "tp_ist"
     return "nur_plan"
+
+
+def _sek_zu_pace(sekunden: float) -> str:
+    return f"{int(sekunden // 60)}:{int(sekunden % 60):02d}"
+
+
+def _dauer_text(sekunden) -> str:
+    if not sekunden:
+        return "?"
+    sekunden = int(sekunden)
+    if sekunden % 60 == 0:
+        return f"{sekunden // 60} min"
+    return f"{sekunden}s"
+
+
+def _ziel_wert(lo, hi, metric: str, sport: str, athlete: dict) -> str:
+    """Rechnet einen Prozent-der-Schwelle-Zielbereich in eine konkrete Zahl um
+    (Watt bzw. Pace) — höherer Prozentwert heißt schneller/stärker, wie im
+    übrigen Code (translations.py-Zonentabelle, architect.py) schon gehandhabt."""
+    if lo is None or hi is None:
+        return ""
+    try:
+        if metric == "percentOfFtp":
+            ftp = float(athlete.get("ftp_watt") or 0)
+            if not ftp:
+                return ""
+            return f"{round(ftp * lo / 100)}–{round(ftp * hi / 100)} W"
+        if metric == "percentOfThresholdPace":
+            ist_schwimmen = "schwimm" in (sport or "").lower() or "swim" in (sport or "").lower()
+            basis = athlete.get("css_per_100m") if ist_schwimmen else athlete.get("run_threshold_pace")
+            einheit = "/100m" if ist_schwimmen else "/km"
+            if not basis or ":" not in str(basis):
+                return ""
+            m, s = str(basis).split(":")
+            schwelle_sek = int(m) * 60 + int(s)
+            werte = sorted(schwelle_sek / (p / 100) for p in (lo, hi) if p)
+            if not werte:
+                return ""
+            return f"{_sek_zu_pace(werte[0])}–{_sek_zu_pace(werte[-1])}{einheit}"
+    except (TypeError, ValueError, ZeroDivisionError):
+        return ""
+    return ""
+
+
+def _render_struktur(struktur: dict, sport: str, athlete: dict) -> str:
+    """Baut aus tp_get_workout's structured_workout eine lesbare Zielvorgabe
+    pro Schritt — der Analyst kann damit Ist-Pace/-Watt pro Wiederholung gegen
+    das ECHTE Ziel prüfen, statt nur gegen den (oft nur verkürzenden) Titel."""
+    metric = struktur.get("primaryIntensityMetric", "")
+    zeilen = []
+
+    def schritt_zeile(schritt: dict, einzug: str) -> str:
+        name = schritt.get("name", "Schritt")
+        laenge = schritt.get("length", {}) or {}
+        dauer = _dauer_text(laenge.get("value")) if laenge.get("unit") == "second" else ""
+        ziele = schritt.get("targets") or []
+        ziel_text = _ziel_wert(ziele[0].get("minValue"), ziele[0].get("maxValue"), metric, sport, athlete) if ziele else ""
+        stueck = f"{einzug}{name}"
+        if dauer:
+            stueck += f": {dauer}"
+        if ziel_text:
+            stueck += f" @ {ziel_text}"
+        return stueck
+
+    for block in struktur.get("structure") or []:
+        if block.get("type") == "repetition":
+            reps = (block.get("length") or {}).get("value", "?")
+            zeilen.append(f"{reps}× Wiederholung:")
+            for schritt in block.get("steps") or []:
+                zeilen.append(schritt_zeile(schritt, "  - "))
+        else:
+            for schritt in block.get("steps") or []:
+                zeilen.append(schritt_zeile(schritt, "- "))
+    return "\n".join(zeilen)
 
 
 def build_input(*, athlete: dict, sport: str, titel: str, datum: str,
@@ -133,10 +216,25 @@ def build_input(*, athlete: dict, sport: str, titel: str, datum: str,
         kopf = ("## TrainingPeaks — Ist-Daten" if lage != "nur_plan"
                 else "## TrainingPeaks — NUR Plan-Daten, keine Ist-Werte")
         lines.append(f"\n{kopf}")
-        for key, label in _TP_LABELS:
+        for key, label in _TP_TOP_LABELS:
             v = tp.get(key)
             if v not in (None, ""):
                 lines.append(f"- {label}: {v}")
+        metrics = tp.get("metrics") or {}
+        for key, label, faktor in _TP_METRIC_LABELS:
+            v = metrics.get(key)
+            if v is not None:
+                wert = round(v * faktor, 1) if faktor != 1 else round(v, 1)
+                lines.append(f"- {label}: {wert}")
+
+        struktur = tp.get("structured_workout")
+        if struktur and struktur.get("structure"):
+            lines.append(
+                "\n## Geplante Struktur (TrainingPeaks, echte Ziel-Werte pro Schritt)\n"
+                "Vergleiche Ist-Pace/-Watt pro Wiederholung gegen DIESE Ziele, nicht nur "
+                "gegen den (oft verkürzenden) Titel:"
+            )
+            lines.append(_render_struktur(struktur, sport, athlete))
 
     if datenlage(fit, tp) == "nur_plan":
         lines.append("\nEs liegen keine Messwerte vor. Bewerte die Einheit trotzdem anhand "

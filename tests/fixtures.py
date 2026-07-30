@@ -4,6 +4,44 @@ Jeder Fall ist ein realistisches Szenario mit einer Erwartung, die sich
 überprüfen lässt, ohne den ganzen Check zu fahren.
 """
 
+# Echte tp_get_workout-Antwort (gekürzt: nur eine von drei identischen
+# Wiederholungsblöcken), 2026-07-29 "3x16 min. LC" — hat aufgedeckt, dass
+# agents/analyst.py bis v2.7.9 gegen TP-eigene camelCase-Feldnamen las
+# (totalTime, tssActual, …), während tp_get_workout tatsächlich snake_case
+# unter "metrics" liefert. Nur "description" traf zufällig, keine einzige
+# Zahl kam beim Analysten an.
+TP_WORKOUT_STRUKTURIERT = {
+    "id": "3527004005", "date": "2026-07-29", "title": "3x16 min. LC", "sport": "Run",
+    "description": "Ein Wechselspiel der Gefühle ;)! Kohlenhydrate vorher und "
+                   "während bereithalten, danach Recovery-Shake.",
+    "rpe": 5, "feeling": 5,
+    "metrics": {
+        "duration_planned": 1.0333333333333334, "duration_actual": 1.0333333015441895,
+        "tss_planned": 75.0, "tss_actual": 64.18,
+        "distance_planned_km": 9.401, "distance_actual_km": 8.91741015625,
+        "avg_power": 202.0, "normalized_power": 213.0, "avg_hr": 137, "avg_cadence": 148.0,
+        "calories": 594,
+    },
+    "structured_workout": {
+        "primaryIntensityMetric": "percentOfThresholdPace",
+        "structure": [
+            {"type": "step", "length": {"value": 1, "unit": "repetition"},
+             "steps": [{"name": "Warm up", "length": {"value": 300, "unit": "second"},
+                       "targets": [{"minValue": 60, "maxValue": 70}], "intensityClass": "warmUp"}]},
+            {"type": "repetition", "length": {"value": 4, "unit": "repetition"},
+             "steps": [
+                 {"type": "step", "name": "Hard", "length": {"unit": "second", "value": 60},
+                  "targets": [{"minValue": 100, "maxValue": 105}], "intensityClass": "active"},
+                 {"type": "step", "name": "Easy", "length": {"unit": "second", "value": 180},
+                  "targets": [{"minValue": 77, "maxValue": 80}], "intensityClass": "rest"},
+             ]},
+            {"type": "step", "length": {"value": 1, "unit": "repetition"},
+             "steps": [{"name": "Cool Down", "length": {"value": 300, "unit": "second"},
+                       "targets": [{"minValue": 65, "maxValue": 70}], "intensityClass": "coolDown"}]},
+        ],
+    },
+}
+
 WETTER_HITZE = {
     "description": "Sonnig", "temp_min": 19.0, "temp_max": 31.0, "rain_prob": 5,
     "is_thunderstorm": False, "is_rain": False, "is_hot": True, "is_cold": False,

@@ -257,9 +257,9 @@ FIT = {"dauer_min": 62, "distanz_km": 11.4, "avg_hr": 158, "max_hr": 172,
        "avg_pace_min_km": "5:26", "tss": 78,
        "laps": [{"t_min": 8, "avg_hr": 161, "pace": "5:18"},
                 {"t_min": 8, "avg_hr": 166, "pace": "5:31"}]}
-TP_IST = {"tssActual": 78, "averageHeartRateInBeatsPerMinute": 158,
-          "perceivedExertion": 7, "description": "4×8min @ 5:20"}
-TP_NUR_PLAN = {"tssPlanned": 75, "totalTimePlanned": 3600, "description": "4×8min @ 5:20"}
+TP_IST = {"metrics": {"tss_actual": 78, "avg_hr": 158, "avg_power": 210, "avg_cadence": 88},
+          "rpe": 7, "description": "4×8min @ 5:20"}
+TP_NUR_PLAN = {"metrics": {"tss_planned": 75, "duration_planned": 1.0}, "description": "4×8min @ 5:20"}
 
 pruefe(analyst.datenlage(FIT, TP_IST) == "fit", "FIT-Datei schlägt TP-Ist")
 pruefe(analyst.datenlage(None, TP_IST) == "tp_ist", "Ohne FIT zählen die TP-Ist-Werte")
@@ -293,6 +293,27 @@ an_ernaehrung = analyst.build_input(athlete={}, sport="Run", titel="Lauf", datum
 pruefe("90g Carbs/h" in an_ernaehrung, "Analyst sieht die Ernährungsbasis für diese Dauer")
 pruefe("ernaehrung_einschaetzung" in analyst.SCHEMA["properties"],
        "Analyst-Schema hat das Ernährungs-Einschätzungsfeld")
+
+# Regression: echte tp_get_workout-Antwort (snake_case unter "metrics"),
+# nicht die TP-eigenen camelCase-Namen — hat vor v2.7.9 dazu geführt, dass
+# beim Analysten nur "description" ankam, keine einzige Zahl.
+pruefe(analyst.datenlage(None, fx.TP_WORKOUT_STRUKTURIERT) == "tp_ist",
+       "Echte TP-Antwort wird als tp_ist erkannt (avg_hr/avg_power/avg_cadence in 'metrics')")
+an_echt = analyst.build_input(
+    athlete={"ftp_watt": 286, "run_threshold_pace": "5:20", "css_per_100m": "2:20"},
+    sport="Run", titel="3x16 min. LC", datum="2026-07-29",
+    fit=None, tp=fx.TP_WORKOUT_STRUKTURIERT,
+)
+pruefe("TSS Ist: 64.2" in an_echt, "Analyst liest tss_actual aus 'metrics' (nicht mehr tssActual)")
+pruefe("Ø HF Ist (bpm): 137" in an_echt, "Analyst liest avg_hr aus 'metrics'")
+pruefe("Dauer Ist (min): 62.0" in an_echt, "duration_actual (Stunden) wird in Minuten umgerechnet")
+pruefe("RPE (1–10): 5" in an_echt, "RPE kommt von der Top-Level 'rpe', nicht aus 'metrics'")
+pruefe("Geplante Struktur" in an_echt, "Strukturierte Zielvorgabe wird gerendert")
+pruefe("4× Wiederholung" in an_echt, "Wiederholungsblock wird mit Anzahl gerendert")
+pruefe("Hard: 1 min @" in an_echt, "Harter Schritt zeigt Dauer und Ziel-Pace")
+pruefe("5:04" in an_echt or "5:05" in an_echt, "Prozent-Ziel wird in eine konkrete Pace umgerechnet (100-105% von 5:20)")
+pruefe("Warm up: 5 min" in an_echt and "Cool Down: 5 min" in an_echt,
+       "Einfache (nicht wiederholte) Schritte werden ebenfalls gerendert")
 
 print("\n=== Coach-Chat ===")
 ctx = chat.build_context(

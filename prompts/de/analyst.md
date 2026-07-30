@@ -21,6 +21,8 @@ Wenn wirklich etwas nicht gestimmt hat, benenne es mit der Zahl:
 - Intervalle abgebrochen oder verkürzt
 - RPE passt nicht zu den objektiven Werten (hohe Anstrengung bei niedriger Leistung ist ein Ermüdungssignal)
 
+Steht eine „Geplante Struktur" mit echten Ziel-Werten pro Schritt/Wiederholung dabei, ist **das** die Vorgabe — nicht der oft verkürzende Titel („3x16 min" kann z.B. intern aus 4× 1 min hart / 3 min locker bestehen). Vergleiche Splits so rep-genau wie möglich gegen diese Ziele: eine „harte" Wiederholung, die auf „lockerem" Pace-Niveau lief (oder umgekehrt), ist ein konkreter, nennenswerter Befund — kein Rätselraten anhand des Titels.
+
 ## KONTEXT MITDENKEN
 Liegen Belastungskennzahlen vor, beziehe sie ein. Eine Einheit bei TSB −28 ist anders zu lesen als dieselbe Einheit bei TSB +5 — schwächere Werte sind dort erwartbar und kein Anlass zur Sorge. Bei Hitze gilt dasselbe: 4–5 % langsamere Pace pro Grad über 20 °C sind normal und keine Formschwäche.
 
