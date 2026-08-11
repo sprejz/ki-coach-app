@@ -13,3 +13,9 @@ __pycache__/
 # Logs / lokale Artefakte
 railway.log.json
 *.log
+
+# Node (falls je genutzt)
+node_modules/
+
+# SAP-Tooling (falls je genutzt)
+.sc4sap/
