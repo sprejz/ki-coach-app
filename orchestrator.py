@@ -22,7 +22,7 @@ Deterministisch, ohne Modell:
   - Schlaf-Flags, Baseline, Wetterschwellen, tp_apply liegen ohnehin in Code
   - Allgemeinmediziner-Pause → All-SKIP, siehe oben
 
-Der Ernährungsberater (`agents/fueling.py`) läuft pro Einheit NUR bei Hitze/
+Der Ernährungsberater (`agents/fueling/fueling.py`) läuft pro Einheit NUR bei Hitze/
 Kälte, chronischen Befunden, Renntag oder Dauer ≥90min — sonst bleibt die
 Ernährung der reine Tabellenstring, ohne Modell-Call. Er ergänzt einen
 Kontextsatz, erfindet aber nie eigene Mengen. Ein Fehler dort wird lokal
