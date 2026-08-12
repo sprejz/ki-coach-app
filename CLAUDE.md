@@ -1,4 +1,4 @@
-# KI Coach App — v2.7.11
+# KI Coach App — v2.7.12
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -40,7 +40,7 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.7.10)
+├── CLAUDE.md            ← diese Datei (v2.7.12)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
 ├── coach_mcp.py         ← MCP-Server für Claude Desktop + Code (stdio lokal / HTTP remote)
 ├── requirements-mcp.txt ← nur für coach_mcp.py, eigenes venv (.venv-mcp)
@@ -49,7 +49,7 @@ ki-coach-app/
 ├── nutrition.py         ← Ernährungstabelle (deterministisch, von beiden Pfaden genutzt)
 ├── training_load.py     ← CTL/ATL/TSB aus der TSS-Historie (deterministisch)
 ├── strava.py            ← Strava-Auto-Match für die Analyse (OAuth direkt per httpx, kein MCP)
-├── agents/              ← base, medic, allgemeinmedic, weather, periodizer, head_coach, architect, fueling, analyst, chat
+├── agents/              ← base, medic, allgemeinmedic, weather, periodizer, head_coach, architect, architect_run, architect_bike, architect_swim, fueling, analyst, chat (je eigener Ordner, seit v2.7.12)
 ├── prompts/de/          ← statische Agent-Prompts (meist einer je Agent; architect hat zusätzlich sportspezifische Zusätze)
 ├── tests/               ← fixtures.py, test_offline.py, test_wiring.py, test_live.py
 ├── translations.py      ← UI-Texte + Monolith-Prompts (de/en)
@@ -376,6 +376,15 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.7.12 — Architekt in drei eigene Disziplin-Agenten aufgeteilt
+Der sportspezifische Zusatz-Prompt aus v2.7.10 wurde zur Laufzeit an den Kern-Prompt des generischen Architekten (`agents/architect.py`) verkettet — ein Modul, drei Prompt-Fragmente. Jetzt bekommen Laufen/Rad/Schwimmen je einen eigenen Agenten mit eigenem, zusammenhängendem Prompt statt Kern+Zusatz zur Laufzeit zusammenzusetzen.
+
+- **`agents/architect_run/`, `agents/architect_bike/`, `agents/architect_swim/`** (neu) — je ein eigenes Modul mit eigener `.md`-Prompt-Datei (Kern-Regeln + sportspezifischer Teil in einer Datei, nicht mehr verteilt). `SCHEMA` und `build_input` sind **nicht** dupliziert, sondern kommen für alle drei plus den generischen Fallback aus `agents/base.py` (`ARCHITECT_SCHEMA`, `build_architect_input`) — dieselbe Objektidentität, damit eine künftige Schema-Änderung nicht an vier Stellen nachgezogen werden muss.
+- **`orchestrator.py`** — neues Dispatch-Dict `_ARCHITECT_BY_SPORT` (`"Laufen"` → `architect_run.run`, `"Rad"` → `architect_bike.run`, `"Schwimmen"` → `architect_swim.run`). Kraft/Sonstiges haben keinen Eintrag und fallen weiter auf den generischen `agents/architect.py` zurück — dafür gibt es keinen Spezialisten, wie schon in v2.7.10.
+- **Coach-Ordnerstruktur aufgeräumt:** jeder Agent liegt jetzt in einem eigenen Ordner (`agents/medic/`, `agents/architect/`, …) statt als einzelne Datei direkt unter `agents/`.
+- Läuft weiterhin **nur bei MOD**, alle MOD-Einheiten parallel — Kostendisziplin unverändert, nur die Anzahl möglicher Claude-Aufrufe pro Check bleibt gleich (ein Architekt-Call pro MOD-Einheit, jetzt eben vom passenden Spezialisten statt vom Generalisten).
+- Tests (`test_offline.py`, `test_wiring.py`) prüfen die Schema-/`build_input`-Gleichheit (keine Drift), dass jede `.md`-Datei den vollständigen Kern-Prompt plus ihren eigenen Zusatz enthält, das korrekte Dispatching pro Sportart, den Kraft/Sonstiges-Fallback und dass der harte Pause-Kurzschluss (v2.7.7) weiterhin keinen der vier Architekt-Pfade auslöst.
 
 ### v2.7.11 — Agenten bekommen Namen
 Die App hat inzwischen 11 Agenten-Rollen, aber sichtbar war davon nur ein grün/orange-Punkt (Agent-Pipeline vs. Monolith). Jeder Agent bekommt jetzt eine persönliche Identität, und an den drei Stellen, wo Ergebnisse angezeigt werden, wird sichtbar, wer geantwortet hat.
