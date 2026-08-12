@@ -34,7 +34,8 @@ import logging
 from typing import Callable, Optional
 
 from agents import (
-    allgemeinmedic, architect, architect_bike, architect_swim, fueling, head_coach, medic, periodizer, weather,
+    allgemeinmedic, architect, architect_bike, architect_run, architect_swim, fueling, head_coach, medic,
+    periodizer, weather,
 )
 from agents.base import HAIKU
 from nutrition import nutrition_for_duration
@@ -53,6 +54,7 @@ _SPORT_MAP = {
 # Sport-Agenten für Lauf/Rad/Schwimm (agents/architect_run, _bike, _swim);
 # Kraft/Sonstiges fallen auf den generischen agents/architect zurück.
 _ARCHITECT_BY_SPORT = {
+    "Laufen": architect_run.run,
     "Rad": architect_bike.run,
     "Schwimmen": architect_swim.run,
 }
