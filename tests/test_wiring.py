@@ -17,6 +17,9 @@ os.environ.setdefault("ANTHROPIC_API_KEY", "dummy-fuer-test")
 
 import agents.allgemeinmedic as allgemeinmedic  # noqa: E402
 import agents.architect as architect  # noqa: E402
+import agents.architect_bike as architect_bike  # noqa: E402
+import agents.architect_run as architect_run  # noqa: E402
+import agents.architect_swim as architect_swim  # noqa: E402
 import agents.fueling as fueling  # noqa: E402
 import agents.head_coach as head_coach  # noqa: E402
 import agents.medic as medic  # noqa: E402
@@ -70,8 +73,20 @@ FAKE_COACH = {
     "autosleep_summary": None, "wetter_hinweis": "31 °C", "prep": "Früh schlafen",
 }
 FAKE_ARCHITEKT = {
+    "beschreibung": "STOP-Ausweich-Text (Kraft/Sonstiges-Fallback)",
+    "dauer_min": 30, "tp_struktur": None, "distanz_m": None,
+}
+FAKE_ARCHITEKT_RUN = {
     "beschreibung": "40 min ganz locker (6:30–7:05/km)\nHITZE: 750ml/h",
     "dauer_min": 40, "tp_struktur": None, "distanz_m": None,
+}
+FAKE_ARCHITEKT_BIKE = {
+    "beschreibung": "60 min Z2 auf der Rolle, 85-95 rpm",
+    "dauer_min": 60, "tp_struktur": None, "distanz_m": None,
+}
+FAKE_ARCHITEKT_SWIM = {
+    "beschreibung": "Gesamt: ~1500m\n20×75m Technik, 15s Pause",
+    "dauer_min": 35, "tp_struktur": None, "distanz_m": 1500,
 }
 FAKE_FUELING_HITZE = fx.FAKE_FUELING_HITZE
 FAKE_FUELING_LEER = fx.FAKE_FUELING_LEER
@@ -96,6 +111,9 @@ weather.run = attrappe("weather", FAKE_WETTER)
 allgemeinmedic.run = attrappe("allgemeinmedic", FAKE_ALLGEMEIN_FREI)
 head_coach.run = attrappe("head_coach", FAKE_COACH)
 architect.run = attrappe("architect", FAKE_ARCHITEKT)
+architect_run.run = attrappe("architect_run", FAKE_ARCHITEKT_RUN)
+architect_bike.run = attrappe("architect_bike", FAKE_ARCHITEKT_BIKE)
+architect_swim.run = attrappe("architect_swim", FAKE_ARCHITEKT_SWIM)
 periodizer.run = attrappe("periodizer", FAKE_BLOCK)
 fueling.run = attrappe("fueling", FAKE_FUELING_HITZE)
 # Der Orchestrator hat die Module beim Import gebunden — Attrappen nachziehen.
@@ -104,6 +122,15 @@ orchestrator.allgemeinmedic = allgemeinmedic
 orchestrator.head_coach, orchestrator.architect = head_coach, architect
 orchestrator.periodizer = periodizer
 orchestrator.fueling = fueling
+# _ARCHITECT_BY_SPORT wurde beim Import von orchestrator.py mit den ECHTEN
+# run-Funktionen befüllt (Dict-Werte sind Funktionsobjekte, kein Modul-Lookup
+# zur Laufzeit) — die obigen architect_*.run = attrappe(...)-Zuweisungen
+# ändern die bereits im Dict gespeicherten Referenzen nicht mehr. Ohne diesen
+# Rebuild würde jeder MOD-Aufruf für Laufen/Rad/Schwimmen an der Attrappe
+# vorbei die echte Anthropic-API treffen.
+orchestrator._ARCHITECT_BY_SPORT = {
+    "Laufen": architect_run.run, "Rad": architect_bike.run, "Schwimmen": architect_swim.run,
+}
 
 # Kein TP-MCP im Test: Belastungsdaten werden direkt eingespeist.
 app._fetch_training_load = lambda athlete: asyncio.sleep(
@@ -153,14 +180,16 @@ async def main():
            "Blockurteil hängt am Ergebnis (für Debugging sichtbar)")
 
     print("\n=== Architekt läuft nur für MOD ===")
-    pruefe(len(mitschrieb.get("architect", [])) == 1,
-           "Genau ein Architekt-Aufruf bei 1× MOD + 1× GO")
-    a = mitschrieb["architect_last"]
+    pruefe(len(mitschrieb.get("architect_run", [])) == 1,
+           "Genau ein Architekt-Aufruf bei 1× MOD + 1× GO — dispatcht an architect_run (Laufen)")
+    pruefe(not mitschrieb.get("architect"),
+           "Der generische Fallback (architect) läuft NICHT für Laufen — dafür gibt es architect_run")
+    a = mitschrieb["architect_run_last"]
     pruefe(a["auftrag"]["anpassung"]["dauer_min"] == 40, "Architekt bekommt die Zieldauer 40")
     pruefe(a["auftrag"]["begruendung"] == "Achilles rechts 5/10", "Architekt bekommt die Begründung")
     pruefe(a["workout"]["title"] == "Schwellenlauf", "Architekt bekommt das RICHTIGE Workout (Index-Zuordnung)")
     pruefe("31.0 °C" in a["wetter_zeile"], "Architekt bekommt die Wetterzeile")
-    pruefe(a["sport"] == "Laufen", "Architekt bekommt die normalisierte Sportart für den sportspezifischen Prompt")
+    pruefe(a["sport"] == "Laufen", "Architekt bekommt weiterhin sport= mitgegeben (einheitliche Aufrufsignatur)")
 
     lauf, rad = ergebnis["sportarten"]
     pruefe(lauf["beschreibung"].startswith("40 min ganz locker"), "MOD nutzt den Architekten-Text")
@@ -178,6 +207,32 @@ async def main():
     pruefe(lauf["ernaehrung_von_berater"] is True and rad["ernaehrung_von_berater"] is True,
            "ernaehrung_von_berater ist explizit gesetzt, statt am Text zu raten")
     pruefe(ergebnis["_chefcoach_ran"] is True, "_chefcoach_ran ist True im Normalpfad")
+
+    print("\n=== Architekt-Dispatch: jede Disziplin an ihren eigenen Agenten (v2.7.12) ===")
+    # Direkter Test von _baue_einheit statt über den ganzen Chefcoach-Pfad —
+    # damit lässt sich für alle drei Disziplinen + den Kraft/Sonstiges-
+    # Fallback in einem Rutsch belegen, dass _ARCHITECT_BY_SPORT tatsächlich
+    # an den richtigen Agenten dispatcht und nicht z.B. immer denselben trifft.
+    for sport, erwartete_beschreibung in (
+        ("Laufen", FAKE_ARCHITEKT_RUN["beschreibung"]),
+        ("Rad", FAKE_ARCHITEKT_BIKE["beschreibung"]),
+        ("Schwimmen", FAKE_ARCHITEKT_SWIM["beschreibung"]),
+        ("Kraft", FAKE_ARCHITEKT["beschreibung"]),
+    ):
+        eintrag = await orchestrator._baue_einheit(
+            entscheidung={"sport": sport, "badge": "MOD", "details": "Test",
+                          "begruendung": "Testauftrag", "anpassung": {}},
+            workout={"sport": sport, "description": "Original", "duration_min": 45},
+            athlete={"nutrition": {"rules": []}}, wetter_zeile="Sonnig", model="egal",
+        )
+        pruefe(eintrag["beschreibung"] == erwartete_beschreibung,
+               f"{sport}: _baue_einheit dispatcht an den richtigen Architekt-Agenten")
+    pruefe(len(mitschrieb.get("architect_run", [])) == 2,
+           "architect_run wurde jetzt zweimal aufgerufen (Normalpfad oben + Dispatch-Test hier)")
+    pruefe(len(mitschrieb.get("architect_bike", [])) == 1, "architect_bike genau einmal aufgerufen")
+    pruefe(len(mitschrieb.get("architect_swim", [])) == 1, "architect_swim genau einmal aufgerufen")
+    pruefe(len(mitschrieb.get("architect", [])) == 1,
+           "architect (Fallback) läuft nur für Kraft — kein einziges Mal für Laufen/Rad/Schwimmen")
 
     print("\n=== Eingaben kommen bei den Agents an ===")
     m = mitschrieb["medic_last"]
@@ -291,7 +346,8 @@ async def main():
     allgemeinmedic.run = attrappe("allgemeinmedic", FAKE_ALLGEMEIN_PAUSE)
     orchestrator.allgemeinmedic = allgemeinmedic
     head_coach_calls_vorher = len(mitschrieb.get("head_coach", []))
-    architect_calls_vorher = len(mitschrieb.get("architect", []))
+    architekt_module = ("architect", "architect_run", "architect_bike", "architect_swim")
+    architect_calls_vorher = {m: len(mitschrieb.get(m, [])) for m in architekt_module}
     pause_ergebnis = await app._try_agent_check(
         athlete={"name": "Hendrik", "races": [], "nutrition": {"rules": []}, "chronische_befunde": "keine"},
         baseline=None, weather={"description": "Sonnig", "temp_max": 20.0},
@@ -304,8 +360,8 @@ async def main():
            "gesamturteil=pause erzwingt SKIP für JEDE Sportart, ausnahmslos")
     pruefe(len(mitschrieb.get("head_coach", [])) == head_coach_calls_vorher,
            "Chefcoach wird bei pause NICHT aufgerufen (harter Stop im Code, nicht im Prompt)")
-    pruefe(len(mitschrieb.get("architect", [])) == architect_calls_vorher,
-           "Architekt wird bei pause NICHT aufgerufen")
+    pruefe(all(len(mitschrieb.get(m, [])) == architect_calls_vorher[m] for m in architekt_module),
+           "Architekt (weder Fallback noch Lauf/Rad/Schwimm-Agenten) wird bei pause aufgerufen")
     pruefe(pause_ergebnis["_agents"]["allgemein"]["gesamturteil"] == "pause",
            "Allgemeinmediziner-Urteil hängt sichtbar am Ergebnis")
     pruefe(pause_ergebnis["status"] == "red", "Status ist 'red' bei Pause")

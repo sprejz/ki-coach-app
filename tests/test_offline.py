@@ -13,7 +13,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from datetime import date, timedelta  # noqa: E402
 
-from agents import allgemeinmedic, analyst, architect, chat, fueling, head_coach, medic, periodizer, weather  # noqa: E402
+from agents import (  # noqa: E402
+    allgemeinmedic, analyst, architect, architect_bike, architect_run, architect_swim, chat, fueling,
+    head_coach, medic, periodizer, weather,
+)
+import orchestrator  # noqa: E402
 from orchestrator import _baue_einheit, normalize_sport  # noqa: E402
 from tests import fixtures as fx  # noqa: E402
 from training_load import compute_pmc, tage_bis, tss_pro_tag, wochenstruktur  # noqa: E402
@@ -443,6 +447,43 @@ pruefe("Schwimm-spezifisch" in schwimm_prompt and "CSS" in schwimm_prompt, "Schw
 pruefe(kraft_prompt == kern_prompt, "Kraft/Sonstiges ohne Spezialisten bekommen nur den Kern-Prompt")
 pruefe("Lauf-spezifisch" not in rad_prompt and "Rad-spezifisch" not in lauf_prompt,
        "Sportarten bekommen nicht versehentlich den falschen Zusatz")
+
+print("\n=== Workout-Architekt: eigene Disziplin-Agenten (v2.7.12) ===")
+# Lauf/Rad/Schwimm haben seit v2.7.12 je ein eigenes Modul (agents/architect_run,
+# _bike, _swim) statt _prompt_fuer_sport() zur Laufzeit zu verketten. SCHEMA und
+# build_input bleiben dabei bewusst dasselbe Objekt wie beim generischen
+# Fallback (agents/base.py) — sonst würde jede künftige Schema-Änderung an drei
+# weiteren Stellen nachgezogen werden müssen.
+_WURZEL = Path(__file__).parent.parent
+for _mod, _ordner, _zusatz_marker, _zusatz_beleg in (
+    (architect_run, "run", "Lauf-spezifisch", "Kadenz"),
+    (architect_bike, "bike", "Rad-spezifisch", "rpm"),
+    (architect_swim, "swim", "Schwimm-spezifisch", "CSS"),
+):
+    pruefe(_mod.SCHEMA is architect.SCHEMA,
+           f"architect_{_ordner}.SCHEMA ist dasselbe Objekt wie der generische Fallback (keine Drift)")
+    pruefe(_mod.build_input is architect.build_input,
+           f"architect_{_ordner}.build_input ist dieselbe Funktion wie der generische Fallback")
+    _prompt_datei = _WURZEL / "agents" / f"architect_{_ordner}" / f"architect_{_ordner}.md"
+    pruefe(_prompt_datei.exists(), f"architect_{_ordner}.md liegt im eigenen Agent-Ordner")
+    _prompt_text = _prompt_datei.read_text(encoding="utf-8")
+    pruefe("GRUNDREGEL" in _prompt_text and "TP-STRUKTUR" in _prompt_text,
+           f"architect_{_ordner}.md enthält den vollständigen generischen Kern-Prompt")
+    pruefe(_zusatz_marker in _prompt_text and _zusatz_beleg in _prompt_text,
+           f"architect_{_ordner}.md enthält den {_ordner}-spezifischen Zusatz")
+    _geladen = _mod.load_prompt(_mod.SPORT, path=_prompt_datei)
+    pruefe(_geladen == _prompt_text.strip(),
+           f"architect_{_ordner}.load_prompt(path=...) liefert exakt den Dateiinhalt")
+
+pruefe(orchestrator._ARCHITECT_BY_SPORT.get("Laufen") is architect_run.run,
+       "Orchestrator dispatcht 'Laufen' an architect_run")
+pruefe(orchestrator._ARCHITECT_BY_SPORT.get("Rad") is architect_bike.run,
+       "Orchestrator dispatcht 'Rad' an architect_bike")
+pruefe(orchestrator._ARCHITECT_BY_SPORT.get("Schwimmen") is architect_swim.run,
+       "Orchestrator dispatcht 'Schwimmen' an architect_swim")
+pruefe(orchestrator._ARCHITECT_BY_SPORT.get("Kraft") is None
+       and orchestrator._ARCHITECT_BY_SPORT.get("Sonstiges") is None,
+       "Kraft/Sonstiges haben KEINEN Dispatch-Eintrag — fallen im Orchestrator auf architect.run zurück")
 
 # --- Agenten-Namen-Registry (translations.py) ---
 _ERWARTETE_AGENTEN_SCHLUESSEL = [
