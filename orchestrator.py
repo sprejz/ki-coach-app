@@ -33,7 +33,7 @@ import asyncio
 import logging
 from typing import Callable, Optional
 
-from agents import allgemeinmedic, architect, fueling, head_coach, medic, periodizer, weather
+from agents import allgemeinmedic, architect, architect_bike, fueling, head_coach, medic, periodizer, weather
 from agents.base import HAIKU
 from nutrition import nutrition_for_duration
 
@@ -46,6 +46,12 @@ _SPORT_MAP = {
     "bike": "Rad", "rad": "Rad", "cycl": "Rad", "zwift": "Rad",
     "run": "Laufen", "lauf": "Laufen",
     "strength": "Kraft", "kraft": "Kraft",
+}
+
+# Sport-Agenten für Lauf/Rad/Schwimm (agents/architect_run, _bike, _swim);
+# Kraft/Sonstiges fallen auf den generischen agents/architect zurück.
+_ARCHITECT_BY_SPORT = {
+    "Rad": architect_bike.run,
 }
 
 
@@ -80,9 +86,11 @@ async def _baue_einheit(*, entscheidung: dict, workout: Optional[dict], athlete:
     beschreibung, tp_struktur, distanz_m = orig_desc, None, None
 
     if badge == "MOD":
-        # Nur hier läuft der Architekt.
+        # Nur hier läuft der Architekt. Lauf/Rad/Schwimm haben eigene
+        # Disziplin-Agenten, alles andere (Kraft/Sonstiges) den Fallback.
+        architekt_fn = _ARCHITECT_BY_SPORT.get(sport, architect.run)
         gebaut = await asyncio.to_thread(
-            architect.run, athlete=athlete, workout=workout,
+            architekt_fn, athlete=athlete, workout=workout,
             auftrag={"begruendung": entscheidung.get("begruendung", ""),
                      "anpassung": entscheidung.get("anpassung", {})},
             wetter_zeile=wetter_zeile, sport=sport, model=model,

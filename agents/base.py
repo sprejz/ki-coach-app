@@ -47,19 +47,34 @@ class AgentError(RuntimeError):
     """Ein Agent konnte kein verwertbares Ergebnis liefern."""
 
 
-def load_prompt(name: str, lang: Optional[str] = None) -> str:
-    """Lädt prompts/<lang>/<name>.md. Fällt auf Deutsch zurück."""
+def load_prompt(name: str, lang: Optional[str] = None, path: Optional[Path] = None) -> str:
+    """Lädt einen Prompt.
+
+    Ohne `path`: prompts/<lang>/<name>.md, mit Fallback auf Deutsch (Standardfall).
+    Mit `path`: liest direkt von dort — für Agenten, die ihren Prompt im eigenen
+    Ordner statt zentral unter prompts/ halten (z.B. die Architekt-Disziplin-Agenten).
+    """
+    if path is not None:
+        cache_key = str(path)
+        if cache_key in _prompt_cache:
+            return _prompt_cache[cache_key]
+        if not path.exists():
+            raise AgentError(f"Prompt nicht gefunden: {path}")
+        text = path.read_text(encoding="utf-8").strip()
+        _prompt_cache[cache_key] = text
+        return text
+
     lang = lang or os.environ.get("APP_LANG", "de")
-    key = f"{lang}/{name}"
-    if key in _prompt_cache:
-        return _prompt_cache[key]
-    path = PROMPT_DIR / lang / f"{name}.md"
-    if not path.exists():
-        path = PROMPT_DIR / "de" / f"{name}.md"
-    if not path.exists():
+    cache_key = f"{lang}/{name}"
+    if cache_key in _prompt_cache:
+        return _prompt_cache[cache_key]
+    p = PROMPT_DIR / lang / f"{name}.md"
+    if not p.exists():
+        p = PROMPT_DIR / "de" / f"{name}.md"
+    if not p.exists():
         raise AgentError(f"Prompt nicht gefunden: {name} ({lang})")
-    text = path.read_text(encoding="utf-8").strip()
-    _prompt_cache[key] = text
+    text = p.read_text(encoding="utf-8").strip()
+    _prompt_cache[cache_key] = text
     return text
 
 
@@ -163,3 +178,117 @@ def call_agent_text(
                 resp.usage.input_tokens, resp.usage.output_tokens,
                 " (abgeschnitten)" if resp.stop_reason == "max_tokens" else "")
     return text
+
+
+# Architekt-Schema + Eingabebau leben hier statt in agents/architect, weil sie
+# ab v2.7.12 von vier Modulen genutzt werden (generischer Fallback für
+# Kraft/Sonstiges + je ein Disziplin-Agent für Lauf/Rad/Schwimm) — ohne diese
+# gemeinsame Stelle müssten alle vier dasselbe ~80-Zeilen-Schema pflegen.
+
+# Identisch zur Struktur, die tp_create_workout erwartet. Bewusst nicht rekursiv:
+# ein Wiederholungsblock enthält nur Einzelschritte.
+_ARCHITECT_STEP = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"},
+        "duration_seconds": {"type": "integer"},
+        "intensity_min": {"type": "integer", "description": "Prozent der Schwelle"},
+        "intensity_max": {"type": "integer", "description": "Prozent der Schwelle"},
+        "intensityClass": {"type": "string", "enum": ["warmUp", "active", "rest", "coolDown"]},
+    },
+    "required": ["name", "duration_seconds", "intensity_min", "intensity_max", "intensityClass"],
+    "additionalProperties": False,
+}
+
+_ARCHITECT_REPETITION = {
+    "type": "object",
+    "properties": {
+        "type": {"type": "string", "const": "repetition"},
+        "reps": {"type": "integer"},
+        "steps": {"type": "array", "items": _ARCHITECT_STEP},
+    },
+    "required": ["type", "reps", "steps"],
+    "additionalProperties": False,
+}
+
+ARCHITECT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "beschreibung": {
+            "type": "string",
+            "description": "Der vollständige Text für das TrainingPeaks-Beschreibungsfeld.",
+        },
+        "dauer_min": {
+            "type": "integer",
+            "description": "Tatsächliche Dauer der ausformulierten Einheit, mindestens 20.",
+        },
+        "tp_struktur": {
+            "anyOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "steps": {"type": "array", "items": {"anyOf": [_ARCHITECT_STEP, _ARCHITECT_REPETITION]}},
+                        "primaryIntensityMetric": {
+                            "type": "string",
+                            "enum": ["percentOfFtp", "percentOfThresholdPace"],
+                        },
+                    },
+                    "required": ["steps", "primaryIntensityMetric"],
+                    "additionalProperties": False,
+                },
+                {"type": "null"},
+            ],
+            "description": "Nur bei echten Intervallblöcken, sonst null.",
+        },
+        "distanz_m": {
+            "anyOf": [{"type": "integer"}, {"type": "null"}],
+            "description": "Gesamtdistanz in Metern, nur bei Schwimmeinheiten.",
+        },
+    },
+    "required": ["beschreibung", "dauer_min", "tp_struktur", "distanz_m"],
+    "additionalProperties": False,
+}
+
+
+def build_architect_input(*, athlete: dict, workout: dict, auftrag: dict, wetter_zeile: str = "") -> str:
+    lines = ["## Auftrag des Chefcoachs"]
+    lines.append(f"- Grund der Anpassung: {auftrag.get('begruendung', '—')}")
+    a = auftrag.get("anpassung", {})
+    if a.get("dauer_min"):
+        lines.append(f"- Zieldauer: {a['dauer_min']} min")
+    if a.get("zone"):
+        lines.append(f"- Zielzone/Intensität: {a['zone']}")
+    if a.get("kein_tempo"):
+        lines.append("- Kein Tempo: keine Intervalle, keine Schwellenarbeit")
+    if a.get("indoor"):
+        lines.append("- Nach Indoor verlegen (Zwift/Laufband/Hallenbad)")
+    if a.get("sportwechsel"):
+        lines.append(f"- Sportart wechseln zu: {a['sportwechsel']}")
+    if a.get("hinweis"):
+        lines.append(f"- Zusatz: {a['hinweis']}")
+
+    lines.append("\n## Ursprüngliche Einheit aus TrainingPeaks")
+    lines.append(f"- Sportart: {workout.get('sport', '?')}")
+    lines.append(f"- Titel: {workout.get('title', '')}")
+    if workout.get("duration_min"):
+        lines.append(f"- Geplante Dauer: {workout['duration_min']} min")
+    if workout.get("tss"):
+        lines.append(f"- Geplanter TSS: {workout['tss']}")
+    desc = (workout.get("description") or "").strip()
+    if desc:
+        lines.append("- Original-Beschreibung (das ist deine Vorlage):")
+        lines.append(f"```\n{desc}\n```")
+    else:
+        lines.append("- Original-Beschreibung: LEER — du baust eine vollständige Struktur.")
+
+    lines.append("\n## Schwellenwerte des Athleten")
+    lines.append(f"- FTP Rad: {athlete.get('ftp_watt', '?')} W")
+    lines.append(f"- Laufschwelle: {athlete.get('run_threshold_pace', '?')} /km")
+    lines.append(f"- CSS Schwimmen: {athlete.get('css_per_100m', '?')} /100m")
+    lines.append(f"- Schwellen-HF Rad: {athlete.get('threshold_hr_bike', '?')} bpm")
+
+    if wetter_zeile:
+        lines.append(f"\n## Wetter\n{wetter_zeile}")
+
+    lines.append("\nFormuliere diese eine Einheit aus.")
+    return "\n".join(lines)
