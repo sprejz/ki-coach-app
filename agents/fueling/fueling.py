@@ -8,7 +8,7 @@ Gating in orchestrator._baue_einheit.
 import logging
 from typing import Optional
 
-from .base import HAIKU, call_agent, load_prompt
+from ..base import HAIKU, call_agent, load_prompt
 
 logger = logging.getLogger(__name__)
 

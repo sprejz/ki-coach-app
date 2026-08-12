@@ -7,7 +7,7 @@ Athlet sah ein Urteil, das nie eines war. Mit erzwungenem Schema unmöglich.
 import logging
 from typing import Optional
 
-from .base import HAIKU, call_agent, load_prompt
+from ..base import HAIKU, call_agent, load_prompt
 
 logger = logging.getLogger(__name__)
 
