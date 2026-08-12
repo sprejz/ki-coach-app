@@ -5,11 +5,14 @@ Parse-Fehler stillschweigend zu {"bewertung": "ok", "urteil": <Rohtext>} — der
 Athlet sah ein Urteil, das nie eines war. Mit erzwungenem Schema unmöglich.
 """
 import logging
+from pathlib import Path
 from typing import Optional
 
 from ..base import HAIKU, call_agent, load_prompt
 
 logger = logging.getLogger(__name__)
+
+_PROMPT_PATH = Path(__file__).parent / "analyst.md"
 
 SCHEMA = {
     "type": "object",
@@ -248,7 +251,7 @@ def build_input(*, athlete: dict, sport: str, titel: str, datum: str,
 def run(*, athlete: dict, a_race=None, sport: str = "", titel: str = "", datum: str = "",
         fit=None, tp=None, wetter=None, load=None, ernaehrung_basis=None, model: str = HAIKU) -> dict:
     return call_agent(
-        prompt=load_prompt("analyst"),
+        prompt=load_prompt("analyst", path=_PROMPT_PATH),
         schema=SCHEMA,
         user=build_input(athlete=athlete, a_race=a_race, sport=sport, titel=titel,
                          datum=datum, fit=fit, tp=tp, wetter=wetter, load=load,

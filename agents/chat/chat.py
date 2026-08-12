@@ -5,11 +5,14 @@ an ein weiterverarbeitendes System. Der Kontext wird deterministisch gebaut —
 was nicht drinsteht, hat der Coach nicht, und das sagt der Prompt ihm auch.
 """
 import logging
+from pathlib import Path
 from typing import Optional
 
 from ..base import HAIKU, call_agent_text, load_prompt
 
 logger = logging.getLogger(__name__)
+
+_PROMPT_PATH = Path(__file__).parent / "chat.md"
 
 MAX_HISTORIE = 10
 
@@ -91,7 +94,7 @@ def build_context(*, athlete: dict, a_race: Optional[dict], tage_bis_a: Optional
 
 def run(*, nachricht: str, historie: Optional[list] = None, kontext: str = "",
         model: str = HAIKU, max_tokens: int = 1500) -> str:
-    system = load_prompt("chat")
+    system = load_prompt("chat", path=_PROMPT_PATH)
     if kontext:
         system = f"{system}\n\n---\n\n{kontext}"
 

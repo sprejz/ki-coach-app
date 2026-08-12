@@ -6,11 +6,14 @@ nutrition.py::nutrition_for_duration(). Läuft NICHT bei jedem Check, siehe
 Gating in orchestrator._baue_einheit.
 """
 import logging
+from pathlib import Path
 from typing import Optional
 
 from ..base import HAIKU, call_agent, load_prompt
 
 logger = logging.getLogger(__name__)
+
+_PROMPT_PATH = Path(__file__).parent / "fueling.md"
 
 SCHEMA = {
     "type": "object",
@@ -62,7 +65,7 @@ def run(*, basis: str, sport: str = "", dauer_min: Optional[int] = None, badge: 
         chronische_befunde: Optional[str] = None, ist_renntag: bool = False,
         rennname: Optional[str] = None, model: str = HAIKU) -> dict:
     return call_agent(
-        prompt=load_prompt("fueling"),
+        prompt=load_prompt("fueling", path=_PROMPT_PATH),
         schema=SCHEMA,
         user=build_input(basis=basis, sport=sport, dauer_min=dauer_min, badge=badge,
                          is_hot=is_hot, is_cold=is_cold, temp_max=temp_max,

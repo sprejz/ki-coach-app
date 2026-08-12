@@ -1,10 +1,13 @@
 """Allgemeinmediziner — beurteilt Krankheit und Ganzkörper-Befunde, überschreibt alles."""
 import logging
+from pathlib import Path
 from typing import Optional
 
 from ..base import HAIKU, call_agent, load_prompt
 
 logger = logging.getLogger(__name__)
+
+_PROMPT_PATH = Path(__file__).parent / "allgemeinmedic.md"
 
 URTEILE = ["frei", "reduziert", "kein_tempo", "stop"]
 
@@ -118,7 +121,7 @@ def run(
     model: str = HAIKU,
 ) -> dict:
     return call_agent(
-        prompt=load_prompt("allgemeinmedic"),
+        prompt=load_prompt("allgemeinmedic", path=_PROMPT_PATH),
         schema=SCHEMA,
         user=build_input(
             koerper=koerper, sportarten=sportarten,

@@ -433,28 +433,19 @@ pruefe(strava.match_activity(KANDIDATEN_ZWEI_RADFAHRTEN, "Bike", "", dauer_hint_
 pruefe(strava.match_activity(KANDIDATEN_ZWEI_RADFAHRTEN, "Bike") is not None,
        "Ganz ohne Zeit- oder Dauerhinweis fällt es auf die längste Aktivität zurück, statt leer zu laufen")
 
-print("\n=== Workout-Architekt: sportspezifische Prompts ===")
-kern_prompt = architect.load_prompt("architect")
-lauf_prompt = architect._prompt_fuer_sport("Laufen")
-rad_prompt = architect._prompt_fuer_sport("Rad")
-schwimm_prompt = architect._prompt_fuer_sport("Schwimmen")
-kraft_prompt = architect._prompt_fuer_sport("Kraft")
-
-pruefe(kern_prompt in lauf_prompt, "Lauf-Prompt enthält weiterhin den generischen Kern")
-pruefe("Lauf-spezifisch" in lauf_prompt and "Kadenz" in lauf_prompt, "Lauf-Prompt hat den Lauf-Zusatz")
-pruefe("Rad-spezifisch" in rad_prompt and "rpm" in rad_prompt, "Rad-Prompt hat den Rad-Zusatz")
-pruefe("Schwimm-spezifisch" in schwimm_prompt and "CSS" in schwimm_prompt, "Schwimm-Prompt hat den Schwimm-Zusatz")
-pruefe(kraft_prompt == kern_prompt, "Kraft/Sonstiges ohne Spezialisten bekommen nur den Kern-Prompt")
-pruefe("Lauf-spezifisch" not in rad_prompt and "Rad-spezifisch" not in lauf_prompt,
-       "Sportarten bekommen nicht versehentlich den falschen Zusatz")
-
-print("\n=== Workout-Architekt: eigene Disziplin-Agenten (v2.7.12) ===")
-# Lauf/Rad/Schwimm haben seit v2.7.12 je ein eigenes Modul (agents/architect_run,
-# _bike, _swim) statt _prompt_fuer_sport() zur Laufzeit zu verketten. SCHEMA und
-# build_input bleiben dabei bewusst dasselbe Objekt wie beim generischen
-# Fallback (agents/base.py) — sonst würde jede künftige Schema-Änderung an drei
-# weiteren Stellen nachgezogen werden müssen.
+print("\n=== Workout-Architekt: eigener Prompt je Modul (v2.7.13) ===")
+# Jeder Agent hat seit v2.7.13 seinen Prompt als eigene .md-Datei im eigenen
+# Ordner statt zentral unter prompts/de/ — der Architekt lädt _prompt_fuer_sport()
+# nicht mehr zur Laufzeit zusammen (die alte Kern+Zusatz-Verkettung war seit
+# v2.7.12 ohnehin toter Code, weil der Orchestrator Laufen/Rad/Schwimmen längst
+# an die eigenen Disziplin-Agenten dispatcht).
 _WURZEL = Path(__file__).parent.parent
+kraft_prompt = architect.load_prompt("architect", path=architect._PROMPT_PATH)
+pruefe("GRUNDREGEL" in kraft_prompt and "TP-STRUKTUR" in kraft_prompt,
+       "architect.md (Kraft/Sonstiges-Fallback) enthält den generischen Kern-Prompt")
+pruefe(not hasattr(architect, "_prompt_fuer_sport"),
+       "Der tote Sport-Verkettungscode (_prompt_fuer_sport) ist entfernt, kein Wiederaufleben")
+
 for _mod, _ordner, _zusatz_marker, _zusatz_beleg in (
     (architect_run, "run", "Lauf-spezifisch", "Kadenz"),
     (architect_bike, "bike", "Rad-spezifisch", "rpm"),
@@ -474,6 +465,24 @@ for _mod, _ordner, _zusatz_marker, _zusatz_beleg in (
     _geladen = _mod.load_prompt(_mod.SPORT, path=_prompt_datei)
     pruefe(_geladen == _prompt_text.strip(),
            f"architect_{_ordner}.load_prompt(path=...) liefert exakt den Dateiinhalt")
+
+print("\n=== Alle Agenten laden ihren Prompt aus dem eigenen Ordner (v2.7.13) ===")
+for _agentmodul, _ordner, _dateiname, _marker in (
+    (medic, "medic", "medic.md", None),
+    (allgemeinmedic, "allgemeinmedic", "allgemeinmedic.md", None),
+    (weather, "weather", "weather.md", None),
+    (periodizer, "periodizer", "periodizer.md", None),
+    (head_coach, "head_coach", "head_coach.md", None),
+    (chat, "chat", "chat.md", None),
+    (fueling, "fueling", "fueling.md", None),
+    (analyst, "analyst", "analyst.md", None),
+):
+    _erwartete_datei = _WURZEL / "agents" / _ordner / _dateiname
+    pruefe(_erwartete_datei.exists(), f"{_ordner}/{_dateiname} liegt im eigenen Agent-Ordner")
+    pruefe(_agentmodul._PROMPT_PATH == _erwartete_datei,
+           f"{_ordner}._PROMPT_PATH zeigt auf die eigene .md-Datei")
+pruefe(not (_WURZEL / "prompts").exists(),
+       "prompts/de/ existiert nicht mehr — alle Prompts sind in ihre Agent-Ordner umgezogen")
 
 pruefe(orchestrator._ARCHITECT_BY_SPORT.get("Laufen") is architect_run.run,
        "Orchestrator dispatcht 'Laufen' an architect_run")

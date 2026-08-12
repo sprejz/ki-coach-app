@@ -5,11 +5,14 @@ dem Chefcoach den Rahmen, den er sonst nicht hat: Phase, Rolle des Tages,
 Spielraum. Die Kennzahlen selbst kommen deterministisch aus training_load.py.
 """
 import logging
+from pathlib import Path
 from typing import Optional
 
 from ..base import HAIKU, call_agent, load_prompt
 
 logger = logging.getLogger(__name__)
+
+_PROMPT_PATH = Path(__file__).parent / "periodizer.md"
 
 PHASEN = ["grundlage", "aufbau", "spitze", "taper", "wettkampfwoche", "erholung"]
 ROLLEN = ["schluesseleinheit", "unterstuetzung", "erholung", "ruhetag", "wettkampf"]
@@ -105,7 +108,7 @@ def build_input(*, load: dict, woche: list, a_race: Optional[dict],
 def run(*, load: dict, woche: list, a_race=None, naechste_rennen=None,
         tage_bis_a=None, model: str = HAIKU) -> dict:
     return call_agent(
-        prompt=load_prompt("periodizer"),
+        prompt=load_prompt("periodizer", path=_PROMPT_PATH),
         schema=SCHEMA,
         user=build_input(load=load, woche=woche, a_race=a_race,
                          naechste_rennen=naechste_rennen, tage_bis_a=tage_bis_a),

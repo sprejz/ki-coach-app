@@ -16,8 +16,7 @@ Backend: Python/FastAPI. Frontend: eine serverseitig gerenderte HTML-Datei (Jinj
 ki-coach-app/
 ├── app.py               FastAPI Backend (Endpoints, Caching, Job-Queue)
 ├── orchestrator.py       Kontrollfluss der Agent-Pipeline
-├── agents/               Ein Modul je Spezialist (Mediziner, Wetter, Chefcoach, Architekt, Periodisierer, Analyst, Chat, Ernährungsberater, ...)
-├── prompts/de/           Statische Markdown-Prompts, die von den Agents geladen werden
+├── agents/               Ein Ordner je Spezialist (Mediziner, Wetter, Chefcoach, Architekt, Periodisierer, Analyst, Chat, Ernährungsberater, ...), Prompt-.md direkt neben dem Code
 ├── translations.py       Alle UI-Texte und Claude-Prompts (de/en), inkl. Monolith-Fallback-Prompt
 ├── templates/index.html  Frontend, 7 Tabs, iPhone-optimiert
 ├── training_load.py      CTL/ATL/TSB aus TSS-Historie (deterministisch)

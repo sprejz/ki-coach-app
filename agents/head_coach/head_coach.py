@@ -7,11 +7,14 @@ daraus zusammen.
 """
 import json
 import logging
+from pathlib import Path
 from typing import Optional
 
 from ..base import HAIKU, call_agent, load_prompt
 
 logger = logging.getLogger(__name__)
+
+_PROMPT_PATH = Path(__file__).parent / "head_coach.md"
 
 _ANPASSUNG = {
     "type": "object",
@@ -157,7 +160,7 @@ def build_input(*, athlete: dict, a_race, medic: dict, wetter: dict, allgemein: 
 def run(*, athlete: dict, a_race, medic: dict, wetter: dict, allgemein: dict, tp_workouts: list,
         tag: str, block: Optional[dict] = None, model: str = HAIKU) -> dict:
     return call_agent(
-        prompt=load_prompt("head_coach"),
+        prompt=load_prompt("head_coach", path=_PROMPT_PATH),
         schema=SCHEMA,
         user=build_input(athlete=athlete, a_race=a_race, medic=medic, wetter=wetter,
                          allgemein=allgemein, tp_workouts=tp_workouts, tag=tag, block=block),

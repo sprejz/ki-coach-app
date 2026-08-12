@@ -1,10 +1,13 @@
 """Wetter-Taktiker — übersetzt die Wetterlage in Konsequenzen pro Sportart."""
 import logging
+from pathlib import Path
 from typing import Optional
 
 from ..base import HAIKU, call_agent, load_prompt
 
 logger = logging.getLogger(__name__)
+
+_PROMPT_PATH = Path(__file__).parent / "weather.md"
 
 EMPFEHLUNGEN = ["outdoor_ok", "zeitfenster", "indoor_wechsel", "gestrichen"]
 
@@ -87,7 +90,7 @@ def build_input(*, weather: dict, sportarten: list, titel: Optional[list] = None
 def run(*, weather: dict, sportarten: list, titel=None, swim_min_c: int = 15,
         wasser_temp=None, tag: str = "morgen", model: str = HAIKU) -> dict:
     return call_agent(
-        prompt=load_prompt("weather"),
+        prompt=load_prompt("weather", path=_PROMPT_PATH),
         schema=SCHEMA,
         user=build_input(weather=weather, sportarten=sportarten, titel=titel,
                          swim_min_c=swim_min_c, wasser_temp=wasser_temp, tag=tag),

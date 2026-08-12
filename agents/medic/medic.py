@@ -1,10 +1,13 @@
 """Sportmediziner — beurteilt ausschließlich Körpersignale."""
 import logging
+from pathlib import Path
 from typing import Optional
 
 from ..base import HAIKU, call_agent, load_prompt
 
 logger = logging.getLogger(__name__)
+
+_PROMPT_PATH = Path(__file__).parent / "medic.md"
 
 URTEILE = ["frei", "reduziert", "kein_tempo", "stop"]
 
@@ -94,7 +97,7 @@ def build_input(
 
 def run(*, koerper: dict, sportarten: list, sleep=None, baseline=None, model: str = HAIKU) -> dict:
     return call_agent(
-        prompt=load_prompt("medic"),
+        prompt=load_prompt("medic", path=_PROMPT_PATH),
         schema=SCHEMA,
         user=build_input(koerper=koerper, sportarten=sportarten, sleep=sleep, baseline=baseline),
         model=model,

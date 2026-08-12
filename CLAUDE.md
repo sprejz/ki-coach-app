@@ -1,4 +1,4 @@
-# KI Coach App — v2.7.12
+# KI Coach App — v2.7.13
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -40,7 +40,7 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.7.12)
+├── CLAUDE.md            ← diese Datei (v2.7.13)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
 ├── coach_mcp.py         ← MCP-Server für Claude Desktop + Code (stdio lokal / HTTP remote)
 ├── requirements-mcp.txt ← nur für coach_mcp.py, eigenes venv (.venv-mcp)
@@ -49,8 +49,7 @@ ki-coach-app/
 ├── nutrition.py         ← Ernährungstabelle (deterministisch, von beiden Pfaden genutzt)
 ├── training_load.py     ← CTL/ATL/TSB aus der TSS-Historie (deterministisch)
 ├── strava.py            ← Strava-Auto-Match für die Analyse (OAuth direkt per httpx, kein MCP)
-├── agents/              ← base, medic, allgemeinmedic, weather, periodizer, head_coach, architect, architect_run, architect_bike, architect_swim, fueling, analyst, chat (je eigener Ordner, seit v2.7.12)
-├── prompts/de/          ← statische Agent-Prompts (meist einer je Agent; architect hat zusätzlich sportspezifische Zusätze)
+├── agents/              ← base, medic, allgemeinmedic, weather, periodizer, head_coach, architect, architect_run, architect_bike, architect_swim, fueling, analyst, chat (je eigener Ordner, seit v2.7.12; Prompt-.md direkt daneben statt zentral, seit v2.7.13)
 ├── tests/               ← fixtures.py, test_offline.py, test_wiring.py, test_live.py
 ├── translations.py      ← UI-Texte + Monolith-Prompts (de/en)
 ├── templates/
@@ -376,6 +375,14 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.7.13 — Jeder Agent bekommt seinen Prompt direkt neben den Code
+Bisher hatten nur die drei Architekt-Disziplin-Agenten (v2.7.12) ihre Prompt-`.md`-Datei im eigenen Ordner — die übrigen neun Agenten luden weiterhin zentral aus `prompts/de/`. Für Konsistenz jetzt bei allen gleich.
+
+- **`agents/medic/medic.md`, `allgemeinmedic/`, `weather/`, `periodizer/`, `head_coach/`, `chat/`, `fueling/`, `analyst/`, `architect/`** — jeweils eigene `.md` neben dem Code, geladen über `load_prompt(name, path=_PROMPT_PATH)` statt über den zentralen `PROMPT_DIR`-Lookup in `agents/base.py`. Reine Verschiebung, keine inhaltliche Prompt-Änderung. `prompts/` existiert danach nicht mehr im Repo.
+- **Dead Code entfernt:** `agents/architect/architect.py` hatte noch `_prompt_fuer_sport()` + `_SPORT_PROMPT_SCHLUESSEL`, die zur Laufzeit einen sportspezifischen Zusatz aus `prompts/de/architect_run.md`/`_bike.md`/`_swim.md` an den Kern-Prompt anhängten — seit dem `_ARCHITECT_BY_SPORT`-Dispatch in v2.7.12 lief das für Laufen/Rad/Schwimmen nie mehr, weil der Orchestrator diese Sportarten direkt an `architect_run`/`_bike`/`_swim` schickt. Die drei Fragment-Dateien waren zudem byte-identische Duplikate der längst konsolidierten `agents/architect_run/architect_run.md` etc. Beides entfernt; `architect.run()` lädt jetzt nur noch seinen eigenen Kern-Prompt für den Kraft/Sonstiges-Fallback.
+- `load_prompt()`s lang-basierter de→en-Fallback (`agents/base.py`) bleibt als Mechanismus bestehen, wird aber von keinem Agenten mehr genutzt — `prompts/en/` gab es ohnehin nie, APP_LANG=en lieferte für Agent-Prompts schon vorher überall nur Deutsch.
+- Tests (`test_offline.py`) geprüft: jeder Agent lädt aus der eigenen Datei, `prompts/` ist weg, der tote Sport-Code taucht nicht wieder auf.
 
 ### v2.7.12 — Architekt in drei eigene Disziplin-Agenten aufgeteilt
 Der sportspezifische Zusatz-Prompt aus v2.7.10 wurde zur Laufzeit an den Kern-Prompt des generischen Architekten (`agents/architect.py`) verkettet — ein Modul, drei Prompt-Fragmente. Jetzt bekommen Laufen/Rad/Schwimmen je einen eigenen Agenten mit eigenem, zusammenhängendem Prompt statt Kern+Zusatz zur Laufzeit zusammenzusetzen.
