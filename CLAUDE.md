@@ -1,4 +1,4 @@
-# KI Coach App — v2.7.12
+# KI Coach App — v2.7.13
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -40,7 +40,7 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.7.12)
+├── CLAUDE.md            ← diese Datei (v2.7.13)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
 ├── coach_mcp.py         ← MCP-Server für Claude Desktop + Code (stdio lokal / HTTP remote)
 ├── requirements-mcp.txt ← nur für coach_mcp.py, eigenes venv (.venv-mcp)
@@ -377,6 +377,24 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
 
+### v2.7.13 — TP-Feldnamen in `app.py` korrigiert, Periodisierer sieht das Absolvierte
+Fortsetzung des Nebenbefunds aus v2.7.9: dort war `agents/analyst.py` auf die echten MCP-Feldnamen umgestellt worden, in `app.py` und `training_load.py` stand derselbe Irrtum aber weiter drin. **Der MCP-Server normalisiert die TP-Antwort auf snake_case, mit Dauern in Stunden und den Kennzahlen der Detail-Antwort unter `metrics`** — die camelCase-Namen der TP-eigenen API (`totalTimePlanned`, `tssPlanned`, `workoutTypeValueId`, `workoutDay`, …) gibt es in der Antwort nicht. Live gegen den MCP abgenommen; **`tp_get_events` ist die Ausnahme und liefert wirklich camelCase** (`eventDate`, `atpPriority`) — die Event-Pfade waren also korrekt.
+
+Was dadurch faktisch nie funktionierte:
+- **`_map_tp_workout`** — `duration_min` war bei **jedem** Workout `None` und `tss` meist auch. Folge: keine Dauer im Chefcoach-Prompt, keine Dauer für `nutrition_for_duration()` (die Ernährungstabelle fiel immer auf die kürzeste Regel), keine Basis für die MOD-Skalierung in `tp/apply`. Die zweite, ebenfalls falsche Kopie desselben Mappings in `/api/tp/workouts/history` ist entfallen — der Pfad nutzt jetzt `_map_tp_workout(w, prefer="actual")`.
+- **`training_load.py`** — `tss_pro_tag()` las `tssActual`/`tssPlanned` und fand nichts, also **CTL/ATL/TSB = 0** und der Periodisierer plante gegen leere Kennzahlen.
+- **`_build_analysis_prompt`** (Monolith-Analyse) — außer der Beschreibung kam keine einzige Zahl im Prompt an. `has_actual` prüft jetzt `avg_hr`/`avg_power`/`avg_cadence`; `duration_actual`/`tss_actual` sind auch bei reinen Planeinheiten befüllt und taugen nicht als Nachweis.
+- **`dauer_hint_min`** für das Strava-Matching war immer `None` → das Matching fiel bei zwei Einheiten am selben Tag stets auf „längste Aktivität" zurück, also genau in den Fall, für den v2.7.9 den Hinweis eingeführt hatte.
+- **`_enrich_workouts`/Backfill** — `subtype_id` kommt aus `workout_type` (nur die Detail-Antwort hat es), Startzeiten liefert der MCP gar nicht: `start_time` bleibt `""` und die Wetter-Fensterlogik fällt wie vorgesehen auf den Tag zurück.
+
+Dazu drei inhaltliche Punkte am Periodisierer, ausgelöst von einem Fehlurteil im Live-Betrieb („neun Tage Belastungsphase" zwei Tage nach dem B-Rennen):
+- **`PMC_TAGE` = 89** — das PMC-Fenster iterierte 90 Tage, geholt wurden 42. Die fehlenden Tage sind von echten Ruhetagen nicht zu unterscheiden und zählen als TSS 0, was CTL systematisch drückt (im Test: 59 statt 89). Fenster und Historie kommen jetzt aus derselben Konstante. 89 statt 90 wegen des TP-Limits.
+- **`letzte_einheiten()`** — die letzten 10 Tage mit **Titel**, Dauer und TSS, lückenlos inklusive ausdrücklich ausgewiesener Ruhetage. Ein Wettkampf, ein Test und ein zäher Grundlagentag können dieselbe Tagessumme haben; als reine TSS-Zahl sind sie nicht unterscheidbar. Der Prompt weist entsprechend an, Ruhetage **abzuzählen statt zu schätzen** und jede Aussage über den zurückliegenden Block zu belegen.
+- **`_letztes_rennen()`** — das jüngste vergangene Rennen (max. 45 Tage) mit Abstand in Tagen. `_fetch_tp_races` wirft alles Vergangene weg, für den Renn-Strip richtig, für den Periodisierer fatal. Der Prompt ordnet den Block danach als Erholung ein, in der ein hoher TSB beabsichtigt ist und kein Formverlust.
+- **Wochenplan bei kaltem Cache** — `_fetch_training_load` holt die 7 Tage direkt, wenn der Prefetch beim Serverstart noch läuft. Sonst fror ein leerer Wochenplan für die volle Cache-Dauer (6 h) ein und der Periodisierer plante gegen „nichts geplant".
+
+Tests: `test_offline.py` prüft das kurze-Historie-Problem und `letzte_einheiten` (Ruhetage, Titel, Stunden→Minuten); die Fixtures nutzen jetzt die echten MCP-Feldnamen — die alte Fassung trug den Bug mit statt ihn zu finden. `test_wiring.py` fährt Attrappen im echten Antwortschnitt durch `_map_tp_workout`, `_tp_dauer_min` und `_build_analysis_prompt` und prüft ausdrücklich, dass die alten camelCase-Namen **nichts** mehr liefern.
+
 ### v2.7.12 — Architekt in drei eigene Disziplin-Agenten aufgeteilt
 Der sportspezifische Zusatz-Prompt aus v2.7.10 wurde zur Laufzeit an den Kern-Prompt des generischen Architekten (`agents/architect.py`) verkettet — ein Modul, drei Prompt-Fragmente. Jetzt bekommen Laufen/Rad/Schwimmen je einen eigenen Agenten mit eigenem, zusammenhängendem Prompt statt Kern+Zusatz zur Laufzeit zusammenzusetzen.
 
@@ -529,7 +547,7 @@ Die letzten beiden Claude-Aufrufe wandern in die Architektur. Sechs Agents, alle
 ### v2.7.0 — Periodisierer (Stufe 4)
 Die App denkt erstmals in Wochen statt nur in Tagen.
 
-- **`training_load.py`** rechnet CTL/ATL/TSB aus der TSS-Historie (42 Tage `completed` aus TP). Der MCP liefert kein fertiges PMC, aber `tssActual` pro Workout reicht für die Standardformeln. Deterministisch — ein Modell könnte hier nur Zahlen halluzinieren. Zusätzlich: Ramp Rate, 7d/28d-TSS, Wochenstruktur, Tage bis A-Rennen.
+- **`training_load.py`** rechnet CTL/ATL/TSB aus der TSS-Historie (`completed` aus TP; 42 Tage, seit v2.7.13 `PMC_TAGE` = 89). Der MCP liefert kein fertiges PMC, aber der TSS-Ist-Wert pro Workout reicht für die Standardformeln. Deterministisch — ein Modell könnte hier nur Zahlen halluzinieren. Zusätzlich: Ramp Rate, 7d/28d-TSS, Wochenstruktur, Tage bis A-Rennen.
 - **Periodisierer** (`agents/periodizer.py`) — liest Kennzahlen, Wochenplan und Renndatum und liefert `phase` (grundlage/aufbau/spitze/taper/wettkampfwoche/erholung), `heute_rolle` (schluesseleinheit/unterstuetzung/erholung/ruhetag/wettkampf), `belastungsurteil`, `spielraum` und optional eine `warnung`. Läuft **parallel** zu Mediziner und Wetter.
 - **Chefcoach** wägt damit anders ab: eine `schluesseleinheit` wird bei nur `reduziert` gerettet statt gestrichen, eine `unterstuetzung` darf großzügig fallen, bei `zuruecknehmen` greift er das auf, auch wenn Körper und Wetter unauffällig sind. Rangfolge bleibt: **Mediziner schlägt Periodisierer** — Form lässt sich nachholen, eine Achillessehne nicht.
 - **Ohne TP-Daten läuft alles weiter** — der Periodisierer wird dann gar nicht erst aufgerufen und der Chefcoach bekommt `block=None` statt erfundener Zahlen. Belastungsdaten sind 6 h gecacht.

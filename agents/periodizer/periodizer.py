@@ -70,6 +70,25 @@ def build_input(*, load: dict, woche: list, a_race: Optional[dict],
         for v in verlauf:
             lines.append(f"{v['datum']} | {v['tss']:.0f} | {v['ctl']} | {v['atl']} | {v['tsb']}")
 
+    # Titel statt bloßer TSS-Zahlen: ein Wettkampf, ein Test und ein zäher
+    # Grundlagentag können dieselbe Tagessumme haben und bedeuten für die
+    # Erholung etwas völlig anderes.
+    absolviert = load.get("letzte_einheiten") or []
+    if any(t.get("einheiten") for t in absolviert):
+        lines.append("\n## Tatsächlich absolviert (letzte Tage)")
+        for t in absolviert:
+            if not t["einheiten"]:
+                lines.append(f"- {t['datum']}: Ruhetag (0 TSS)")
+                continue
+            teile = ", ".join(
+                f"{e['sport']} „{e['titel']}“"
+                + (f" {e['dauer_min']}min" if e.get("dauer_min") else "")
+                + (f" {e['distanz_km']:.1f}km" if e.get("distanz_km") else "")
+                + (f" {e['tss']}TSS" if e.get("tss") else "")
+                for e in t["einheiten"]
+            )
+            lines.append(f"- {t['datum']}: {teile} (Σ {t['tss_summe']} TSS)")
+
     lines.append("\n## Kommende 7 Tage (Plan aus TrainingPeaks)")
     for tag in woche or []:
         marke = " ← HEUTE" if tag.get("ist_heute") else ""
@@ -85,6 +104,13 @@ def build_input(*, load: dict, woche: list, a_race: Optional[dict],
             lines.append(f"- {tag['wochentag']} {tag['datum']}: nichts geplant{marke}")
 
     lines.append("\n## Rennkalender")
+    letztes = load.get("letztes_rennen")
+    if letztes:
+        lines.append(
+            f"- **Letztes Rennen: {letztes.get('name')} ({letztes.get('priority')}) "
+            f"am {letztes.get('date')}, vor {letztes.get('tage_her')} Tagen** — "
+            "Erholungsbedarf danach berücksichtigen."
+        )
     if a_race:
         lines.append(
             f"- A-Rennen: {a_race.get('name')} am {a_race.get('date')}"

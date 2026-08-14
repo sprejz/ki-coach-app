@@ -20,7 +20,9 @@ from agents import (  # noqa: E402
 import orchestrator  # noqa: E402
 from orchestrator import _baue_einheit, normalize_sport  # noqa: E402
 from tests import fixtures as fx  # noqa: E402
-from training_load import compute_pmc, tage_bis, tss_pro_tag, wochenstruktur  # noqa: E402
+from training_load import (  # noqa: E402
+    PMC_TAGE, compute_pmc, letzte_einheiten, tage_bis, tss_pro_tag, wochenstruktur,
+)
 from translations import TRANSLATIONS  # noqa: E402
 import strava  # noqa: E402
 
@@ -80,14 +82,42 @@ leer = compute_pmc({}, bis=HEUTE)
 pruefe(leer["ctl"] == 0.0 and leer["tsb"] == 0.0, "Keine Daten → alle Werte 0, kein Absturz")
 pruefe(leer["tage_mit_daten"] == 0, "Keine Daten → tage_mit_daten = 0")
 
-roh = [{"workoutDay": "2026-07-24T00:00:00", "tssActual": 60, "tssPlanned": 999},
-       {"date": "2026-07-24", "tss": 40},
-       {"workoutDay": "2026-07-23", "tssActual": None, "tssPlanned": 50},
-       {"workoutDay": "", "tssActual": 100}]
+# Feldnamen wie der TP-MCP sie liefert: snake_case, Dauern in Stunden. Die
+# alte Fassung dieses Tests nutzte die camelCase-Namen der TP-eigenen API und
+# hat den Bug damit mitgetragen statt ihn zu finden (v2.7.13).
+roh = [{"date": "2026-07-24T00:00:00", "sport": "Run", "title": "Intervalle",
+        "tss_actual": 60, "tss": 60, "tss_planned": 999, "duration_actual": 1.5},
+       {"date": "2026-07-24", "sport": "Bike", "title": "Rollentraining", "tss": 40},
+       {"date": "2026-07-23", "sport": "Swim", "title": "Technik",
+        "tss_actual": None, "tss": None, "tss_planned": 50},
+       {"date": "", "tss_actual": 100}]
 pt = tss_pro_tag(roh)
 pruefe(pt.get("2026-07-24") == 100.0, "TSS wird pro Tag summiert (60 + 40)")
 pruefe(pt.get("2026-07-23") == 50.0, "Ohne Ist-Wert zählt der Planwert")
 pruefe("" not in pt and len(pt) == 2, "Einträge ohne Datum werden verworfen")
+
+# Das PMC-Fenster muss so lang sein wie die Historie, die der Aufrufer holt —
+# fehlende Tage sind von Ruhetagen nicht unterscheidbar und drücken CTL.
+voll = compute_pmc({(HEUTE - timedelta(days=i)).isoformat(): 70.0
+                    for i in range(PMC_TAGE + 1)}, bis=HEUTE)
+knapp = compute_pmc({(HEUTE - timedelta(days=i)).isoformat(): 70.0
+                     for i in range(42)}, bis=HEUTE)
+pruefe(voll["ctl"] - knapp["ctl"] > 15,
+       f"Zu kurze Historie unterschätzt CTL deutlich ({knapp['ctl']} statt {voll['ctl']}) — "
+       "deshalb muss _fetch_training_load PMC_TAGE Tage holen")
+pruefe("PMC_TAGE" in (Path(__file__).parent.parent / "app.py").read_text(encoding="utf-8"),
+       "app.py holt die Historie über PMC_TAGE, nicht über eine eigene Zahl")
+
+le = letzte_einheiten(roh, bis=date(2026, 7, 24), tage=3)
+pruefe([t["datum"] for t in le] == ["2026-07-22", "2026-07-23", "2026-07-24"],
+       "letzte_einheiten liefert lückenlos jeden Tag des Zeitraums")
+pruefe(le[0]["einheiten"] == [] and le[0]["tss_summe"] == 0,
+       "Ein Tag ohne Einheit ist als Ruhetag erkennbar (leere Liste, 0 TSS)")
+pruefe(le[2]["tss_summe"] == 100 and len(le[2]["einheiten"]) == 2,
+       "Beide Einheiten des 24.7. landen mit Summe 100 im Tag")
+pruefe(le[2]["einheiten"][0]["titel"] == "Intervalle"
+       and le[2]["einheiten"][0]["dauer_min"] == 90,
+       "Titel bleibt erhalten, Dauer wird von Stunden in Minuten umgerechnet")
 
 woche = wochenstruktur([{"_day": HEUTE.isoformat(), "sport": "Run", "title": "X", "tss": 75}],
                        ab=HEUTE)
@@ -229,6 +259,36 @@ pruefe("← HEUTE" in per_in, "Periodisierer erkennt, welcher Tag heute ist")
 pruefe("Lange Ausfahrt 4h" in per_in, "Periodisierer sieht die ganze Woche, nicht nur heute")
 pruefe("Tage mit Trainingsdaten im Zeitraum: 27" in per_in,
        "Periodisierer sieht die Datenlage (kann Belastbarkeit einschätzen)")
+
+# v2.7.13: Ohne die absolvierten Einheiten und das letzte Rennen ordnete der
+# Periodisierer einen Wettkampf als anonyme TSS-Zahl in einen Belastungsblock
+# ein ("neun Tage Belastungsphase" zwei Tage nach dem Rennen).
+per_nach_rennen = periodizer.build_input(
+    load={**fx.LOAD_UEBERLASTET,
+          "letzte_einheiten": [
+              {"datum": "2026-07-23", "einheiten": [], "tss_summe": 0},
+              {"datum": "2026-07-24", "tss_summe": 118, "einheiten": [
+                  {"sport": "Swim", "titel": "Open Water Swimming",
+                   "dauer_min": 39, "tss": 52, "distanz_km": 1.5},
+                  {"sport": "Bike", "titel": "Radfahren",
+                   "dauer_min": 63, "tss": 66, "distanz_km": 39.6}]},
+          ],
+          "letztes_rennen": {"name": "GEWOBA Bremen", "date": "2026-07-24",
+                             "priority": "B", "tage_her": 2}},
+    woche=fx.WOCHE_MIT_SCHLUESSELEINHEIT, a_race=fx.A_RACE_MALBORK,
+    naechste_rennen=[fx.A_RACE_MALBORK], tage_bis_a=43,
+)
+pruefe("Open Water Swimming" in per_nach_rennen,
+       "Periodisierer sieht die Titel der absolvierten Einheiten, nicht nur TSS")
+pruefe("Ruhetag (0 TSS)" in per_nach_rennen,
+       "Ruhetage sind ausgewiesen — Grundlage für 'X Tage ohne Erholung'")
+pruefe("Letztes Rennen: GEWOBA Bremen" in per_nach_rennen and "vor 2 Tagen" in per_nach_rennen,
+       "Periodisierer sieht das zurückliegende Rennen mit Abstand in Tagen")
+pruefe("Tatsächlich absolviert" not in per_in,
+       "Ohne Daten bleibt der Abschnitt weg statt leer dazustehen")
+per_prompt = (Path(__file__).parent.parent / "prompts/de/periodizer.md").read_text(encoding="utf-8")
+pruefe("Tatsächlich absolviert" in per_prompt and "Ruhetage ab" in per_prompt,
+       "Der Prompt weist an, Ruhetage abzuzählen statt zu schätzen")
 
 hc_mit_block = head_coach.build_input(
     athlete={"name": "H"}, a_race=fx.A_RACE_MALBORK,
