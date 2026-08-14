@@ -389,6 +389,54 @@ async def main():
     pruefe(zuweisung != -1, "tomorrow_str wird zugewiesen (war der NameError-Bug)")
     pruefe(zuweisung < verwendung, "tomorrow_str wird VOR der Verwendung zugewiesen")
 
+    # v2.7.13: app.py las die camelCase-Namen der TP-eigenen API, der MCP
+    # liefert aber snake_case (Dauern in Stunden, Kennzahlen im Detail unter
+    # "metrics"). Die Attrappen unten sind der echte Antwortschnitt des
+    # MCP-Servers, abgenommen an tp_get_workouts/tp_get_workout.
+    print("\n=== TP-Feldnamen: snake_case wie der MCP sie liefert (v2.7.13) ===")
+    LISTE = {"id": "3884239026", "date": "2026-08-05", "title": "Lauf 7x400m HIT",
+             "type": "completed", "sport": "Run",
+             "duration_planned": 1.5, "duration_actual": 1.0,
+             "distance_planned_km": None, "distance_actual_km": 6.65,
+             "tss": 56.76, "tss_planned": 62.7, "tss_actual": 56.76,
+             "description": "Nicht übertreiben"}
+    geplant = app._map_tp_workout(LISTE)
+    absolviert = app._map_tp_workout(LISTE, prefer="actual")
+    pruefe(geplant["duration_min"] == 90 and geplant["tss"] == 62.7,
+           "Planungspfad nimmt die Planwerte und rechnet Stunden in Minuten um")
+    pruefe(absolviert["duration_min"] == 60 and absolviert["tss"] == 56.8,
+           "History-Pfad nimmt die Ist-Werte (prefer='actual')")
+    pruefe(geplant["id"] == "3884239026" and geplant["sport"] == "Run"
+           and geplant["_day"] == "2026-08-05",
+           "Id, Sportart und Tag kommen aus den MCP-Feldern (id/sport/date)")
+    pruefe(app._map_tp_workout({"id": "1", "date": "2026-08-05",
+                                "totalTimePlanned": 5400, "tssPlanned": 62.7})["duration_min"] is None,
+           "Die alten camelCase-Namen liefern nichts — genau das war der Bug")
+
+    DETAIL = {"id": "3884239026", "date": "2026-08-05", "sport": "Run",
+              "workout_type": 3, "description": "Original", "rpe": 6, "feeling": 4,
+              "metrics": {"duration_planned": 1.5, "duration_actual": 1.0,
+                          "tss_planned": 62.7, "tss_actual": 56.76,
+                          "distance_actual_km": 6.65, "avg_power": 204.0,
+                          "normalized_power": 235.0, "avg_hr": 132,
+                          "avg_cadence": 144.0, "calories": 417}}
+    pruefe(app._tp_dauer_min(DETAIL, prefer="planned") == 90,
+           "Die Detail-Antwort verschachtelt dieselben Namen unter 'metrics'")
+    analyse_prompt = app._build_analysis_prompt(
+        athlete={"name": "Hendrik"}, a_race={}, workout_id="3884239026", sport="Run",
+        title="Lauf 7x400m HIT", target_date="2026-08-05", fit_data={}, tp_data=DETAIL)
+    for erwartet in ("Ø HF Ist: 132", "Ø Leistung Ist (W): 204", "TSS Ist: 56.8",
+                     "Dauer Ist (min): 60", "RPE (1–10): 6"):
+        pruefe(erwartet in analyse_prompt, f"Monolith-Analyse sieht '{erwartet}'")
+    pruefe("TRAININGPEAKS IST-DATEN" in analyse_prompt,
+           "Mit HF/Watt gilt die Einheit als absolviert")
+    nur_plan = app._build_analysis_prompt(
+        athlete={"name": "Hendrik"}, a_race={}, workout_id="1", sport="Run",
+        title="X", target_date="2026-08-05", fit_data={},
+        tp_data={"metrics": {"duration_planned": 1.5, "tss_planned": 62.7}})
+    pruefe("TRAININGPEAKS PLAN-DATEN" in nur_plan,
+           "Ohne HF/Watt/Kadenz bleibt es eine Plan-Einheit (duration_planned allein zählt nicht)")
+
     print("\n=== Fallback bei Agent-Fehler ===")
     def kaputt(**kwargs):
         raise RuntimeError("simulierter Ausfall")

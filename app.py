@@ -20,7 +20,9 @@ from fastapi.templating import Jinja2Templates
 import anthropic
 
 from nutrition import nutrition_for_duration
-from training_load import compute_pmc, tage_bis, tss_pro_tag, wochenstruktur
+from training_load import (
+    PMC_TAGE, compute_pmc, letzte_einheiten, tage_bis, tss_pro_tag, wochenstruktur,
+)
 from translations import TRANSLATIONS
 import strava
 
@@ -36,7 +38,7 @@ except Exception as _agent_err:          # pragma: no cover
     _AGENTS_IMPORTABLE = False
     _AGENTS_IMPORT_ERROR = str(_agent_err)
 
-APP_VERSION = "2.7.11"
+APP_VERSION = "2.7.14"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -168,8 +170,7 @@ async def _enrich_workouts(workouts: list) -> list:
                         d.get("workoutDescription") or "")
                 if desc:
                     w["description"] = desc
-                subtype = (d.get("workoutTypeValueId") or d.get("subTypeValueId") or
-                           d.get("workoutSubTypeId") or d.get("subtypeId"))
+                subtype = d.get("workout_type")
                 if subtype is not None:
                     w["subtype_id"] = subtype
         except Exception as e:
@@ -178,21 +179,61 @@ async def _enrich_workouts(workouts: list) -> list:
     return list(await asyncio.gather(*[_detail(w) for w in workouts]))
 
 
-def _map_tp_workout(w: dict) -> dict:
-    """Mapped TP-native Felder auf unser internes Format."""
-    wid   = str(w.get("workoutId") or w.get("id") or "")
-    title = w.get("title") or w.get("name") or ""
-    day   = (w.get("workoutDay") or w.get("date") or "")[:10]
-    dur_s = w.get("totalTimePlanned") or w.get("totalTime") or 0
-    dur_m = round(dur_s / 60) if dur_s else None
-    tss   = w.get("tssPlanned") or w.get("tssActual") or w.get("tss") or None
-    st    = w.get("startTimePlanned") or w.get("startTime") or ""
-    stid  = w.get("workoutTypeValueId") or w.get("sportTypeId")
-    sport = (w.get("sport") or w.get("sportType") or
-             _HISTORY_SPORT_MAP.get(stid, "") or str(stid or ""))
+def _tp_num(w: dict, keys: tuple, faktor: float = 1.0):
+    """Erster positiver Zahlenwert aus `keys`, mit Faktor umgerechnet.
+
+    Sucht flach **und** unter "metrics": `tp_get_workouts` liefert die Werte
+    direkt am Workout, `tp_get_workout` (Detail) verschachtelt dieselben Namen
+    unter "metrics".
+    """
+    m = w.get("metrics") or {}
+    for k in keys:
+        try:
+            wert = float((w.get(k) if w.get(k) is not None else m.get(k)) or 0)
+        except (TypeError, ValueError):
+            continue
+        if wert > 0:
+            return wert * faktor
+    return None
+
+
+def _tp_dauer_min(w: dict, prefer: str = "actual"):
+    """Geplante bzw. absolvierte Dauer in Minuten. Der MCP liefert Stunden."""
+    keys = ("duration_actual", "duration_planned") if prefer == "actual" else \
+           ("duration_planned", "duration_actual")
+    dauer = _tp_num(w, keys, 60.0)
+    return round(dauer) if dauer else None
+
+
+def _map_tp_workout(w: dict, prefer: str = "planned") -> dict:
+    """Mapped die MCP-Antwort von tp_get_workouts auf unser internes Format.
+
+    Die Feldnamen sind die des MCP-Servers (snake_case, Dauern in **Stunden**),
+    nicht die camelCase-Namen der TP-eigenen API — bis v2.7.12 stand hier
+    `totalTimePlanned`/`tssPlanned`/`workoutTypeValueId`, was es in der Antwort
+    nie gab. Folge: `duration_min` war bei **jedem** Workout `None`, und damit
+    fehlte die Dauer im Chefcoach-Prompt, in der Ernährungstabelle und in der
+    MOD-Skalierung von tp_apply. Gleiche Bug-Klasse wie in agents/analyst
+    (v2.7.9), nur an der Listen- statt an der Detail-Antwort.
+
+    `prefer="actual"` dreht die Priorität für abgeschlossene Einheiten um.
+    """
+    tss_keys = ("tss_actual", "tss", "tss_planned") if prefer == "actual" else \
+               ("tss_planned", "tss", "tss_actual")
+
+    wid   = str(w.get("id") or "")
+    title = w.get("title") or ""
+    day   = (w.get("date") or "")[:10]
+    dur_m = _tp_dauer_min(w, prefer)
+    tss   = _tp_num(w, tss_keys)
+    tss   = round(tss, 1) if tss else None
+    stid  = w.get("workout_type")
+    sport = w.get("sport") or _HISTORY_SPORT_MAP.get(stid, "") or str(stid or "")
     return {"id": wid, "sport": sport, "title": title,
             "duration_min": dur_m, "tss": tss,
-            "start_time": st, "subtype_id": stid, "_day": day}
+            # Der MCP liefert keine Startzeit — das Feld bleibt für die
+            # Wetter-Fensterlogik erhalten, die ohnehin auf den Tag zurückfällt.
+            "start_time": "", "subtype_id": stid, "_day": day}
 
 
 async def _tp_fetch_direct(start: str, end: str, wtype: str = "planned") -> dict:
@@ -1707,8 +1748,37 @@ _LOAD_CACHE: dict = {"ts": 0.0, "data": None, "woche": None}
 _LOAD_TTL = 21600  # 6h — CTL/ATL ändern sich nicht stündlich
 
 
+async def _letztes_rennen(heute: date) -> Optional[dict]:
+    """Das jüngste vergangene Rennen aus dem TP-Kalender (max. 45 Tage zurück).
+
+    `_fetch_tp_races` wirft alles Vergangene weg — für den Renn-Strip im
+    Frontend richtig, für den Periodisierer fatal: ohne dieses Feld ist ein
+    Wettkampf vor drei Tagen nur eine anonyme TSS-Zahl in der Verlaufstabelle.
+    """
+    try:
+        raw = await call_tp_mcp("tp_get_events", {
+            "start_date": (heute - timedelta(days=45)).isoformat(),
+            "end_date": heute.isoformat(),
+        })
+    except Exception as e:
+        logger.warning("training_load: TP-Events (vergangen) nicht abrufbar: %s", e)
+        return None
+    events = raw.get("events", []) if isinstance(raw, dict) else (raw if isinstance(raw, list) else [])
+    vergangen = []
+    for e in events:
+        tag = (e.get("eventDate") or "")[:10]
+        if tag and tag < heute.isoformat():
+            vergangen.append({"name": (e.get("name") or "").strip(), "date": tag,
+                              "priority": e.get("atpPriority") or "?",
+                              "tage_her": (heute - date.fromisoformat(tag)).days})
+    return max(vergangen, key=lambda r: r["date"]) if vergangen else None
+
+
 async def _fetch_training_load(athlete: dict):
-    """Holt 42 Tage TSS-Historie aus TP und rechnet CTL/ATL/TSB aus.
+    """Holt die TSS-Historie aus TP und rechnet CTL/ATL/TSB aus.
+
+    Der Zeitraum muss dem PMC-Fenster entsprechen (`PMC_TAGE`) — mit weniger
+    Historie startet CTL zu spät bei 0 und kommt systematisch zu niedrig raus.
 
     Gibt (load, woche) zurück, oder (None, None) wenn TP nicht erreichbar ist —
     dann läuft der Check ohne Periodisierer weiter.
@@ -1721,7 +1791,7 @@ async def _fetch_training_load(athlete: dict):
     heute = date.today()
     try:
         roh = await call_tp_mcp("tp_get_workouts", {
-            "start_date": (heute - timedelta(days=42)).isoformat(),
+            "start_date": (heute - timedelta(days=PMC_TAGE)).isoformat(),
             "end_date": heute.isoformat(),
             "type": "completed",
         })
@@ -1730,19 +1800,37 @@ async def _fetch_training_load(athlete: dict):
         return None, None
 
     items = roh if isinstance(roh, list) else roh.get("workouts", roh.get("items", []))
-    load = compute_pmc(tss_pro_tag(items or []), bis=heute)
+    items = items or []
+    load = compute_pmc(tss_pro_tag(items), bis=heute)
+    load["letzte_einheiten"] = letzte_einheiten(items, bis=heute)
+    load["letztes_rennen"] = await _letztes_rennen(heute)
 
-    # Wochenplan aus dem bestehenden 7-Tage-Cache, kein zusätzlicher MCP-Call.
+    # Wochenplan bevorzugt aus dem bestehenden 7-Tage-Cache, kein zusätzlicher
+    # MCP-Call. Ist der Cache noch kalt (Serverstart — der Prefetch läuft
+    # asynchron), wird direkt geholt: sonst friert ein leerer Wochenplan für
+    # die volle Cache-Dauer ein und der Periodisierer plant gegen "nichts
+    # geplant", obwohl in TP 13 Einheiten stehen.
     geplant = []
     for i in range(7):
         d = (heute + timedelta(days=i)).isoformat()
         for w in (_tp_cache_get(d) or {}).get("workouts", []):
             geplant.append({**w, "_day": d})
+    if not geplant:
+        try:
+            direkt = await _tp_fetch_direct(
+                heute.isoformat(), (heute + timedelta(days=6)).isoformat(), "planned")
+            geplant = [{**w, "_day": d} for d, ws in direkt.items() for w in ws]
+            logger.info("training_load: Wochenplan direkt geholt (%d Einheiten), TP-Cache war kalt",
+                        len(geplant))
+        except Exception as e:
+            logger.warning("training_load: Wochenplan nicht abrufbar: %s", e)
     woche = wochenstruktur(geplant, ab=heute)
 
     _LOAD_CACHE.update({"ts": _time.time(), "data": load, "woche": woche})
-    logger.info("training_load: CTL=%.1f ATL=%.1f TSB=%.1f ramp=%.1f (%d Tage mit Daten)",
-                load["ctl"], load["atl"], load["tsb"], load["ramp_7d"], load["tage_mit_daten"])
+    logger.info("training_load: CTL=%.1f ATL=%.1f TSB=%.1f ramp=%.1f (%d Tage mit Daten, "
+                "%d Einheiten geplant, letztes Rennen: %s)",
+                load["ctl"], load["atl"], load["tsb"], load["ramp_7d"], load["tage_mit_daten"],
+                len(geplant), (load["letztes_rennen"] or {}).get("name", "—"))
     return load, woche
 
 
@@ -2223,23 +2311,13 @@ async def tp_workouts_history(days: int = 5):
         # Pro Tag gruppieren
         by_date: dict = {}
         for w in (items or []):
-            wid   = str(w.get("workoutId") or w.get("id") or "")
-            title = w.get("title") or w.get("name") or ""
-            day   = (w.get("workoutDay") or w.get("date") or "")[:10]
-            dur_s = w.get("totalTime") or w.get("totalTimePlanned") or 0
-            dur_m = round(dur_s / 60) if dur_s else None
-            tss   = w.get("tssActual") or w.get("tssPlanned") or w.get("tss") or None
-            st    = w.get("startTime") or w.get("startTimePlanned") or ""
-            stid  = w.get("workoutTypeValueId") or w.get("sportTypeId")
-            sport = (w.get("sport") or w.get("sportType") or
-                     _HISTORY_SPORT_MAP.get(stid, "") or str(stid or ""))
-            if not wid or not day:
+            # Dasselbe Mapping wie im Planungspfad, nur mit Ist-Werten zuerst —
+            # bis v2.7.12 stand hier eine zweite, ebenfalls falsche Kopie.
+            mapped = _map_tp_workout(w, prefer="actual")
+            day = mapped.pop("_day", "")
+            if not mapped["id"] or not day:
                 continue
-            by_date.setdefault(day, []).append({
-                "id": wid, "sport": sport, "title": title,
-                "duration_min": dur_m, "tss": tss,
-                "start_time": st, "subtype_id": stid,
-            })
+            by_date.setdefault(day, []).append(mapped)
         grouped = [{"date": d, "workouts": ws}
                    for d, ws in sorted(by_date.items())]
         # Wetterdaten einmalig für alle vorhandenen Daten abrufen (cached 6h)
@@ -2362,30 +2440,35 @@ def _build_analysis_prompt(athlete: dict, a_race: dict, workout_id: str, sport: 
             f"Regen {weather_data.get('rain_prob',0)}%."
         )
     if tp_data:
-        # Ist-Werte erkennen: tssActual, HF, Pace, Distanz vorhanden?
-        tp_actual_keys = ["tssActual", "averageHeartRateInBeatsPerMinute",
-                          "averagePaceInMinutesPerKilometer", "averageWatts",
-                          "distanceInMeters", "totalTime"]
-        has_actual = any(tp_data.get(k) for k in tp_actual_keys)
+        # Feldnamen des MCP-Servers (snake_case, Kennzahlen unter "metrics"),
+        # nicht die camelCase-Namen der TP-API — derselbe Abgleich, der
+        # agents/analyst in v2.7.9 korrigiert hat. Hier stand er noch falsch,
+        # womit der Monolith-Pfad außer der Beschreibung keine einzige Zahl sah.
+        tp_metrics = tp_data.get("metrics") or {}
+        # Nur Felder, die eine ausgeführte Einheit zweifelsfrei voraussetzen —
+        # duration_actual/tss_actual sind auch bei reinen Planwerten befüllt.
+        has_actual = any(tp_metrics.get(k) for k in ("avg_hr", "avg_power", "avg_cadence"))
         header = (
             "\n\n--- TRAININGPEAKS IST-DATEN (tatsächlich absolviert — als primäre Datenquelle nutzen) ---"
             if has_actual else
             "\n\n--- TRAININGPEAKS PLAN-DATEN (keine Ist-Werte — Einheit trotzdem bewerten anhand Plan + Kontext) ---"
         )
         lines = [header]
-        tp_label_map = {
-            "totalTime": "Dauer Ist (s)", "totalTimePlanned": "Dauer Plan (s)",
-            "distanceInMeters": "Distanz Ist (m)", "distancePlanned": "Distanz Plan (m)",
-            "tssActual": "TSS Ist", "tssPlanned": "TSS Plan",
-            "averageHeartRateInBeatsPerMinute": "Ø HF Ist",
-            "maxHeartRateInBeatsPerMinute": "Max HF Ist",
-            "averageWatts": "Ø Leistung Ist (W)", "normalizedPower": "NP Ist (W)",
-            "averagePaceInMinutesPerKilometer": "Ø Pace Ist (min/km)",
-            "totalWork": "Gesamtarbeit (kJ)",
-            "perceivedExertion": "RPE (1–10)",
-            "coachComments": "Coach-Notizen", "description": "Beschreibung",
-        }
-        for k, label in tp_label_map.items():
+        # (Feld, Label, Faktor) — duration_* kommt in Stunden.
+        tp_metric_labels = [
+            ("duration_actual", "Dauer Ist (min)", 60), ("duration_planned", "Dauer Plan (min)", 60),
+            ("distance_actual_km", "Distanz Ist (km)", 1), ("distance_planned_km", "Distanz Plan (km)", 1),
+            ("tss_actual", "TSS Ist", 1), ("tss_planned", "TSS Plan", 1),
+            ("avg_hr", "Ø HF Ist", 1), ("avg_power", "Ø Leistung Ist (W)", 1),
+            ("normalized_power", "NP Ist (W)", 1), ("avg_cadence", "Ø Kadenz Ist", 1),
+            ("calories", "Kalorien Ist", 1),
+        ]
+        for k, label, faktor in tp_metric_labels:
+            v = tp_metrics.get(k)
+            if v is not None and v != "":
+                lines.append(f"- {label}: {round(float(v) * faktor, 1)}")
+        for k, label in (("rpe", "RPE (1–10)"), ("feeling", "Gefühl (1–10)"),
+                         ("description", "Beschreibung")):
             v = tp_data.get(k)
             if v is not None and v != "":
                 lines.append(f"- {label}: {v}")
@@ -2481,10 +2564,12 @@ async def workout_analyze(
     quelle = "fit_upload" if fit_data else None
     if not fit_data and os.environ.get("STRAVA_CLIENT_ID"):
         try:
-            dauer_hint_min = (
-                round(tp_workout_data["totalTimePlanned"] / 60)
-                if tp_workout_data.get("totalTimePlanned") else None
-            )
+            # Bei diesem Account kennt TP fast nie eine Startzeit — die
+            # geplante Dauer ist oft das einzige Unterscheidungsmerkmal
+            # zwischen zwei Einheiten am selben Tag. Bis v2.7.12 stand hier
+            # `totalTimePlanned`, das der MCP nie liefert: der Hinweis war
+            # immer None und das Matching fiel auf "längste Aktivität" zurück.
+            dauer_hint_min = _tp_dauer_min(tp_workout_data, prefer="planned")
             strava_data = await strava.fetch_matching_activity_as_fit(
                 target_date=target_date, sport_hint=sport, start_time_hint=start_time,
                 dauer_hint_min=dauer_hint_min,
@@ -2553,9 +2638,7 @@ async def workout_analyze(
         load, _ = await _fetch_training_load(athlete)
         # Ernährungsbasis für den Analyst — Dauer Ist vor Plan, nichts erfinden.
         _dauer_fuer_ernaehrung = (
-            fit_data.get("dauer_min")
-            or (round(tp_workout_data["totalTime"] / 60) if tp_workout_data.get("totalTime") else None)
-            or (round(tp_workout_data["totalTimePlanned"] / 60) if tp_workout_data.get("totalTimePlanned") else None)
+            fit_data.get("dauer_min") or _tp_dauer_min(tp_workout_data, prefer="actual")
         )
         ernaehrung_basis = (
             nutrition_for_duration(_dauer_fuer_ernaehrung, athlete.get("nutrition", {}))
@@ -2627,13 +2710,13 @@ async def backfill_weather(days: int = 30):
     items = raw if isinstance(raw, list) else raw.get("workouts", raw.get("items", []))
     by_date: dict = {}
     for w in (items or []):
-        wid        = str(w.get("workoutId") or w.get("id") or "")
-        day        = (w.get("workoutDay") or w.get("date") or "")[:10]
-        sport      = (w.get("sport") or w.get("sportType") or "")
-        title      = w.get("title") or w.get("name") or ""
-        start_time = w.get("startTime") or ""
-        duration_s = int(w.get("totalTime") or 0)
-        existing_desc = (w.get("description") or w.get("notes") or "").strip()
+        wid        = str(w.get("id") or "")
+        day        = (w.get("date") or "")[:10]
+        sport      = w.get("sport") or ""
+        title      = w.get("title") or ""
+        start_time = ""                      # liefert der MCP nicht
+        duration_s = round((_tp_dauer_min(w, prefer="actual") or 0) * 60)
+        existing_desc = (w.get("description") or "").strip()
         if not wid or not day:
             continue
         by_date.setdefault(day, []).append({
