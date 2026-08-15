@@ -9,6 +9,7 @@ Fallback greift und ob die Antwort die Form hat, die das Frontend erwartet.
 import asyncio
 import inspect
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -310,6 +311,10 @@ async def main():
            "Tab-Button und Panel sind verdrahtet")
     pruefe(_idx.count('class="tab-btn') == 7,
            "es bleiben sieben Tabs — kein achter, der die Beschriftung bricht")
+    # Reihenfolge: der Tab gehört neben die Checks, nicht ans Ende (v2.7.22).
+    _reihenfolge = re.findall(r'class="tab-btn[^"]*" data-tab="(\w+)"', _idx)
+    pruefe(_reihenfolge[:3] == ["morgen", "abend", "ernaehrung"],
+           f"Fueling steht direkt hinter dem Abend-Tab: {_reihenfolge}")
     pruefe('data-tab="about"' not in _idx and 'data-panel="about"' not in _idx,
            "der About-Tab ist weg")
     pruefe('id="about-version"' in _idx and 'id="about-agents"' in _idx,

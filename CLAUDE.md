@@ -1,4 +1,4 @@
-# KI Coach App — v2.7.21
+# KI Coach App — v2.7.22
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -40,7 +40,7 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.7.21)
+├── CLAUDE.md            ← diese Datei (v2.7.22)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
 ├── coach_mcp.py         ← MCP-Server für Claude Desktop + Code (stdio lokal / HTTP remote)
 ├── requirements-mcp.txt ← nur für coach_mcp.py, eigenes venv (.venv-mcp)
@@ -67,11 +67,11 @@ ki-coach-app/
 ## Tabs (Reihenfolge im Frontend)
 1. **Morgen** — Morgen-Override (Go/No-Go vor dem Training)
 2. **Abend** — Abend-Check (plant den nächsten Tag)
-3. **Analyse** — abgeschlossene Einheiten der letzten 5 Tage bewerten lassen
-4. **Erholung** — Erholungs-Index, HRV-Verlauf, Marker-Status
-5. **Chat** — freier Coach-Chat mit TP- und Wetterkontext
-6. **Profil** — Athletendaten, Rennen, Baseline-Manager, Info (Version, Pipeline-Status)
-7. **Essen** — Ernährung für heute und morgen, pro Einheit aufklappbar (v2.7.21)
+3. **Fueling** — Ernährung für heute und morgen, pro Einheit aufklappbar (v2.7.21)
+4. **Analyse** — abgeschlossene Einheiten der letzten 5 Tage bewerten lassen
+5. **Erholung** — Erholungs-Index, HRV-Verlauf, Marker-Status
+6. **Chat** — freier Coach-Chat mit TP- und Wetterkontext
+7. **Profil** — Athletendaten, Rennen, Baseline-Manager, Info (Version, Pipeline-Status)
 
 **Checks laufen asynchron** (v2.7.4): `POST /api/check-abend` bzw. `check-morgen` liefern sofort eine `job_id`, das Frontend pollt `GET /api/check/{job_id}` und zeigt dabei die aktuelle Orchestrator-Stufe.
 
@@ -380,6 +380,14 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.7.22 — Der Tab heißt Fueling und steht bei den Checks
+Zwei Korrekturen an v2.7.21, beide aus dem ersten Blick auf die Leiste.
+
+- **„Essen" → „Fueling".** Die App ist sonst durchgehend deutsch, hier ist der englische Begriff aber der im Triathlon gebräuchliche — und mit sieben Zeichen passt er genauso gut in die 11px-Leiste wie „Analyse" (das ursprüngliche „Ernährung" wäre als einziges Label abgeschnitten worden, deshalb überhaupt die Kürzung). Bewusste Ausnahme von der i18n-Linie, in beiden Sprachen derselbe Begriff.
+- **Position: direkt hinter dem Abend-Tab** statt am Ende. Fueling gehört zum täglichen Ablauf neben die beiden Checks, nicht hinter Analyse und Erholung. Neue Reihenfolge: Morgen · Abend · Fueling · Analyse · Erholung · Chat · Profil.
+
+Tests: die Reihenfolge der Tab-Buttons wird jetzt mitgeprüft, nicht nur ihre Anzahl.
 
 ### v2.7.21 — Eigener Ernährungs-Tab
 Die Mengen gab es bisher nur direkt nach einem Check auf der Dark Card — wer mittags wissen wollte, was er für die Abendrunde anrührt, musste einen neuen Check starten (und dafür Claude bezahlen). Jetzt ein eigener Tab.
