@@ -62,6 +62,9 @@ TRANSLATIONS = {
             "fueling":        {"name": "Anna Feld",         "rolle": "Ernährungsberatung"},
             "analyst":        {"name": "Coach Ben Krause",  "rolle": "Performance-Analyse"},
         },
+        # Bei GO schreibt kein Modell — die Beschreibung ist der Originaltext
+        # aus TrainingPeaks. Statt einer leeren Zeile die Herkunft nennen.
+        "plan_original":     "Originalplan aus TrainingPeaks übernommen",
         "lbl_max":           "10 — max",
         # CSV upload
         "lbl_csv":           "AutoSleep CSV",
@@ -404,6 +407,7 @@ TRANSLATIONS = {
             "fueling":        {"name": "Anna Feld",         "rolle": "Nutrition Coaching"},
             "analyst":        {"name": "Coach Ben Krause",  "rolle": "Performance Analysis"},
         },
+        "plan_original":     "Original plan taken from TrainingPeaks",
         # CSV upload
         "lbl_csv":           "AutoSleep CSV",
         "lbl_csv_btn":       "Upload CSV",

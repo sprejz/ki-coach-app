@@ -27,6 +27,7 @@ import agents.periodizer as periodizer  # noqa: E402
 import agents.weather as weather  # noqa: E402
 import app  # noqa: E402
 import orchestrator  # noqa: E402
+from translations import TRANSLATIONS  # noqa: E402
 from tests import fixtures as fx  # noqa: E402
 
 fehler = []
@@ -249,10 +250,21 @@ async def main():
                f"{roh!r} landet beim Laufcoach, nicht beim Kraft/Sonstiges-Fallback")
         pruefe(eintrag["architekt"] == "architect_run",
                f"{roh!r}: der Vertrag nennt den Agenten, der wirklich gelaufen ist")
-        pruefe(eintrag["sport"] == roh,
-               f"{roh!r}: angezeigt wird weiter der Text des Chefcoachs, nicht die Normalform")
+        pruefe(eintrag["sport"] == "Laufen",
+               f"{roh!r}: angezeigt wird die bekannte Disziplin, nicht der Rohtext des Chefcoachs")
     pruefe(len(mitschrieb.get("architect", [])) == 1,
            "der Kraft/Sonstiges-Fallback wurde durch die sechs Schreibweisen kein weiteres Mal gerufen")
+
+    # Unbekannte Sportarten dürfen nicht zu "Sonstiges" verarmen — die Karte
+    # soll "Golf" zeigen, auch wenn der Kraft/Sonstiges-Architekt schreibt.
+    eintrag = await orchestrator._baue_einheit(
+        entscheidung={"sport": "Golf", "badge": "MOD", "details": "T",
+                      "begruendung": "T", "anpassung": {}},
+        workout={"sport": "Golf", "description": "Original", "duration_min": 45},
+        athlete={"nutrition": {"rules": []}}, wetter_zeile="Sonnig", model="egal",
+    )
+    pruefe(eintrag["sport"] == "Golf" and eintrag["architekt"] == "architect",
+           "Golf bleibt 'Golf' auf der Karte und geht an den Kraft/Sonstiges-Architekten")
 
     # Ohne Architekt darf auch kein Architekt drüberstehen (GO/SKIP, Monolith).
     for badge in ("GO", "SKIP"):
@@ -267,6 +279,13 @@ async def main():
     _idx = (Path(__file__).parent.parent / "templates" / "index.html").read_text(encoding="utf-8")
     pruefe("ARCHITEKT_SPORT_KEY" not in _idx and "agentTag(s.architekt)" in _idx,
            "Frontend nennt den Architekten aus s.architekt statt ihn aus der Sportart zu raten")
+    # v2.7.16: Bei GO schreibt kein Modell — statt einer leeren Zeile die
+    # Herkunft des Textes nennen.
+    pruefe("T.plan_original" in _idx and "s.badge === 'GO' && s.beschreibung" in _idx,
+           "GO-Karten weisen den Originalplan aus TrainingPeaks aus")
+    for lang in ("de", "en"):
+        pruefe(bool(TRANSLATIONS[lang].get("plan_original")),
+               f"plan_original ist in translations.py gepflegt ({lang})")
 
     print("\n=== Eingaben kommen bei den Agents an ===")
     m = mitschrieb["medic_last"]

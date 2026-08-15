@@ -1733,7 +1733,11 @@ function buildResult(data, fd, type) {
       // gelaufen ist. Fehlt das Feld (Monolith-Pfad), hat kein Architekt
       // geschrieben — dann steht hier auch kein Name.
       const coachZeile = s.badge === 'MOD' && s.architekt
-        ? `<p class="sport-coach-tag">✍️ ${esc(agentTag(s.architekt))}</p>` : '';
+        ? `<p class="sport-coach-tag">✍️ ${esc(agentTag(s.architekt))}</p>`
+        // Bei GO hat kein Modell formuliert, der Text kommt zeichengenau aus
+        // TrainingPeaks. Herkunft nennen statt die Zeile leer zu lassen.
+        : (s.badge === 'GO' && s.beschreibung
+            ? `<p class="sport-coach-tag">📋 ${esc(T.plan_original || '')}</p>` : '');
       const beraterZeile = s.ernaehrung_von_berater
         ? `<p class="sport-coach-tag">🥕 ${esc(agentTag('fueling'))}</p>` : '';
       h += `<div class="sport-card" id="sport-card-${idx}">

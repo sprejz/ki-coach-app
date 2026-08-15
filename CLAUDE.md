@@ -1,4 +1,4 @@
-# KI Coach App — v2.7.15
+# KI Coach App — v2.7.16
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -40,7 +40,7 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.7.15)
+├── CLAUDE.md            ← diese Datei (v2.7.16)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
 ├── coach_mcp.py         ← MCP-Server für Claude Desktop + Code (stdio lokal / HTTP remote)
 ├── requirements-mcp.txt ← nur für coach_mcp.py, eigenes venv (.venv-mcp)
@@ -375,6 +375,14 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.7.16 — Herkunft bei GO, deutsche Sportart auf der Karte
+Nachtrag zu v2.7.15, ausgelöst von einer Radeinheit im Live-Betrieb: Über der Karte stand gar kein Coach mehr. Das war korrekt — bei **GO** formuliert kein Modell, die Beschreibung ist der zeichengenaue Originaltext aus TrainingPeaks (so seit v2.6.99). Sichtbar war davon aber nichts, die Zeile blieb einfach leer.
+
+- **GO-Karten weisen ihre Herkunft aus:** „📋 Originalplan aus TrainingPeaks übernommen", nur wenn es auch eine Beschreibung gibt. Neuer Schlüssel `plan_original` in `translations.py` (de/en) statt hartkodiertem Text — anders als bei `mitwirkendeNote`/`quelleNote`, die als Altlast weiter deutsch im Template stehen.
+- **Sportart wird angezeigt wie im Rest der App:** der Chefcoach schreibt oft die TP-Sportart hin („Bike", „Run"), auf der Karte stand dann „Bike" neben lauter deutschen Texten. Die von `normalize_sport()` erkannten Disziplinen werden jetzt in ihrer Normalform gezeigt („Rad", „Laufen", „Schwimmen", „Kraft"); alles Unbekannte („Golf", „Brick") bleibt **wortwörtlich** stehen, statt zu „Sonstiges" zu verarmen. Deshalb gibt es weiterhin kein `enum` im Chefcoach-Schema.
+
+Tests: eine Golf-MOD-Einheit belegt beides zugleich — Anzeige bleibt „Golf", Dispatch geht an den Kraft/Sonstiges-Architekten. Dazu die GO-Herkunftszeile im Template und `plan_original` in beiden Sprachen.
 
 ### v2.7.15 — Der Laufcoach bekommt seine Laufeinheiten zurück
 Im Live-Betrieb stand über einer **Laufeinheit** „Coach Lea Fromm (Kraft & Sonstiges)". Nicht nur das Etikett war falsch — es hat auch wirklich der generische Architekt geschrieben, also der ohne Kadenz-Korridore, Trabpausen und die übrigen Lauf-Leitlinien aus v2.7.10.

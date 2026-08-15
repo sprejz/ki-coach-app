@@ -159,8 +159,13 @@ async def _baue_einheit(*, entscheidung: dict, workout: Optional[dict], athlete:
             # Monolith umleiten — anders als bei medic/weather/architect.
             logger.warning("fueling-Agent fehlgeschlagen, Basis-Ernährung bleibt bestehen: %s", e)
 
+    # Der Chefcoach schreibt oft die TP-Sportart hin ("Bike", "Run"). Die drei
+    # Disziplinen plus Kraft werden deshalb angezeigt wie im Rest der App;
+    # alles, was normalize_sport nicht kennt ("Golf", "Brick"), bleibt
+    # wortwörtlich stehen, statt zu "Sonstiges" zu verarmen.
+    anzeige = sport if sport != "Sonstiges" else (sport_label or sport)
     return {
-        "sport": sport_label or sport,
+        "sport": anzeige,
         # Wer die Einheit ausformuliert hat, sagt der Orchestrator explizit.
         # Bis v2.7.14 riet das Frontend es sich aus `sport` zusammen und lag
         # bei jeder Abweichung vom Wort "Laufen"/"Rad"/"Schwimmen" daneben —
