@@ -287,6 +287,22 @@ async def main():
         pruefe(bool(TRANSLATIONS[lang].get("plan_original")),
                f"plan_original ist in translations.py gepflegt ({lang})")
 
+    # v2.7.17: fetch() ohne Timeout konnte beim Netzwechsel oder einem
+    # Container-Neustart ewig offen bleiben. Die 5-Minuten-Deadline wird nur
+    # zwischen zwei Runden geprüft und griff deshalb nie — der Spinner drehte
+    # endlos, ohne Fehlermeldung.
+    check_js = _idx[_idx.index("async function runCheck"):_idx.index("function showError")]
+    pruefe("await fetch(" not in check_js and check_js.count("fetchMitFrist(") >= 2,
+           "runCheck nutzt ausschließlich fetch mit Frist — kein nackter fetch mehr")
+    pruefe("new AbortController()" in _idx and "ctrl.abort()" in _idx,
+           "Die Frist wird über AbortController durchgesetzt")
+    pruefe("fehlerInFolge" in check_js and "CHECK_MAX_FEHLER" in check_js,
+           "Ein einzelner Netzfehler wirft den laufenden Job nicht weg (Retry-Zähler)")
+    pruefe("sr.status === 404" in check_js,
+           "404 bleibt ein harter Abbruch — der Job existiert wirklich nicht mehr")
+    pruefe(_idx.count("showError(err.message || String(err), true)") == 2,
+           "Abend- und Morgen-Check zeigen ihren Fehler dauerhaft statt ihn nach 8 s zu verstecken")
+
     print("\n=== Eingaben kommen bei den Agents an ===")
     m = mitschrieb["medic_last"]
     pruefe(m["koerper"]["achilles_r"] == 5, "Mediziner bekommt Achilles rechts = 5")

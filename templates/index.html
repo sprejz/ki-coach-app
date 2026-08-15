@@ -1576,7 +1576,7 @@ async function submitAbend(e) {
     });
     showResult(result, body, 'abend');
   } catch(err) {
-    showError(err.message || String(err));
+    showError(err.message || String(err), true);
   } finally {
     setLoading(false);
   }
@@ -1639,7 +1639,7 @@ async function submitMorgen(e) {
       erholungLoaded = false;
     }
   } catch(err) {
-    showError(err.message || String(err));
+    showError(err.message || String(err), true);
   } finally {
     setLoading(false);
   }
@@ -3088,23 +3088,54 @@ function setLoadingText(stage) {
 // weder Proxy-Timeouts noch wechselnden Mobilfunk.
 const CHECK_POLL_MS      = 1200;
 const CHECK_TIMEOUT_MS   = 5 * 60 * 1000;
+const CHECK_POST_MS      = 30 * 1000;  // Abschicken darf nicht ewig offen bleiben
+const CHECK_STATUS_MS    = 15 * 1000;  // ein einzelner Status-Abruf ebenso wenig
+const CHECK_MAX_FEHLER   = 5;          // Funkloch kippt den laufenden Job nicht
+
+// fetch() kennt von sich aus keinen Timeout. Ein Request, der beim
+// Netzwechsel oder einem Container-Neustart hängenbleibt, kehrt nie zurück —
+// und die Deadline unten wird nur ZWISCHEN zwei Runden geprüft, half also
+// nicht. Ergebnis war ein endlos drehender Spinner ohne jede Meldung
+// (v2.7.17).
+async function fetchMitFrist(url, init, ms) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { ...(init || {}), signal: ctrl.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
 
 async function runCheck(url, init) {
-  const r = await fetch(url, init);
+  const r = await fetchMitFrist(url, init, CHECK_POST_MS);
   if (!r.ok) throw new Error(await r.text());
   const { job_id } = await r.json();
   if (!job_id) throw new Error('Keine job_id vom Server');
 
   const deadline = Date.now() + CHECK_TIMEOUT_MS;
+  let fehlerInFolge = 0;
   while (Date.now() < deadline) {
     await new Promise(res => setTimeout(res, CHECK_POLL_MS));
-    const sr = await fetch(`/api/check/${job_id}`, { cache: 'no-store' });
+    let sr;
+    try {
+      sr = await fetchMitFrist(`/api/check/${job_id}`, { cache: 'no-store' }, CHECK_STATUS_MS);
+    } catch (e) {
+      // Timeout oder Netzfehler: der Job läuft auf dem Server weiter, also
+      // weiterfragen statt den Check wegzuwerfen.
+      if (++fehlerInFolge >= CHECK_MAX_FEHLER) throw new Error('Keine Verbindung zum Server — Status nicht abrufbar. Der Check läuft evtl. weiter, bitte neu laden.');
+      continue;
+    }
     if (sr.status === 404) {
       // Prozess neu gestartet — der Job kommt nicht wieder, Polling beenden.
       const d = await sr.json().catch(() => ({}));
-      throw new Error(d.detail || 'Check nicht mehr verfügbar');
+      throw new Error(d.detail || 'Check nicht mehr verfügbar (Server neu gestartet) — bitte nochmal starten');
     }
-    if (!sr.ok) throw new Error(await sr.text());
+    if (!sr.ok) {
+      if (++fehlerInFolge >= CHECK_MAX_FEHLER) throw new Error(await sr.text());
+      continue;
+    }
+    fehlerInFolge = 0;
     const job = await sr.json();
     if (job.status === 'done')  return job.result;
     if (job.status === 'error') throw new Error(job.error || 'Check fehlgeschlagen');
@@ -3112,11 +3143,18 @@ async function runCheck(url, init) {
   }
   throw new Error('Check dauert ungewöhnlich lange — bitte nochmal versuchen');
 }
-function showError(msg) {
+// `bleibt`: für abgebrochene Checks. Der Banner blendete sich nach 8 s selbst
+// aus — wer in der Zeit nicht hinsah, hatte nur einen gestoppten Spinner und
+// keine Erklärung. Antippen schließt ihn (v2.7.17).
+let _fehlerTimer = null;
+function showError(msg, bleibt) {
   const el = document.getElementById('error-banner');
   el.textContent = msg;
   el.style.display = 'block';
-  setTimeout(() => el.style.display = 'none', 8000);
+  el.style.cursor = 'pointer';
+  el.onclick = () => { el.style.display = 'none'; };
+  if (_fehlerTimer) clearTimeout(_fehlerTimer);
+  _fehlerTimer = bleibt ? null : setTimeout(() => el.style.display = 'none', 8000);
   setLoading(false);
 }
 </script>

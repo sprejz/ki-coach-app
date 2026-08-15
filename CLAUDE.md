@@ -1,4 +1,4 @@
-# KI Coach App — v2.7.16
+# KI Coach App — v2.7.17
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -40,7 +40,7 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.7.16)
+├── CLAUDE.md            ← diese Datei (v2.7.17)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
 ├── coach_mcp.py         ← MCP-Server für Claude Desktop + Code (stdio lokal / HTTP remote)
 ├── requirements-mcp.txt ← nur für coach_mcp.py, eigenes venv (.venv-mcp)
@@ -375,6 +375,17 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.7.17 — Der endlos drehende Spinner
+Gemeldet: „der Prozess dauert super lange bzw. funktioniert gar nicht mehr" — Abend-/Morgen-Check, Spinner ohne Ende, **ohne Fehlermeldung**. Serverseitig war nichts zu finden: ein echter Abend-Check gegen Produktion lief in 12 s durch, `/api/startup` in 1,3 s, die MCP-Calls eines kalten Caches zusammen in ~6 s, und das ausgelieferte Inline-JS parst sauber. Der Fehler saß im Frontend.
+
+**`fetch()` kennt von sich aus keinen Timeout.** Bleibt ein Request beim Netzwechsel (iPhone, PWA im Hintergrund) oder einem Container-Neustart hängen, kehrt er nie zurück. Der 5-Minuten-Deckel in `runCheck` half nicht: `while (Date.now() < deadline)` wird nur **zwischen** zwei Runden geprüft, ein einzelner hängender Abruf umgeht ihn vollständig. Beide Aufrufer haben `try/catch/finally` mit `setLoading(false)` — deshalb war die einzig mögliche Erklärung für einen Spinner ohne Meldung ein Promise, das nie settlet.
+
+- **`fetchMitFrist()`** über `AbortController`: 30 s für das Abschicken, 15 s pro Status-Abruf. Damit greift die Deadline wieder.
+- **Netzfehler werfen den Job nicht mehr weg.** Timeout oder 5xx beim Status-Abruf zählen jetzt einen Zähler hoch und werden bis zu 5× in Folge toleriert — der Check läuft auf dem Server ohnehin weiter. Ein **404** bleibt der harte Abbruch, denn dann ist der Job wirklich weg (Jobs sind prozesslokal, jeder Deploy verliert sie).
+- **Der Fehlerbanner versteckte sich nach 8 s selbst.** Für einen abgebrochenen Check ist das die falsche Entscheidung: wer nicht genau hinsah, hatte einen gestoppten Spinner und keine Erklärung. Abend- und Morgen-Check zeigen ihren Fehler jetzt dauerhaft, Antippen schließt ihn.
+
+Tests: `test_wiring.py` prüft, dass in `runCheck` kein nackter `fetch(` mehr steht, dass der `AbortController` da ist, dass der Retry-Zähler existiert, dass 404 hart bleibt und dass beide Checks den Banner dauerhaft zeigen.
 
 ### v2.7.16 — Herkunft bei GO, deutsche Sportart auf der Karte
 Nachtrag zu v2.7.15, ausgelöst von einer Radeinheit im Live-Betrieb: Über der Karte stand gar kein Coach mehr. Das war korrekt — bei **GO** formuliert kein Modell, die Beschreibung ist der zeichengenaue Originaltext aus TrainingPeaks (so seit v2.6.99). Sichtbar war davon aber nichts, die Zeile blieb einfach leer.
