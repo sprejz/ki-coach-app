@@ -1,4 +1,4 @@
-# KI Coach App — v2.7.17
+# KI Coach App — v2.7.19
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -15,7 +15,7 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
   - Prognose heute/morgen → **wttr.in** (`?format=j1`, Codes über `WTTR_TO_WMO` auf WMO gemappt)
   - Vergangene Tage → **Open-Meteo** Forecast-API mit `past_days=7`
   - Stündliches Workout-Fenster → **Open-Meteo Archive-API**
-- **TrainingPeaks:** eigener MCP-Server auf Railway, angesprochen per **direktem JSON-RPC** (`call_tp_mcp`, SSE-Parsing). Der Umweg über den Claude-MCP-Connector wird nur noch von `call_claude_tp_mcp` genutzt.
+- **TrainingPeaks:** eigener MCP-Server auf Railway, angesprochen per **direktem JSON-RPC** (`call_tp_mcp`, SSE-Parsing). Der Umweg über den Claude-MCP-Connector ist in v2.7.18 entfallen — er hatte keinen Aufrufer mehr.
 
 ## Umgebungsvariablen (Railway)
 - `ANTHROPIC_API_KEY` — Claude API Key (Pflicht)
@@ -40,7 +40,7 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.7.17)
+├── CLAUDE.md            ← diese Datei (v2.7.19)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
 ├── coach_mcp.py         ← MCP-Server für Claude Desktop + Code (stdio lokal / HTTP remote)
 ├── requirements-mcp.txt ← nur für coach_mcp.py, eigenes venv (.venv-mcp)
@@ -96,7 +96,7 @@ Multipart-Form (wegen CSV-Upload). Gleicher Fragebogen wie Abend (inkl. Waden, M
 
 ## Entscheidungsregeln
 
-**Wichtig:** Seit v2.4.31–v2.4.33 arbeitet der Prompt **nicht mehr mit starren Zahlenschwellen**, sondern mit sportmedizinischem Reasoning. `pain_thresholds` in `athlete.json` ist faktisch toter Ballast — `build_pain_rules()` gibt `""` zurück.
+**Wichtig:** Seit v2.4.31–v2.4.33 arbeitet der Prompt **nicht mehr mit starren Zahlenschwellen**, sondern mit sportmedizinischem Reasoning. `pain_thresholds` in `athlete.json` fließt **nicht** in den Prompt — die dafür gebaute `build_pain_rules()` gab `""` zurück und ist in v2.7.18 entfallen. Die Werte bleiben trotzdem im Profil: `buildModReason()` im Frontend leitet daraus den MOD-Grund für TrainingPeaks ab.
 
 Der System-Prompt (`translations.py` → `prompt_system`) bzw. im Agent-Pfad die Prompts von Sportmediziner und Allgemeinmediziner instruieren Claude qualitativ:
 - **Knie:** Steifigkeit → Umfang/Intensität runter, flach. Schmerz unter Last/Treppe → Lauf STOP, Rad wenn schmerzfrei, Aquajogging. Schwellung/Instabilität/Ruheschmerz → Pause.
@@ -328,6 +328,10 @@ text-secondary: #666;
 Regeln stehen in `athlete.json` → `nutrition.rules`, werden von `nutrition_for_duration()` nach Dauer gematcht und bei MOD in die TP-Beschreibung geschrieben.
 **Eigenes Gemisch:** Maltodextrin 19 + Fruchtzucker 2:1, 90g Carbs/h, 600ml/h (750ml/h bei Hitze).
 
+**Gesamtmengen zum Selbstanmischen (v2.7.19).** Ab 90min (`carbs_during` in der Regel) hängt `nutrition_for_duration()` eine Zeile mit den absoluten Mengen für die **ganze** Einheit an: `🥤 Selbst anrühren für 2:45 h: 165 g Maltodextrin + 85 g Fruchtzucker (250 g Carbs) · 3 Saltstick · 1650 ml`. Das Verhältnis kommt aus `nutrition.mix_ratio` (explizit, **nicht** aus dem Freitext von `mix` geparst) — fehlt es, bleibt die Aufteilung weg statt geraten zu werden. Gerundet wird auf 5 g, und der zweite Zucker ist der Rest zur Gesamtmenge, damit die Teile exakt aufgehen. Bei Hitze rechnet die Zeile mit `salt_heat_per_hour`/`fluid_heat_per_hour_ml`; die Carbs bleiben gleich.
+
+**Carbs pro Sportart (v2.7.19).** `nutrition.carbs_per_hour_by_sport` überschreibt die Basisrate je Disziplin — beim Laufen ist die Magenverträglichkeit geringer als auf dem Rad (aktuell **Laufen 60 g/h**, alles andere 90 g/h). Die Rate wird auch im Regeltext ersetzt, damit dort nicht weiter „90g Carbs/h" für eine Laufeinheit steht.
+
 **Ernährungsberater (v2.7.8, `agents/fueling.py`).** Ergänzt die Tabelle um Kontext, den eine reine Dauer-Tabelle nicht kennt — Hitze/Kälte, chronische Befunde, Renntag — als ein angehängter Satz. **Ändert nie die Zahlen selbst** und läuft nur, wenn es einen Grund gibt (Hitze/Kälte-Flag, chronische Befunde gesetzt, Dauer ≥ 90 min oder Renntag); sonst bleibt `ernaehrung` exakt der Tabellenstring, kein zusätzlicher Claude-Call. Ein Fehler dort wird lokal abgefangen und kippt nie den ganzen Check auf den Monolith-Fallback. `POST /api/tp/apply` verwendet für MOD-Workouts die im Check bereits berechnete `ernaehrung` weiter, statt sie mit einem zweiten Live-Call neu zu berechnen.
 
 ---
@@ -375,6 +379,31 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.7.19 — Ernährung: Gesamtmengen und Carbs pro Sportart
+Zwei Lücken, die im Alltag stören, weil Hendrik sein Getränk in 99 % der Fälle selbst anrührt.
+
+- **Die Tabelle nannte nur Raten pro Stunde.** Wer eine Flasche mischt, braucht die Gesamtmenge — und die Aufteilung auf die beiden Zucker. Neu: `mix_totals()` und `format_mix()` in `nutrition.py`, angehängt ab 90min. Das Mischverhältnis steht jetzt **explizit** in `athlete.json` (`mix_ratio: {maltodextrin: 2, fruchtzucker: 1}`) statt aus dem Freitext `"Maltodextrin 19 + Fruchtzucker 2:1"` geparst zu werden — ohne den Eintrag bleibt die Aufteilung leer, statt geraten zu werden. Rundung auf 5 g; der zweite Zucker ist der Rest zur gerundeten Gesamtmenge, sonst stünde `165 + 80 = 250` auf dem Zettel.
+- **Beim Laufen gehen keine 90 g/h rein.** `carbs_per_hour_by_sport` setzt die Rate pro Disziplin (Laufen 60 g/h), inklusive Ersetzung im Regeltext. Alles ohne Eintrag bleibt bei der Basisrate — Golf und Kraft ändern nichts.
+- **Hitze wirkt jetzt auch auf die Mengen:** die Zeile rechnet dann mit den Hitzewerten für Salz und Flüssigkeit. Der Prompt des Ernährungsberaters sagte bisher „Die Tabelle kennt keine Temperatur" — das stimmte nicht mehr und ist auf „die **Mengen** sind schon angepasst, ergänze nur das **Verhalten**" geschärft.
+- **`normalize_sport()` ist von `orchestrator.py` nach `nutrition.py` gewandert** (Blattmodul ohne Abhängigkeiten), weil app.py dieselbe Zuordnung braucht, ohne den Agent-Pfad zu importieren. `orchestrator.normalize_sport` bleibt als Re-Export erhalten — **eine** Definition statt zweier, die auseinanderlaufen können (der Fehler aus v2.7.15).
+
+Alle drei Aufrufstellen geben jetzt Sportart und Hitze mit: Orchestrator (Check), `tp/apply` (MOD-Beschreibung in TP) und die Analyse-Basis für Coach Ben Krause.
+
+Tests: 14 Prüfungen in `test_offline.py` — Raten pro Sportart inkl. englischer TP-Namen, dass Maltodextrin + Fruchtzucker exakt die Gesamtmenge ergeben, dass Hitze Salz und Flüssigkeit hebt aber die Carbs nicht, dass unter 90min keine Mengenzeile erscheint und dass ohne `mix_ratio` nichts geraten wird.
+
+### v2.7.18 — Toter Code entfernt
+Aufräumen der drei Altlasten aus CLAUDE.md. Beim Nachprüfen stellte sich heraus, dass die Liste in zwei Punkten falsch lag — einmal zu harmlos, einmal zu scharf.
+
+- **Der ganze Claude-MCP-Umweg war tot, nicht nur ein Teil davon.** `_tp_call_sync()` hatte **keinen einzigen Aufrufer**; damit war auch `call_claude_tp_mcp()` (dessen einziger Nutzer es war) unerreichbar, dazu der 6-Minuten-HTTP-Client `_tp_http_long` und der nur dort verwendete Prompt `tp_workouts_prompt` (de + en). TrainingPeaks läuft ausschließlich über direktes JSON-RPC (`call_tp_mcp`) — der Connector-Pfad stammte noch aus v2.4 und ist ersatzlos weg.
+- **`_run_analysis_job()`** — der nie aufgerufene MCP-Pfad der Analyse, wie notiert. Entfernt; `_run_analysis_job_agent()` und `_run_analysis_job_fast()` bleiben.
+- **`build_pain_rules()`** gab `""` zurück und wurde als `pain_rules=` in `T["prompt_system"].format()` gereicht — den Platzhalter gibt es dort gar nicht mehr, das Argument lief also ins Leere. Beides entfernt.
+- **`pain_thresholds` bleibt in `athlete.json`.** Die Altlasten-Notiz nannte es „ungenutzt", das stimmt nur für den Backend-Prompt: `buildModReason()` in `templates/index.html` liest `knee.mod_low` und `achilles.mod_low`, um den MOD-Grund für TrainingPeaks zu formulieren. Ein Löschen hätte die Schwellen still auf die JS-Defaults (3 bzw. 4) fallen lassen.
+- **`CLAUDE_14.md`** (Vorgängerspec v1.1.3) gelöscht.
+
+Zusammen 121 Zeilen weniger in `app.py`. Keine Verhaltensänderung — es lief nichts davon.
+
+Tests: `test_wiring.py` prüft, dass die fünf Namen weg bleiben, dass `call_tp_mcp` unangetastet ist, dass der Prompt in beiden Sprachen fehlt und `CLAUDE_14.md` nicht wiederkommt — und als Gegenprobe, dass `pain_thresholds` und sein Frontend-Leser noch da sind.
 
 ### v2.7.17 — Der endlos drehende Spinner
 Gemeldet: „der Prozess dauert super lange bzw. funktioniert gar nicht mehr" — Abend-/Morgen-Check, Spinner ohne Ende, **ohne Fehlermeldung**. Serverseitig war nichts zu finden: ein echter Abend-Check gegen Produktion lief in 12 s durch, `/api/startup` in 1,3 s, die MCP-Calls eines kalten Caches zusammen in ~6 s, und das ausgelieferte Inline-JS parst sauber. Der Fehler saß im Frontend.
@@ -640,6 +669,4 @@ MFP MCP auf Railway (`MFP_USERNAME`/`MFP_PASSWORD`), Kalorienbilanz im Abend-Che
 Der MCP-Service hat seit v2.7.6 einen Bearer-Token. **Die App selbst hat weiterhin keinen.** Wer die App-URL kennt, kann `POST /api/coach/chat` direkt aufrufen und damit denselben Anthropic-Key verbrennen und dieselben Daten lesen — der MCP-Token ist also nicht die schwächste Stelle, sondern die App. Das bleibt der Google-OAuth-Punkt unten. Der Token liegt außerdem im Klartext in `~/.claude.json` bzw. der Claude-Desktop-Config.
 
 ### Technische Altlasten
-- `build_pain_rules()` gibt `""` zurück → `pain_thresholds` in `athlete.json` ist ungenutzt
-- `_run_analysis_job()` (MCP-Pfad der Analyse) ist definiert, wird aber nie aufgerufen — nur `_run_analysis_job_fast()` läuft
-- `CLAUDE_14.md` ist eingecheckt, aber veraltet (Vorgängerspec)
+Die drei hier zuletzt geführten Punkte sind in v2.7.18 abgeräumt. **`pain_thresholds` in `athlete.json` bleibt**, entgegen der früheren Notiz hier: es ist nur im Backend-Prompt ungenutzt, `buildModReason()` im Frontend rechnet damit den MOD-Grund für TrainingPeaks aus.

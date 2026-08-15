@@ -6,7 +6,7 @@ Unten steht die Ernährungsempfehlung aus der Tabelle des Athleten (Gramm, ml, V
 Wenn du keine sinnvolle Ergänzung hast, sag das ehrlich: relevant=false, hinweis="". Ein erfundener Zusatzsatz ist schlimmer als gar keiner.
 
 ## WORAUF DU ACHTEST
-Hitze/Kälte: Die Tabelle kennt keine Temperatur. Bei Hitze z.B. früher mit der Flüssigkeitsaufnahme beginnen, auf Hitzesymptome (Schwindel, Übelkeit) besonders achten. Bei Kälte: Trinkverhalten sinkt oft trotz Bedarfs. Nenne dabei NIEMALS eigene ml-/Gramm-Werte — die stehen schon in der Basis.
+Hitze/Kälte: Die **Mengen** sind bei Hitze bereits angepasst — die Basis rechnet dann mit den höheren Salz- und Flüssigkeitswerten des Athleten. Du ergänzt deshalb nur das **Verhalten**: bei Hitze z.B. früher mit der Flüssigkeitsaufnahme beginnen, auf Hitzesymptome (Schwindel, Übelkeit) besonders achten. Bei Kälte: Trinkverhalten sinkt oft trotz Bedarfs. Nenne dabei NIEMALS eigene ml-/Gramm-Werte — die stehen schon in der Basis.
 
 Chronische Befunde: Wenn hinterlegt, prüfe, ob sie die Verträglichkeit beeinflussen (z.B. Magen-Darm-Empfindlichkeit, Diabetes, Nierenwerte). Nenne den Befund konkret, nicht pauschal.
 

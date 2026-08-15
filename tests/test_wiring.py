@@ -506,6 +506,27 @@ async def main():
     pruefe("TRAININGPEAKS PLAN-DATEN" in nur_plan,
            "Ohne HF/Watt/Kadenz bleibt es eine Plan-Einheit (duration_planned allein zählt nicht)")
 
+    # v2.7.18: Der Umweg über den Claude-MCP-Connector war komplett tot —
+    # _tp_call_sync hatte keinen Aufrufer, und damit hing call_claude_tp_mcp
+    # (sein einziger Nutzer) plus der 6-Minuten-HTTP-Client mit am Ast.
+    # TP läuft ausschließlich über direktes JSON-RPC (call_tp_mcp).
+    print("\n=== Toter Code bleibt entfernt (v2.7.18) ===")
+    for name in ("_tp_call_sync", "call_claude_tp_mcp", "_tp_http_long",
+                 "_run_analysis_job", "build_pain_rules"):
+        pruefe(not hasattr(app, name), f"app.{name} existiert nicht mehr")
+    pruefe(hasattr(app, "call_tp_mcp"), "der genutzte JSON-RPC-Pfad ist unangetastet")
+    pruefe("tp_workouts_prompt" not in TRANSLATIONS["de"]
+           and "tp_workouts_prompt" not in TRANSLATIONS["en"],
+           "der nur davon genutzte Prompt ist in beiden Sprachen weg")
+    pruefe(not (Path(__file__).parent.parent / "CLAUDE_14.md").exists(),
+           "die veraltete Vorgängerspec CLAUDE_14.md ist gelöscht")
+    # Gegenprobe: pain_thresholds ist NICHT tot — das Frontend rechnet damit
+    # den MOD-Grund für TrainingPeaks aus. Nur der Backend-Prompt nutzte es nie.
+    pruefe("pain_thresholds" in (Path(__file__).parent.parent / "athlete.json").read_text(encoding="utf-8"),
+           "pain_thresholds bleibt in athlete.json — das Frontend liest es")
+    pruefe("athlete?.pain_thresholds" in _idx,
+           "buildModReason() liest die Schwellen weiterhin aus dem Profil")
+
     print("\n=== Fallback bei Agent-Fehler ===")
     def kaputt(**kwargs):
         raise RuntimeError("simulierter Ausfall")

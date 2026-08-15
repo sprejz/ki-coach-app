@@ -38,18 +38,12 @@ from agents import (
     periodizer, weather,
 )
 from agents.base import HAIKU
-from nutrition import nutrition_for_duration
+# normalize_sport lebt in nutrition.py (Blattmodul), damit app.py dieselbe
+# Zuordnung nutzen kann, ohne den Agent-Pfad zu importieren. Der Re-Export
+# hier haelt orchestrator.normalize_sport als Aufrufweg erhalten.
+from nutrition import normalize_sport, nutrition_for_duration  # noqa: F401
 
 logger = logging.getLogger(__name__)
-
-# Sportarten-Normalisierung: TP liefert englische Bezeichner, die Agent-Schemas
-# arbeiten mit den deutschen Enum-Werten.
-_SPORT_MAP = {
-    "swim": "Schwimmen", "schwimm": "Schwimmen", "pool": "Schwimmen",
-    "bike": "Rad", "rad": "Rad", "cycl": "Rad", "zwift": "Rad",
-    "run": "Laufen", "lauf": "Laufen",
-    "strength": "Kraft", "kraft": "Kraft",
-}
 
 # Sport-Agenten für Lauf/Rad/Schwimm (agents/architect_run, _bike, _swim);
 # Kraft/Sonstiges fallen auf den generischen agents/architect zurück.
@@ -71,14 +65,6 @@ _ARCHITECT_KEY_BY_SPORT = {
 # Stufen, die `run_check` über den progress-Callback meldet. Der Orchestrator
 # kennt bewusst keine UI-Texte — er liefert Schlüssel, das Frontend die Worte.
 STUFEN = ("spezialisten", "chefcoach", "architekt")
-
-
-def normalize_sport(sport: str) -> str:
-    s = (sport or "").lower()
-    for needle, name in _SPORT_MAP.items():
-        if needle in s:
-            return name
-    return "Sonstiges"
 
 
 def _wetter_zeile(w: dict) -> str:
@@ -124,8 +110,11 @@ async def _baue_einheit(*, entscheidung: dict, workout: Optional[dict], athlete:
         beschreibung = ""
 
     # Ernährung deterministisch aus der fertigen Dauer — kein Modell.
+    # Sportart und Hitze gehen mit ein: beim Laufen liegt die verträgliche
+    # Carb-Rate niedriger als auf dem Rad, bei Hitze steigen Salz und Menge.
     ernaehrung = "" if badge == "SKIP" else nutrition_for_duration(
-        dauer, athlete.get("nutrition", {})
+        dauer, athlete.get("nutrition", {}), sport=sport,
+        is_hot=bool((weather_data or {}).get("is_hot")),
     )
 
     # Kontextsensitive Ergänzung — läuft NUR mit einem Grund, kein Modell ohne

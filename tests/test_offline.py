@@ -152,6 +152,45 @@ def frontend_vertrag(eintrag: dict) -> set:
     return set(eintrag) - {"_begruendung"}
 
 
+print("\n=== Ernährung: Gesamtmengen + sportartabhängige Carb-Rate (v2.7.19) ===")
+import json as _json  # noqa: E402
+from nutrition import carbs_per_hour, mix_totals, nutrition_for_duration  # noqa: E402
+
+NUT = _json.loads((Path(__file__).parent.parent / "athlete.json").read_text(encoding="utf-8"))["nutrition"]
+
+pruefe(carbs_per_hour(NUT, "Bike") == 90 and carbs_per_hour(NUT, "Rad") == 90,
+       "Rad bleibt bei der Basisrate — auch bei englischem TP-Namen")
+pruefe(carbs_per_hour(NUT, "Run") == 60 and carbs_per_hour(NUT, "Laufen") == 60,
+       "Laufen bekommt die niedrigere Rate (Magenverträglichkeit)")
+pruefe(carbs_per_hour(NUT, "Golf") == 90 and carbs_per_hour(NUT, None) == 90,
+       "Ohne eigenen Eintrag gilt die Basisrate")
+
+rad = mix_totals(165, NUT, "Bike")
+lauf = mix_totals(165, NUT, "Run")
+pruefe(rad["carbs_g"] == 250 and lauf["carbs_g"] == 165,
+       "2:45 h: 250 g Carbs auf dem Rad, 165 g beim Laufen")
+for name, t in (("Rad", rad), ("Laufen", lauf)):
+    pruefe(t["maltodextrin_g"] + t["fruchtzucker_g"] == t["carbs_g"],
+           f"{name}: Maltodextrin + Fruchtzucker ergeben exakt die Gesamtmenge")
+pruefe(rad["maltodextrin_g"] == 165 and rad["fruchtzucker_g"] == 85,
+       "Mischverhältnis 2:1 wird auf die Gesamtmenge angewendet")
+heiss = mix_totals(165, NUT, "Bike", is_hot=True)
+pruefe(heiss["saltstick"] > rad["saltstick"] and heiss["fluid_ml"] > rad["fluid_ml"],
+       "Bei Hitze steigen Salz und Flüssigkeit, die Carbs bleiben gleich")
+pruefe(heiss["carbs_g"] == rad["carbs_g"], "Hitze ändert die Kohlenhydratmenge nicht")
+
+kurz = nutrition_for_duration(45, NUT, sport="Run")
+lang = nutrition_for_duration(165, NUT, sport="Run")
+pruefe("🥤" not in kurz, "Unter 90 min gibt es nichts zu mischen — keine Mengenzeile")
+pruefe("🥤" in lang and "110 g Maltodextrin" in lang,
+       "Ab 90 min steht die Gesamtmenge zum Selbstanmischen in der Empfehlung")
+pruefe("60g Carbs/h" in lang and "90g Carbs/h" not in lang,
+       "Auch der Regeltext nennt beim Laufen die niedrigere Rate")
+pruefe(mix_totals(0, NUT, "Bike") is None and nutrition_for_duration(None, NUT) == "",
+       "Ohne Dauer wird nichts erfunden")
+pruefe(mix_totals(165, {"carbs_per_hour_g": 90}, "Bike")["maltodextrin_g"] is None,
+       "Ohne mix_ratio bleibt die Aufteilung leer, statt aus dem Freitext geraten zu werden")
+
 print("\n=== Frontend-Vertrag (vom Orchestrator zusammengebaut) ===")
 ATHLET = {"nutrition": {"rules": [
     {"duration_max_min": 60, "before": "Nüchtern", "during": "Wasser reicht"},

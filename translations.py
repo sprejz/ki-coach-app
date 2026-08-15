@@ -296,12 +296,6 @@ TRANSLATIONS = {
             '[{{"action":"rename_workout","status":"ok","detail":"Renamed to ↩️ Z2 Ausdauer (KI)"}}]\n'
             "Use status 'ok' or 'error'."
         ),
-        "tp_workouts_prompt": (
-            "Alle geplanten Workouts für {name} am {date} aus TrainingPeaks auflisten. "
-            "Antworte NUR mit einem gültigen JSON-Array mit diesen Feldern: id, sport, title, duration_min, tss. "
-            "Beispiel: "
-            '[{{"id":"123","sport":"Swim","title":"Pool Z2","duration_min":45,"tss":30}}]'
-        ),
         "tp_history_prompt": (
             "Liste alle Workouts (geplant und abgeschlossen) für {name} vom {start} bis {end} aus TrainingPeaks. "
             "Gruppiere nach Datum. Antworte NUR mit einem gültigen JSON-Array. Beispiel: "
@@ -637,12 +631,6 @@ TRANSLATIONS = {
             "After completing all operations respond ONLY with a JSON array (no markdown):\n"
             '[{{"action":"rename_workout","status":"ok","detail":"Renamed to ↩️ Z2 Endurance (AI)"}}]\n'
             "Use status 'ok' or 'error'."
-        ),
-        "tp_workouts_prompt": (
-            "List all planned workouts for {name} on {date} from TrainingPeaks. "
-            "Respond ONLY with a valid JSON array with these fields: id, sport, title, duration_min, tss. "
-            "Example: "
-            '[{{"id":"123","sport":"Swim","title":"Pool Z2","duration_min":45,"tss":30}}]'
         ),
         "tp_history_prompt": (
             "List all workouts (planned and completed) for {name} from {start} to {end} from TrainingPeaks. "

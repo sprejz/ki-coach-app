@@ -38,7 +38,7 @@ except Exception as _agent_err:          # pragma: no cover
     _AGENTS_IMPORTABLE = False
     _AGENTS_IMPORT_ERROR = str(_agent_err)
 
-APP_VERSION = "2.7.17"
+APP_VERSION = "2.7.19"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -88,10 +88,6 @@ BASE_DIR = Path(__file__).parent
 # ── shared HTTP clients (connection pooling) ──────────────────────────────────
 _tp_http = httpx.Client(
     timeout=httpx.Timeout(15.0),
-    limits=httpx.Limits(max_connections=5, max_keepalive_connections=3),
-)
-_tp_http_long = httpx.Client(
-    timeout=httpx.Timeout(360.0),   # 6 Min für Workout-Analyse
     limits=httpx.Limits(max_connections=5, max_keepalive_connections=3),
 )
 
@@ -884,10 +880,6 @@ def flag_sleep(data: dict, baseline: Optional[dict]) -> dict:
 # Monolith-Pfad teilen sich dieselbe Tabellenlogik.
 
 
-def build_pain_rules(_pt: dict) -> str:
-    return ""
-
-
 def build_system_prompt(athlete: dict, baseline: Optional[dict]) -> str:
     a = next_a_race(athlete)
     a_info = f"{a['name']}, {a['date']}, Zielzeit {a.get('goal_total', '?')}h" if a else "kein A-Rennen eingetragen"
@@ -922,7 +914,6 @@ def build_system_prompt(athlete: dict, baseline: Optional[dict]) -> str:
         fluid_heat=n.get("fluid_heat_per_hour_ml", 750),
         salt_heat=n.get("salt_heat_per_hour", 2),
         swim_min=athlete.get("swim_outdoor_min_celsius", 15),
-        pain_rules=build_pain_rules(athlete.get("pain_thresholds", {})),
         chronische_befunde=athlete.get("chronische_befunde") or "keine bekannt",
     )
 
@@ -942,52 +933,6 @@ def call_claude(system: str, user_msg: str) -> dict:
     )
     raw = msg.content[0].text.strip()
     return _extract_json(raw)
-
-
-def call_claude_tp_mcp(user_content: str) -> str:
-    tp_url = os.environ.get("TP_MCP_URL", "")
-    key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not key:
-        raise HTTPException(500, T["err_api_key_missing"])
-    c = anthropic.Anthropic(api_key=key, http_client=_tp_http_long)
-    try:
-        msg = c.beta.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=1000,
-            betas=["mcp-client-2025-11-20"],
-            mcp_servers=[{"type": "url", "url": tp_url, "name": "trainingpeaks"}],
-            tools=[{"type": "mcp_toolset", "mcp_server_name": "trainingpeaks"}],
-            system="Antworte ausschließlich mit gültigem JSON. Kein Erklärungstext, keine Markdown-Blöcke, kein Text vor oder nach dem JSON.",
-            messages=[{"role": "user", "content": user_content}],
-        )
-    except anthropic.APIStatusError as e:
-        body = getattr(e, "body", None) or {}
-        detail = (body.get("error", {}).get("message", "") if isinstance(body, dict) else "") or getattr(e, "message", "")
-        logger.error("TP MCP APIStatusError %s: body=%s", e.status_code, body)
-        raise HTTPException(502, f"TrainingPeaks MCP {e.status_code}: {detail or str(e)}")
-    except anthropic.APIConnectionError as e:
-        logger.error("TP MCP connection error: %s", e)
-        raise HTTPException(502, f"TrainingPeaks MCP nicht erreichbar: {e}")
-    except Exception as e:
-        logger.error("TP MCP unexpected error: %s %s", type(e).__name__, e)
-        raise HTTPException(502, f"TrainingPeaks MCP Fehler: {e}")
-
-    mcp_errors = []
-    last_text = None
-    for block in msg.content:
-        if hasattr(block, "text") and block.text:
-            last_text = block.text  # letzten Text-Block merken (nach Tool-Calls)
-        if getattr(block, "is_error", False):
-            content = getattr(block, "content", "")
-            if isinstance(content, list):
-                content = " ".join(getattr(c, "text", str(c)) for c in content)
-            mcp_errors.append(str(content)[:300])
-
-    if last_text:
-        return last_text
-    if mcp_errors:
-        raise HTTPException(502, f"TrainingPeaks Fehler: {'; '.join(mcp_errors)}")
-    return ""
 
 
 async def call_tp_mcp(tool_name: str, arguments: dict):
@@ -1322,38 +1267,6 @@ async def get_weather(day: str = "tomorrow"):
         raise HTTPException(500, str(e))
 
 
-def _tp_call_sync(athlete: dict, day_offset: int) -> dict:
-    """Synchronous TP fetch — runs in asyncio.to_thread for parallel startup."""
-    tp_url = os.environ.get("TP_MCP_URL", "")
-    if not tp_url:
-        return {"available": False, "workouts": [], "date": None}
-    target = (date.today() + timedelta(days=day_offset)).isoformat()
-    cached = _tp_cache_get(target)
-    if cached:
-        logger.info("_tp_call_sync cache hit: %s", target)
-        return cached
-    prompt = T["tp_workouts_prompt"].format(name=athlete.get("name", "the athlete"), date=target)
-    try:
-        raw = call_claude_tp_mcp(prompt)
-        if raw.startswith("```"):
-            lines = raw.split("\n")
-            raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-        workouts = json.loads(raw)
-        logger.info("_tp_call_sync ok: %d workouts day_offset=%d", len(workouts), day_offset)
-        result = {"available": True, "workouts": workouts, "date": target}
-        _tp_cache_set(target, result)
-        return result
-    except json.JSONDecodeError:
-        logger.error("_tp_call_sync JSON error raw=%s", raw[:200])
-        return {"available": True, "workouts": [], "date": target}
-    except HTTPException as e:
-        logger.error("_tp_call_sync HTTPException: %s", e.detail)
-        return {"available": False, "workouts": [], "date": target, "error": e.detail}
-    except Exception as e:
-        logger.error("_tp_call_sync error: %s", e)
-        return {"available": False, "workouts": [], "date": target, "error": str(e)[:200]}
-
-
 _NO_CACHE = {
     "Cache-Control": "no-cache, no-store, must-revalidate",
     "Pragma": "no-cache",
@@ -1660,7 +1573,10 @@ async def tp_apply(request: Request):
                 desc_parts.append(coach_rec)
             if orig_desc:
                 desc_parts.append(f"Original:\n{orig_desc}")
-            nutr = op.get("ernaehrung") or nutrition_for_duration(new_duration, athlete.get("nutrition", {}))
+            nutr = op.get("ernaehrung") or nutrition_for_duration(
+                new_duration, athlete.get("nutrition", {}), sport=op_sport,
+                is_hot=bool((weather_for_apply or {}).get("is_hot")),
+            )
             if nutr:
                 desc_parts.append(f"ERNÄHRUNG: {nutr}")
 
@@ -2334,40 +2250,6 @@ async def tp_workouts_history(days: int = 5):
         return JSONResponse({"available": False, "days": [], "error": str(e)[:200]}, headers=_NO_CACHE)
 
 
-def _run_analysis_job(job_id: str, tp_url: str, key: str, prompt: str):
-    """Läuft in eigenem Thread — kein Timeout durch Railway/Browser."""
-    import re as _re
-    try:
-        c = anthropic.Anthropic(api_key=key, http_client=_tp_http_long)
-        msg = c.beta.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=800,
-            betas=["mcp-client-2025-11-20"],
-            mcp_servers=[{"type": "url", "url": tp_url, "name": "trainingpeaks"}],
-            tools=[{"type": "mcp_toolset", "mcp_server_name": "trainingpeaks"}],
-            system="Du bist ein erfahrener Triathlon-Coach. Antworte ausschließlich mit gültigem JSON ohne Markdown.",
-            messages=[{"role": "user", "content": prompt}],
-        )
-        # Take the LAST text block — earlier blocks are reasoning/narration, final block is the JSON
-        raw = ""
-        for block in msg.content:
-            if hasattr(block, "text") and block.text:
-                raw = block.text.strip()
-        if raw.startswith("```"):
-            lines = raw.split("\n")
-            raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-        try:
-            result = json.loads(raw)
-        except json.JSONDecodeError:
-            m = _re.search(r'\{.*\}', raw, _re.DOTALL)
-            result = json.loads(m.group()) if m else {"bewertung": "ok", "urteil": raw[:400], "naechster_schritt": ""}
-        logger.info("analysis job %s done: bewertung=%s", job_id, result.get("bewertung"))
-        _analysis_jobs[job_id] = {"status": "done", "result": result}
-    except Exception as e:
-        logger.error("analysis job %s error: %s", job_id, e)
-        _analysis_jobs[job_id] = {"status": "error", "error": str(e)[:300]}
-
-
 def _run_analysis_job_agent(job_id: str, quelle: Optional[str] = None, **kwargs):
     """Analyse über den Performance-Analyst mit erzwungenem Schema.
 
@@ -2641,7 +2523,10 @@ async def workout_analyze(
             fit_data.get("dauer_min") or _tp_dauer_min(tp_workout_data, prefer="actual")
         )
         ernaehrung_basis = (
-            nutrition_for_duration(_dauer_fuer_ernaehrung, athlete.get("nutrition", {}))
+            nutrition_for_duration(
+                _dauer_fuer_ernaehrung, athlete.get("nutrition", {}), sport=sport,
+                is_hot=bool((weather_on_date or {}).get("is_hot")),
+            )
             if _dauer_fuer_ernaehrung else ""
         )
         t = threading.Thread(

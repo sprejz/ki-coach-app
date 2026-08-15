@@ -2,7 +2,7 @@
   "name": "Hendrik",
   "location": {
     "name": "Ludwigsfelde",
-    "lat": 52.30,
+    "lat": 52.3,
     "lon": 13.25
   },
   "weight_kg": 84,
@@ -65,33 +65,52 @@
         "duration_max_min": 60,
         "before": "Nüchtern oder kleines Frühstück",
         "during": "Wasser reicht",
-        "after": "Normale Mahlzeit binnen 1h"
+        "after": "Normale Mahlzeit binnen 1h",
+        "carbs_during": false
       },
       {
         "duration_min_min": 60,
         "duration_max_min": 90,
         "before": "Leichtes Frühstück 2h vorher",
         "during": "Wasser reicht",
-        "after": "Mahlzeit binnen 1h"
+        "after": "Mahlzeit binnen 1h",
+        "carbs_during": false
       },
       {
         "duration_min_min": 90,
         "duration_max_min": 180,
         "before": "KH-reiches Frühstück 2h vorher",
         "during": "90g Carbs/h (Maltodextrin 19 + Fruchtzucker 2:1) + 1 Saltstick/h",
-        "after": "25g Protein + Carbs binnen 30 min"
+        "after": "25g Protein + Carbs binnen 30 min",
+        "carbs_during": true
       },
       {
         "duration_min_min": 180,
         "before": "Renntag-Protokoll: 100g Carbs (wenig Ballaststoffe) 2h vorher",
         "during": "90g Carbs/h + 1-2 Saltstick/h",
-        "after": "Recovery-Mahlzeit binnen 30 min"
+        "after": "Recovery-Mahlzeit binnen 30 min",
+        "carbs_during": true
       }
-    ]
+    ],
+    "mix_ratio": {
+      "maltodextrin": 2,
+      "fruchtzucker": 1
+    },
+    "carbs_per_hour_by_sport": {
+      "Laufen": 60
+    }
   },
   "pain_thresholds": {
-    "knee":     {"mod_low": 3, "mod_high": 7, "stop": 7},
-    "achilles": {"mod_low": 4, "mod_high": 6, "stop": 6}
+    "knee": {
+      "mod_low": 3,
+      "mod_high": 7,
+      "stop": 7
+    },
+    "achilles": {
+      "mod_low": 4,
+      "mod_high": 6,
+      "stop": 6
+    }
   },
   "updated": "2026-06-20"
 }
