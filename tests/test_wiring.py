@@ -234,6 +234,40 @@ async def main():
     pruefe(len(mitschrieb.get("architect", [])) == 1,
            "architect (Fallback) läuft nur für Kraft — kein einziges Mal für Laufen/Rad/Schwimmen")
 
+    # v2.7.15: Das Chefcoach-Schema lässt für "sport" jeden String zu. Der
+    # Dispatch war ein Exact-Match darauf, also landete "Run" oder auch nur
+    # "Laufen " mit Leerzeichen beim Kraft/Sonstiges-Architekten — im Frontend
+    # sichtbar als "Coach Lea Fromm" über einer Laufeinheit.
+    for roh in ("Run", "Lauf", "laufen", "Laufen (LIT)", "Laufen ", "running"):
+        eintrag = await orchestrator._baue_einheit(
+            entscheidung={"sport": roh, "badge": "MOD", "details": "T",
+                          "begruendung": "T", "anpassung": {}},
+            workout={"sport": roh, "description": "Original", "duration_min": 45},
+            athlete={"nutrition": {"rules": []}}, wetter_zeile="Sonnig", model="egal",
+        )
+        pruefe(eintrag["beschreibung"] == FAKE_ARCHITEKT_RUN["beschreibung"],
+               f"{roh!r} landet beim Laufcoach, nicht beim Kraft/Sonstiges-Fallback")
+        pruefe(eintrag["architekt"] == "architect_run",
+               f"{roh!r}: der Vertrag nennt den Agenten, der wirklich gelaufen ist")
+        pruefe(eintrag["sport"] == roh,
+               f"{roh!r}: angezeigt wird weiter der Text des Chefcoachs, nicht die Normalform")
+    pruefe(len(mitschrieb.get("architect", [])) == 1,
+           "der Kraft/Sonstiges-Fallback wurde durch die sechs Schreibweisen kein weiteres Mal gerufen")
+
+    # Ohne Architekt darf auch kein Architekt drüberstehen (GO/SKIP, Monolith).
+    for badge in ("GO", "SKIP"):
+        eintrag = await orchestrator._baue_einheit(
+            entscheidung={"sport": "Laufen", "badge": badge, "details": "T",
+                          "begruendung": "T", "anpassung": {}},
+            workout={"sport": "Run", "description": "Original", "duration_min": 45},
+            athlete={"nutrition": {"rules": []}}, wetter_zeile="Sonnig", model="egal",
+        )
+        pruefe(eintrag["architekt"] is None,
+               f"{badge}: kein Architekt gelaufen → keine Zuschreibung im Vertrag")
+    _idx = (Path(__file__).parent.parent / "templates" / "index.html").read_text(encoding="utf-8")
+    pruefe("ARCHITEKT_SPORT_KEY" not in _idx and "agentTag(s.architekt)" in _idx,
+           "Frontend nennt den Architekten aus s.architekt statt ihn aus der Sportart zu raten")
+
     print("\n=== Eingaben kommen bei den Agents an ===")
     m = mitschrieb["medic_last"]
     pruefe(m["koerper"]["achilles_r"] == 5, "Mediziner bekommt Achilles rechts = 5")

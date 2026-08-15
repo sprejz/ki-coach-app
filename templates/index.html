@@ -1729,8 +1729,11 @@ function buildResult(data, fd, type) {
       const isOverridden = !!userOverrides[idx];
       const bc = isOverridden ? 'badge-override' : (s.badge === 'GO' ? 'badge-go' : s.badge === 'MOD' ? 'badge-mod' : 'badge-skip');
       const badgeLabel = isOverridden ? 'GO ↩' : s.badge;
-      const coachZeile = s.badge === 'MOD'
-        ? `<p class="sport-coach-tag">✍️ ${esc(agentTag(ARCHITEKT_SPORT_KEY[s.sport] || 'architect'))}</p>` : '';
+      // s.architekt kommt vom Orchestrator und nennt den Agenten, der wirklich
+      // gelaufen ist. Fehlt das Feld (Monolith-Pfad), hat kein Architekt
+      // geschrieben — dann steht hier auch kein Name.
+      const coachZeile = s.badge === 'MOD' && s.architekt
+        ? `<p class="sport-coach-tag">✍️ ${esc(agentTag(s.architekt))}</p>` : '';
       const beraterZeile = s.ernaehrung_von_berater
         ? `<p class="sport-coach-tag">🥕 ${esc(agentTag('fueling'))}</p>` : '';
       h += `<div class="sport-card" id="sport-card-${idx}">
@@ -1795,7 +1798,6 @@ function buildResult(data, fd, type) {
 
 // Agenten-Namen (v2.7.11) — T.agenten kommt 1:1 aus translations.py über
 // T_json, keine eigene Plumbing nötig.
-const ARCHITEKT_SPORT_KEY = {"Laufen": "architect_run", "Rad": "architect_bike", "Schwimmen": "architect_swim"};
 function agentTag(schluessel) {
   const a = T.agenten?.[schluessel];
   return a ? `${a.name} (${a.rolle})` : '';

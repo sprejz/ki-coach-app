@@ -1,4 +1,4 @@
-# KI Coach App — v2.7.14
+# KI Coach App — v2.7.15
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -40,7 +40,7 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.7.14)
+├── CLAUDE.md            ← diese Datei (v2.7.15)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
 ├── coach_mcp.py         ← MCP-Server für Claude Desktop + Code (stdio lokal / HTTP remote)
 ├── requirements-mcp.txt ← nur für coach_mcp.py, eigenes venv (.venv-mcp)
@@ -375,6 +375,20 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.7.15 — Der Laufcoach bekommt seine Laufeinheiten zurück
+Im Live-Betrieb stand über einer **Laufeinheit** „Coach Lea Fromm (Kraft & Sonstiges)". Nicht nur das Etikett war falsch — es hat auch wirklich der generische Architekt geschrieben, also der ohne Kadenz-Korridore, Trabpausen und die übrigen Lauf-Leitlinien aus v2.7.10.
+
+Ursache ist ein **Exact-Match auf einen frei formulierten Modell-String**, an zwei Stellen unabhängig voneinander:
+- `orchestrator.py` dispatchte über `_ARCHITECT_BY_SPORT.get(sport, architect.run)` mit `sport` = dem **rohen** `sport`-Feld des Chefcoachs. Dessen Schema deklariert `{"type": "string"}` ohne `enum`, das Modell darf also „Run", „Lauf", „Laufen (LIT)" oder „Laufen " mit Leerzeichen liefern. Alles außer exakt „Laufen"/„Rad"/„Schwimmen" fiel auf den Kraft/Sonstiges-Fallback. `normalize_sport()` existierte seit jeher genau dafür und wurde an dieser einen Stelle nicht benutzt.
+- `templates/index.html` leitete den Namen mit derselben Exact-Match-Logik aus der Sportart ab (`ARCHITEKT_SPORT_KEY[s.sport] || 'architect'`) — die v2.7.11-Entscheidung „kein neues Backend-Feld nötig". Beide Fehler zeigten in dieselbe Richtung, deshalb sah die Anzeige konsistent aus und war es nicht.
+
+Behoben:
+- **Dispatch normalisiert**: `sport = normalize_sport(sport_label)` entscheidet über Agent, Architekt-Kontext und Ernährungsberater. Angezeigt wird weiter der Text des Chefcoachs — sonst würde aus „Golf" ein „Sonstiges" auf der Karte.
+- **Neues Vertragsfeld `architekt`** pro Sportart: der Schlüssel des Agenten, der tatsächlich gelaufen ist (`architect_run`/`_bike`/`_swim`/`architect`), sonst `None`. Das Frontend rät nicht mehr. Nebenwirkung: im **Monolith-Pfad** stand bisher ebenfalls ein Architekten-Name über der Einheit, obwohl dort gar keiner läuft — das Feld fehlt dann und die Zeile bleibt weg.
+- Kein `enum` im Chefcoach-Schema: das würde „Golf" und „Brick" auf „Sonstiges" zusammenfalten, obwohl die Anzeige sie unterscheiden soll. Die Normalisierung sitzt an der Stelle, wo sie gebraucht wird.
+
+Tests: `test_wiring.py` fährt sechs Schreibweisen („Run", „Lauf", „laufen", „Laufen (LIT)", „Laufen ", „running") durch `_baue_einheit` und prüft, dass jede beim Laufcoach landet, dass `architekt` den Agenten nennt, der wirklich lief, und dass GO/SKIP niemanden zugeschrieben bekommen. Der alte Test prüfte nur die bereits normalisierten Namen und konnte den Fehler deshalb nicht finden.
 
 ### v2.7.14 — TP-Feldnamen in `app.py` korrigiert, Periodisierer sieht das Absolvierte
 Fortsetzung des Nebenbefunds aus v2.7.9: dort war `agents/analyst.py` auf die echten MCP-Feldnamen umgestellt worden, in `app.py` und `training_load.py` stand derselbe Irrtum aber weiter drin. **Der MCP-Server normalisiert die TP-Antwort auf snake_case, mit Dauern in Stunden und den Kennzahlen der Detail-Antwort unter `metrics`** — die camelCase-Namen der TP-eigenen API (`totalTimePlanned`, `tssPlanned`, `workoutTypeValueId`, `workoutDay`, …) gibt es in der Antwort nicht. Live gegen den MCP abgenommen; **`tp_get_events` ist die Ausnahme und liefert wirklich camelCase** (`eventDate`, `atpPriority`) — die Event-Pfade waren also korrekt.

@@ -59,6 +59,14 @@ _ARCHITECT_BY_SPORT = {
     "Schwimmen": architect_swim.run,
 }
 
+# Derselbe Schlüssel wie in translations.py → T["agenten"], damit das Frontend
+# den Namen nicht aus der Sportart erraten muss.
+_ARCHITECT_KEY_BY_SPORT = {
+    "Laufen": "architect_run",
+    "Rad": "architect_bike",
+    "Schwimmen": "architect_swim",
+}
+
 
 # Stufen, die `run_check` über den progress-Callback meldet. Der Orchestrator
 # kennt bewusst keine UI-Texte — er liefert Schlüssel, das Frontend die Worte.
@@ -84,15 +92,23 @@ async def _baue_einheit(*, entscheidung: dict, workout: Optional[dict], athlete:
                         a_race: Optional[dict] = None, tage_bis_a: Optional[int] = None) -> dict:
     """Baut einen Eintrag im Frontend-Vertrag aus Entscheidung + Original-Workout."""
     badge = entscheidung.get("badge", "GO")
-    sport = entscheidung.get("sport", "")
+    # Der Chefcoach formuliert die Sportart frei — "Run", "Lauf", "Laufen (LIT)"
+    # oder mit angehängtem Leerzeichen sind alle möglich, das Schema lässt jeden
+    # String zu. Für Dispatch und Agentenkontext zählt deshalb nur die
+    # normalisierte Form; angezeigt wird weiter, was der Chefcoach geschrieben
+    # hat (sonst würde aus "Golf" ein "Sonstiges" auf der Karte).
+    sport_label = entscheidung.get("sport", "")
+    sport = normalize_sport(sport_label)
     workout = workout or {}
     orig_desc = (workout.get("description") or "").strip()
     dauer = workout.get("duration_min")
     beschreibung, tp_struktur, distanz_m = orig_desc, None, None
 
+    architekt_key = None
     if badge == "MOD":
         # Nur hier läuft der Architekt. Lauf/Rad/Schwimm haben eigene
         # Disziplin-Agenten, alles andere (Kraft/Sonstiges) den Fallback.
+        architekt_key = _ARCHITECT_KEY_BY_SPORT.get(sport, "architect")
         architekt_fn = _ARCHITECT_BY_SPORT.get(sport, architect.run)
         gebaut = await asyncio.to_thread(
             architekt_fn, athlete=athlete, workout=workout,
@@ -144,7 +160,13 @@ async def _baue_einheit(*, entscheidung: dict, workout: Optional[dict], athlete:
             logger.warning("fueling-Agent fehlgeschlagen, Basis-Ernährung bleibt bestehen: %s", e)
 
     return {
-        "sport": sport,
+        "sport": sport_label or sport,
+        # Wer die Einheit ausformuliert hat, sagt der Orchestrator explizit.
+        # Bis v2.7.14 riet das Frontend es sich aus `sport` zusammen und lag
+        # bei jeder Abweichung vom Wort "Laufen"/"Rad"/"Schwimmen" daneben —
+        # und schrieb im Monolith-Pfad sogar einen Architekten hin, der gar
+        # nicht gelaufen war. None heißt: kein Architekt beteiligt.
+        "architekt": architekt_key,
         "badge": badge,
         "details": entscheidung.get("details", ""),
         "beschreibung": beschreibung,
