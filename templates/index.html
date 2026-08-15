@@ -116,6 +116,19 @@ body {
 }
 .tab-btn.active { background: var(--card2); border-bottom-color: var(--card2); color: var(--text); }
 
+/* ── Ernährungs-Tab ──────────────────────────────────────────────────────── */
+.ern-einheit { border-top: 1px solid var(--border); padding: 8px 0; }
+.ern-einheit:first-of-type { border-top: none; }
+.ern-einheit > summary {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  cursor: pointer; list-style: none; font-size: 13px; color: var(--text);
+}
+.ern-einheit > summary::-webkit-details-marker { display: none; }
+.ern-einheit > summary::after { content: '▸'; margin-left: auto; color: var(--muted); }
+.ern-einheit[open] > summary::after { content: '▾'; }
+.ern-detail { padding: 8px 2px 2px; }
+.ern-zeile { font-size: 12px; color: var(--muted); line-height: 1.6; }
+
 /* ── forms ───────────────────────────────────────────────────────────────── */
 .tab-panel { display: none; padding: 0 16px; }
 .tab-panel.active { display: block; }
@@ -816,7 +829,7 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
   <button class="tab-btn" data-tab="erholung">{{ T.tab_erholung }}</button>
   <button class="tab-btn" data-tab="chat">Chat</button>
   <button class="tab-btn" data-tab="einstellungen">{{ T.tab_profil }}</button>
-  <button class="tab-btn" data-tab="about">{{ T.tab_about }}</button>
+  <button class="tab-btn" data-tab="ernaehrung">{{ T.tab_ernaehrung }}</button>
 </div>
 
 <!-- Error banner -->
@@ -1213,23 +1226,7 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
       <button type="button" class="btn-submit" onclick="recalcBaseline()">{{ T.btn_baseline }}</button>
     </div>
 
-  </div><!-- Einstellungen panel -->
-
-  <!-- About panel -->
-  <div class="tab-panel" data-panel="chat">
-    <div class="form-card" style="border-top:none;border-radius:0 0 var(--radius) var(--radius);display:flex;flex-direction:column;gap:0;min-height:60vh">
-      <div style="text-align:center;font-size:12px;color:var(--muted);margin-bottom:8px">
-        {{ T.agenten.chefcoach.name }} · {{ T.agenten.chefcoach.rolle }}
-      </div>
-      <div id="chat-history" style="flex:1;overflow-y:auto;max-height:55vh;display:flex;flex-direction:column;gap:10px;padding-bottom:8px"></div>
-      <div style="display:flex;gap:8px;margin-top:12px;align-items:flex-end">
-        <textarea id="chat-input" rows="2" placeholder="Frage deinen Coach…" style="flex:1;background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:8px;padding:10px;color:var(--text);font-size:14px;resize:none;font-family:inherit;line-height:1.4"></textarea>
-        <button onclick="sendChatMessage()" id="chat-send-btn" style="background:rgba(29,158,117,.15);border:1px solid rgba(29,158,117,.4);color:#1D9E75;border-radius:8px;padding:10px 14px;font-size:18px;cursor:pointer;flex-shrink:0;height:44px">↑</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="tab-panel" data-panel="about">
+  <div><!-- Info (seit v2.7.21 im Profil) -->
     <div class="form-card" style="text-align:center;padding:32px 20px">
       <div style="font-size:48px;margin-bottom:12px">🏊🚴🏃</div>
       <div style="font-size:22px;font-weight:700;color:var(--text);margin-bottom:4px">KI Coach</div>
@@ -1260,7 +1257,27 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
         </div>
       </div>
     </div>
-  </div><!-- About panel -->
+  </div><!-- /Info -->
+  </div><!-- Einstellungen panel -->
+
+  <div class="tab-panel" data-panel="ernaehrung">
+    <div id="ernaehrung-content"></div>
+  </div><!-- Ernaehrung panel -->
+
+  <div class="tab-panel" data-panel="chat">
+    <div class="form-card" style="border-top:none;border-radius:0 0 var(--radius) var(--radius);display:flex;flex-direction:column;gap:0;min-height:60vh">
+      <div style="text-align:center;font-size:12px;color:var(--muted);margin-bottom:8px">
+        {{ T.agenten.chefcoach.name }} · {{ T.agenten.chefcoach.rolle }}
+      </div>
+      <div id="chat-history" style="flex:1;overflow-y:auto;max-height:55vh;display:flex;flex-direction:column;gap:10px;padding-bottom:8px"></div>
+      <div style="display:flex;gap:8px;margin-top:12px;align-items:flex-end">
+        <textarea id="chat-input" rows="2" placeholder="Frage deinen Coach…" style="flex:1;background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:8px;padding:10px;color:var(--text);font-size:14px;resize:none;font-family:inherit;line-height:1.4"></textarea>
+        <button onclick="sendChatMessage()" id="chat-send-btn" style="background:rgba(29,158,117,.15);border:1px solid rgba(29,158,117,.4);color:#1D9E75;border-radius:8px;padding:10px 14px;font-size:18px;cursor:pointer;flex-shrink:0;height:44px">↑</button>
+      </div>
+    </div>
+  </div>
+
+
 
 </div><!-- #form-section -->
 
@@ -1443,8 +1460,74 @@ function initTabs() {
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.dataset.panel === tab));
       if (tab === 'erholung' && !erholungLoaded) loadErholung();
       if (tab === 'analyse') renderAnalyseSection();
+      if (tab === 'ernaehrung') loadErnaehrung();
     });
   });
+}
+
+// ── Ernährung ─────────────────────────────────────────────────────────────────
+// Rein deterministisch: die Mengen kommen aus der Tabelle in athlete.json,
+// die Einheiten aus dem TP-Cache. Kein Claude-Call, deshalb bei jedem
+// Tab-Wechsel neu ladbar (die Dauer kann sich durch tp/apply geändert haben).
+// Er füllt immer dieselbe Flasche: die Rezeptur ist deshalb fix (Sportart +
+// Hitze), die Dauer bestimmt nur die Anzahl.
+function ernaehrungFlaschen(f) {
+  if (!f) return '';
+  const zucker = (f.maltodextrin_g != null)
+    ? `${f.maltodextrin_g} g Maltodextrin + ${f.fruchtzucker_g} g Fruchtzucker`
+    : `${f.carbs_g} g Carbs`;
+  const rezept = `🍶 Pro ${f.groesse_ml}-ml-Flasche: ${zucker} (${f.carbs_g} g Carbs)`;
+  const teile = [];
+  if (f.voll) teile.push(`${f.voll}× voll`);
+  if (f.rest_ml) teile.push(`${f.rest_ml} ml${f.rest_carbs_g ? ` mit ${f.rest_carbs_g} g` : ''}`);
+  const bedarf = teile.length
+    ? `<div class="ern-zeile">➕ Bedarf: ${teile.join(' + ')}</div>` : '';
+  return `<div class="ern-zeile">${rezept}</div>${bedarf}`;
+}
+
+function ernaehrungEinheit(w) {
+  const dauer = w.duration_min ? `${Math.floor(w.duration_min / 60)}:${String(w.duration_min % 60).padStart(2, '0')} h` : '—';
+  const teile = (w.ernaehrung || '').split(' | ').filter(Boolean);
+  const koerper = teile.length
+    ? teile.map(t => `<div class="ern-zeile">${esc(t)}</div>`).join('')
+      + ernaehrungFlaschen(w.flaschen)
+    : `<div class="ern-zeile" style="color:var(--muted)">${esc(T.tp_no_w)}</div>`;
+  const rate = w.totals ? ` · ${w.totals.carbs_pro_h} g/h` : '';
+  return `<details class="ern-einheit">
+    <summary><span class="tp-sport-badge">${esc(w.sport_norm || w.sport || '?')}</span>
+      <span>${esc(w.title || w.sport || '?')}</span>
+      <span style="color:var(--muted);font-size:12px">${dauer}${rate}</span></summary>
+    <div class="ern-detail">${koerper}</div>
+  </details>`;
+}
+
+function renderErnaehrung(d) {
+  let h = '';
+  (d.tage || []).forEach(tag => {
+    const titel = tag.label === 'heute' ? T.sec_today : T.sec_tomorrow;
+    const hitze = tag.is_hot ? ` <span style="color:var(--orange)">♨️ ${tag.temp_max}°C</span>` : '';
+    h += `<div class="form-card"><p class="section-title">${esc(titel)}${hitze}</p>`;
+    if (tag.loading)          h += `<p class="ern-zeile" style="color:var(--muted)">${esc(T.tp_loading_text)}</p>`;
+    else if (!tag.workouts.length) h += `<p class="ern-zeile" style="color:var(--muted)">${esc(T.ernaehrung_keine)}</p>`;
+    else tag.workouts.forEach(w => { h += ernaehrungEinheit(w); });
+    h += `</div>`;
+  });
+  // Herkunft nennen statt sie zu verschweigen: die Dauer ist der TP-Stand.
+  h += `<p style="text-align:center;font-size:11px;color:var(--muted);margin:4px 0 16px">📋 ${esc(T.ernaehrung_quelle)}</p>`;
+  return h;
+}
+
+async function loadErnaehrung() {
+  const el = document.getElementById('ernaehrung-content');
+  if (!el) return;
+  el.innerHTML = `<div class="form-card"><p class="ern-zeile" style="color:var(--muted)">${esc(T.loading_data)}</p></div>`;
+  try {
+    const r = await fetchMitFrist('/api/nutrition', { cache: 'no-store' }, 20000);
+    if (!r.ok) throw new Error(await r.text());
+    el.innerHTML = renderErnaehrung(await r.json());
+  } catch (err) {
+    el.innerHTML = `<div class="form-card"><p class="ern-zeile" style="color:var(--red)">${esc(err.message || String(err))}</p></div>`;
+  }
 }
 
 // ── sliders ───────────────────────────────────────────────────────────────────
@@ -1738,8 +1821,13 @@ function buildResult(data, fd, type) {
         // TrainingPeaks. Herkunft nennen statt die Zeile leer zu lassen.
         : (s.badge === 'GO' && s.beschreibung
             ? `<p class="sport-coach-tag">📋 ${esc(T.plan_original || '')}</p>` : '');
-      const beraterZeile = s.ernaehrung_von_berater
-        ? `<p class="sport-coach-tag">🥕 ${esc(agentTag('fueling'))}</p>` : '';
+      // Wer die Ernährung verantwortet: Anna Feld nur, wenn sie wirklich einen
+      // Satz beigesteuert hat. Sonst ist es reine Tabellenrechnung — dann die
+      // Quelle nennen statt die Zeile unbeschriftet zu lassen (wie bei GO).
+      const beraterZeile = !s.ernaehrung ? ''
+        : (s.ernaehrung_von_berater
+            ? `<p class="sport-coach-tag">🥕 ${esc(agentTag('fueling'))}</p>`
+            : `<p class="sport-coach-tag">📋 ${esc(T.nutrition_basis || '')}</p>`);
       h += `<div class="sport-card" id="sport-card-${idx}">
         <div class="sport-header">
           <span class="badge ${bc}" id="sport-badge-${idx}">${esc(badgeLabel)}</span>

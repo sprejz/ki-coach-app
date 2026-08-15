@@ -20,6 +20,11 @@ TRANSLATIONS = {
         "tab_erholung":      "Erholung",
         "tab_profil":        "Profil",
         "tab_about":         "Info",
+        "tab_ernaehrung":    "Essen",
+        "sec_ernaehrung":    "Ernährung",
+        "ernaehrung_quelle": "Stand: TrainingPeaks — nach einem Check erst nach \u201eIn TP anwenden\u201c aktuell",
+        "ernaehrung_flaschen": "Flaschen",
+        "ernaehrung_keine":  "Keine Einheit geplant",
         # Section titles
         "sec_tomorrow":      "Morgen",
         "sec_today":         "Heute",
@@ -65,6 +70,8 @@ TRANSLATIONS = {
         # Bei GO schreibt kein Modell — die Beschreibung ist der Originaltext
         # aus TrainingPeaks. Statt einer leeren Zeile die Herkunft nennen.
         "plan_original":     "Originalplan aus TrainingPeaks übernommen",
+        # Ernährung ohne Anna Feld heißt: reine Tabellenrechnung, kein Modell.
+        "nutrition_basis":   "Mengen aus der Ernährungstabelle im Profil",
         "lbl_max":           "10 — max",
         # CSV upload
         "lbl_csv":           "AutoSleep CSV",
@@ -360,6 +367,11 @@ TRANSLATIONS = {
         "tab_erholung":      "Recovery",
         "tab_profil":        "Profile",
         "tab_about":         "Info",
+        "tab_ernaehrung":    "Fuel",
+        "sec_ernaehrung":    "Nutrition",
+        "ernaehrung_quelle": "Source: TrainingPeaks — after a check, only current once applied to TP",
+        "ernaehrung_flaschen": "Bottles",
+        "ernaehrung_keine":  "No session planned",
         # Section titles
         "sec_tomorrow":      "Tomorrow",
         "sec_today":         "Today",
@@ -402,6 +414,7 @@ TRANSLATIONS = {
             "analyst":        {"name": "Coach Ben Krause",  "rolle": "Performance Analysis"},
         },
         "plan_original":     "Original plan taken from TrainingPeaks",
+        "nutrition_basis":   "Amounts from the nutrition table in your profile",
         # CSV upload
         "lbl_csv":           "AutoSleep CSV",
         "lbl_csv_btn":       "Upload CSV",

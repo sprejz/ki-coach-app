@@ -14,6 +14,9 @@ __pycache__/
 railway.log.json
 *.log
 
+# Claude Code: lokale Berechtigungen und Einstellungen, nichts fürs Repo
+.claude/
+
 # Node (falls je genutzt)
 node_modules/
 

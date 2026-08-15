@@ -1,4 +1,4 @@
-# KI Coach App — v2.7.19
+# KI Coach App — v2.7.21
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -40,7 +40,7 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.7.19)
+├── CLAUDE.md            ← diese Datei (v2.7.21)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
 ├── coach_mcp.py         ← MCP-Server für Claude Desktop + Code (stdio lokal / HTTP remote)
 ├── requirements-mcp.txt ← nur für coach_mcp.py, eigenes venv (.venv-mcp)
@@ -70,8 +70,8 @@ ki-coach-app/
 3. **Analyse** — abgeschlossene Einheiten der letzten 5 Tage bewerten lassen
 4. **Erholung** — Erholungs-Index, HRV-Verlauf, Marker-Status
 5. **Chat** — freier Coach-Chat mit TP- und Wetterkontext
-6. **Profil** — Athletendaten, Rennen, Baseline-Manager
-7. **About** — Version, Infos
+6. **Profil** — Athletendaten, Rennen, Baseline-Manager, Info (Version, Pipeline-Status)
+7. **Essen** — Ernährung für heute und morgen, pro Einheit aufklappbar (v2.7.21)
 
 **Checks laufen asynchron** (v2.7.4): `POST /api/check-abend` bzw. `check-morgen` liefern sofort eine `job_id`, das Frontend pollt `GET /api/check/{job_id}` und zeigt dabei die aktuelle Orchestrator-Stufe.
 
@@ -292,6 +292,7 @@ JSON wird über `_extract_json()` robust geparst (Markdown-Fences, `raw_decode` 
 | `GET /api/check/{job_id}` | Job-Status der Checks (`pending`/`done`/`error` + `stage`) |
 | `POST /api/coach/chat` | Coach-Chat |
 | `POST /api/workout/analyze` · `GET /api/workout/analyze/{job_id}` | Analyse + Polling |
+| `GET /api/nutrition` | Ernährung heute + morgen pro Einheit (deterministisch, kein Claude-Call) |
 | `POST /api/admin/backfill-weather?days=30` | Wetter-Backfill |
 | `POST /api/debug/fit-parse` · `POST /api/debug/coach-beschreibung` | Debug |
 
@@ -379,6 +380,26 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.7.21 — Eigener Ernährungs-Tab
+Die Mengen gab es bisher nur direkt nach einem Check auf der Dark Card — wer mittags wissen wollte, was er für die Abendrunde anrührt, musste einen neuen Check starten (und dafür Claude bezahlen). Jetzt ein eigener Tab.
+
+- **`GET /api/nutrition`** liefert heute **und** morgen mit allen geplanten Einheiten. Morgen ist kein Beiwerk: die Flasche wird am Vorabend angerührt, und der Abend-Check plant ohnehin den nächsten Tag. **Kein Claude-Call** — alles kommt aus der Tabelle in `athlete.json` und dem TP-Cache, der Tab ist sofort da und kostenlos.
+- **Flaschen-Rezeptur** (`bottle_split()`): Die erste Fassung verteilte die Gesamtmenge auf Flaschen und kam auf „3 × 680 ml" — so rührt das niemand an. Hendrik füllt **immer dieselbe 950-ml-Flasche** (`nutrition.bottle_ml`), also ist die **Konzentration** der Bezugspunkt: in jede volle Flasche kommt dieselbe Menge, und die Dauer bestimmt nur die Anzahl. Angenehmer Nebeneffekt: die Rezeptur hängt damit **nur an Sportart und Hitze**, nicht an der Dauer — Rad 95 g Maltodextrin + 45 g Fruchtzucker pro Flasche, bei Hitze 75 + 40, Laufen 65 + 30. Konzentration und Zuckeranteil kommen aus den **Stundenraten** bzw. `mix_ratio`, nicht aus den gerundeten Gesamtmengen; sonst käme je nach Dauer mal 140, mal 145 g heraus. **Saltstick bleibt draußen**: Kapseln löst man nicht in der Flasche auf.
+- **„Info" ist ins Profil gewandert**, der Tab-Platz gehört jetzt dem Essen. Grund ist kein Geschmack, sondern Layout: die Leiste ist `flex` ohne Overflow bei `font-size: 11px` — ein achter Button bricht die Beschriftung. Ein täglich genutzter Arbeitsschritt verdient den Platz mehr als eine Infoseite. Das Label heißt **„Essen"**, weil „Ernährung" als einziges Label abgeschnitten würde.
+- **Die Herkunft der Dauer steht dabei:** der Tab liest den TP-Stand. Hat ein Check gekürzt, gilt die neue Dauer hier erst nach „In TP anwenden" — das sagt die Fußzeile, statt es zu verschweigen. Das Persistieren des letzten Check-Ergebnisses wäre der nächste Schritt (und würde nebenbei die Dark Card einen Reload überleben lassen).
+- **Regelprüfung wandert in `mix_totals()`:** die erste Fassung des Endpunkts zeigte für 20 Minuten Stabi eine Mischanleitung, weil er die Mengen ungeprüft ausrechnete. Die Prüfung „sieht die Regel überhaupt Carbs während der Einheit vor?" sitzt jetzt in der Funktion selbst — die nächste Aufrufstelle kann den Fehler nicht wiederholen.
+
+Tests: Flaschensummen gehen exakt auf (Carbs und beide Zucker), unter 90min liefert `mix_totals` nichts, ohne Flaschengröße wird nichts erfunden; dazu im Wiring, dass der Endpunkt ohne Claude auskommt, dass es bei sieben Tabs bleibt und dass die About-Inhalte im Profil-Panel gelandet sind statt verloren zu gehen.
+
+### v2.7.20 — Ernährung auch bei SKIP, und mit Urheber
+Zwei Lücken aus dem Live-Gebrauch.
+
+- **Gestrichene Einheiten hatten keine Ernährung.** `_baue_einheit()` setzte sie bei SKIP hart auf `""`. Es gibt aber den „Trotzdem"-Button (v2.6.76) — wer die Einheit doch fährt, stand ohne Mengen da. SKIP bekommt die Empfehlung jetzt auf Basis der **geplanten Originaldauer**, denn genau die würde er dann absolvieren. Der **Ernährungsberater bleibt bei SKIP außen vor**: ein Modell-Call für eine gestrichene Einheit wäre der Kostendisziplin nach nicht zu rechtfertigen, die Tabellenrechnung kostet nichts.
+- **Die Ernährungszeile hatte keinen Urheber.** Anna Feld erschien nur, wenn sie tatsächlich einen Satz beigesteuert hat (`ernaehrung_von_berater`) — sonst stand die Zeile unbeschriftet da. Jetzt gilt dieselbe Regel wie bei GO-Beschreibungen (v2.7.16): kein Modell beteiligt → Herkunft nennen. „📋 Mengen aus der Ernährungstabelle im Profil", neuer Schlüssel `nutrition_basis` in `translations.py` (de/en).
+- **Der „Trotzdem"-Pfad schreibt die Ernährung mit nach TrainingPeaks.** Bisher landete dort nur „Athlete override – eigenes Gefühl" plus Wetter; die Mengen fehlten genau in dem Fall, für den sie gedacht sind.
+
+Tests: SKIP liefert Mengen inklusive Mischanleitung, ruft dabei aber keinen Ernährungsberater und behält seine leere Beschreibung; dazu die Herkunftszeile im Template, `nutrition_basis` in beiden Sprachen und der Override-Pfad in `tp_apply`.
 
 ### v2.7.19 — Ernährung: Gesamtmengen und Carbs pro Sportart
 Zwei Lücken, die im Alltag stören, weil Hendrik sein Getränk in 99 % der Fälle selbst anrührt.

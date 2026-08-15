@@ -7,6 +7,7 @@ Fallback greift und ob die Antwort die Form hat, die das Frontend erwartet.
     .venv/bin/python -m tests.test_wiring
 """
 import asyncio
+import inspect
 import os
 import sys
 from pathlib import Path
@@ -287,6 +288,43 @@ async def main():
         pruefe(bool(TRANSLATIONS[lang].get("plan_original")),
                f"plan_original ist in translations.py gepflegt ({lang})")
 
+    # v2.7.20: Die Ernährungszeile stand ohne Urheber da. Anna Feld nur, wenn
+    # sie wirklich etwas beigesteuert hat — sonst die Tabelle als Quelle.
+    pruefe("T.nutrition_basis" in _idx and "s.ernaehrung_von_berater" in _idx,
+           "Ernährungszeile weist ihre Herkunft aus: Anna Feld oder die Tabelle")
+    for lang in ("de", "en"):
+        pruefe(bool(TRANSLATIONS[lang].get("nutrition_basis")),
+               f"nutrition_basis ist in translations.py gepflegt ({lang})")
+    pruefe('op.get("ernaehrung")' in inspect.getsource(app.tp_apply)
+           and "ERNÄHRUNG:" in inspect.getsource(app.tp_apply),
+           "der Trotzdem-Pfad schreibt die Ernährung mit nach TrainingPeaks")
+
+    # v2.7.21: eigener Ernährungs-Tab. Info ist ins Profil gewandert, damit die
+    # Leiste bei sieben Buttons bleibt (11px, sonst bricht die Beschriftung).
+    print("\n=== Ernährungs-Tab (v2.7.21) ===")
+    pruefe(hasattr(app, "api_nutrition"), "Endpunkt /api/nutrition existiert")
+    quelle_ep = inspect.getsource(app.api_nutrition)
+    pruefe("anthropic" not in quelle_ep and "call_claude" not in quelle_ep,
+           "der Tab rechnet deterministisch — kein Claude-Call")
+    pruefe('data-tab="ernaehrung"' in _idx and 'data-panel="ernaehrung"' in _idx,
+           "Tab-Button und Panel sind verdrahtet")
+    pruefe(_idx.count('class="tab-btn') == 7,
+           "es bleiben sieben Tabs — kein achter, der die Beschriftung bricht")
+    pruefe('data-tab="about"' not in _idx and 'data-panel="about"' not in _idx,
+           "der About-Tab ist weg")
+    pruefe('id="about-version"' in _idx and 'id="about-agents"' in _idx,
+           "…seine Inhalte sind aber erhalten (jetzt im Profil)")
+    _profil = _idx[_idx.index('data-panel="einstellungen"'):_idx.index("<!-- Einstellungen panel -->")]
+    pruefe('id="about-version"' in _profil,
+           "Version und Pipeline-Status stehen im Profil-Panel")
+    pruefe("loadErnaehrung" in _idx and "T.ernaehrung_quelle" in _idx,
+           "der Tab lädt beim Öffnen und weist die Herkunft der Dauer aus")
+    for lang in ("de", "en"):
+        pruefe(all(TRANSLATIONS[lang].get(k) for k in
+                   ("tab_ernaehrung", "sec_ernaehrung", "ernaehrung_quelle",
+                    "ernaehrung_flaschen", "ernaehrung_keine")),
+               f"alle Ernährungs-Texte sind gepflegt ({lang})")
+
     # v2.7.17: fetch() ohne Timeout konnte beim Netzwechsel oder einem
     # Container-Neustart ewig offen bleiben. Die 5-Minuten-Deadline wird nur
     # zwischen zwei Runden geprüft und griff deshalb nie — der Spinner drehte
@@ -451,7 +489,6 @@ async def main():
     # Der NameError landete im except und der Chat bekam immer
     # "Wetterdaten nicht verfügbar". Der Bezeichner muss zugewiesen werden,
     # bevor er im f-String auftaucht.
-    import inspect
     quelle = inspect.getsource(app.coach_chat)
     zuweisung = quelle.find("tomorrow_str =")
     verwendung = quelle.find("{tomorrow_str}")

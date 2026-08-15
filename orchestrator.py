@@ -112,7 +112,14 @@ async def _baue_einheit(*, entscheidung: dict, workout: Optional[dict], athlete:
     # Ernährung deterministisch aus der fertigen Dauer — kein Modell.
     # Sportart und Hitze gehen mit ein: beim Laufen liegt die verträgliche
     # Carb-Rate niedriger als auf dem Rad, bei Hitze steigen Salz und Menge.
-    ernaehrung = "" if badge == "SKIP" else nutrition_for_duration(
+    #
+    # Auch bei SKIP (v2.7.20): über den "Trotzdem"-Button kann die Einheit
+    # doch stattfinden, und dann braucht sie die Mengen. Grundlage ist die
+    # geplante Originaldauer — genau die würde er dann absolvieren. Der
+    # Ernährungsberater bleibt für SKIP trotzdem außen vor (siehe unten): ein
+    # Modell-Call für eine gestrichene Einheit wäre der Kostendisziplin nach
+    # nicht zu rechtfertigen.
+    ernaehrung = nutrition_for_duration(
         dauer, athlete.get("nutrition", {}), sport=sport,
         is_hot=bool((weather_data or {}).get("is_hot")),
     )

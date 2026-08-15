@@ -98,7 +98,8 @@
     },
     "carbs_per_hour_by_sport": {
       "Laufen": 60
-    }
+    },
+    "bottle_ml": 950
   },
   "pain_thresholds": {
     "knee": {

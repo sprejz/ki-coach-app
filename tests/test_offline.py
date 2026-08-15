@@ -188,8 +188,60 @@ pruefe("60g Carbs/h" in lang and "90g Carbs/h" not in lang,
        "Auch der Regeltext nennt beim Laufen die niedrigere Rate")
 pruefe(mix_totals(0, NUT, "Bike") is None and nutrition_for_duration(None, NUT) == "",
        "Ohne Dauer wird nichts erfunden")
-pruefe(mix_totals(165, {"carbs_per_hour_g": 90}, "Bike")["maltodextrin_g"] is None,
+OHNE_RATIO = {"carbs_per_hour_g": 90,
+              "rules": [{"duration_min_min": 90, "during": "90g Carbs/h", "carbs_during": True}]}
+pruefe(mix_totals(165, OHNE_RATIO, "Bike")["maltodextrin_g"] is None,
        "Ohne mix_ratio bleibt die Aufteilung leer, statt aus dem Freitext geraten zu werden")
+# v2.7.21: Die Regelprüfung sitzt in mix_totals, nicht beim Aufrufer — sonst
+# bekäme jede neue Aufrufstelle wieder eine Mischanleitung für 20 min Stabi.
+pruefe(mix_totals(20, NUT, "Strength") is None and mix_totals(45, NUT, "Run") is None,
+       "Unter 90 min liefert mix_totals nichts — auch bei gesetzter Dauer")
+pruefe(mix_totals(95, NUT, "Bike") is not None,
+       "Ab der Carb-Regel liefert mix_totals Mengen")
+
+print("\n=== Flaschen-Rezeptur (v2.7.21) ===")
+from nutrition import bottle_split  # noqa: E402
+t_rad = mix_totals(165, NUT, "Bike")
+f = bottle_split(t_rad, 950)
+pruefe(f["groesse_ml"] == 950 and f["voll"] == 1 and f["rest_ml"] == 700,
+       "1650 ml sind eine volle 950er-Flasche plus 700 ml Rest")
+pruefe(f["maltodextrin_g"] + f["fruchtzucker_g"] == f["carbs_g"],
+       "Die Zucker pro Flasche ergeben exakt die Carbs pro Flasche")
+# Der Kern der Umstellung: er füllt immer dieselbe Flasche, also muss die
+# Rezeptur über alle Dauern dieselbe sein — nur die Anzahl ändert sich.
+def _rezept(sport, hot=False, dauern=(95, 120, 165, 240, 300)):
+    return {(b["maltodextrin_g"], b["fruchtzucker_g"], b["carbs_g"])
+            for b in (bottle_split(mix_totals(d, NUT, sport, hot), 950) for d in dauern)}
+for sport, hot, name in (("Bike", False, "Rad"), ("Bike", True, "Rad bei Hitze"),
+                         ("Run", False, "Laufen")):
+    pruefe(len(_rezept(sport, hot)) == 1,
+           f"{name}: dieselbe Rezeptur pro Flasche über alle Dauern")
+pruefe(_rezept("Bike") != _rezept("Run") and _rezept("Bike") != _rezept("Bike", True),
+       "Sportart und Hitze ändern die Rezeptur — die Dauer nicht")
+konz = f["carbs_g"] / 950
+pruefe(abs(konz - t_rad["carbs_pro_h"] / t_rad["fluid_pro_h"]) < 0.01,
+       "Die Konzentration folgt den Stundenraten, nicht den gerundeten Summen")
+pruefe(bottle_split(t_rad, None) is None and bottle_split(None, 950) is None,
+       "Ohne Flaschengröße oder ohne Mengen wird nichts erfunden")
+pruefe("saltstick" not in str(f).lower(),
+       "Saltstick bleibt aus der Flaschenrechnung raus — Kapseln löst man nicht auf")
+
+print("\n=== SKIP behält die Ernährung (v2.7.20) ===")
+# Über den "Trotzdem"-Button kann eine gestrichene Einheit doch stattfinden.
+# Kein Modell-Call dabei: der Ernährungsberater bleibt auf GO/MOD beschränkt,
+# deshalb ist dieser Test offline sicher.
+skip_lang = asyncio.run(_baue_einheit(
+    entscheidung={"sport": "Rad", "badge": "SKIP", "details": "Gestrichen",
+                  "begruendung": "", "anpassung": {}},
+    workout={"sport": "Bike", "description": "2h45 LIT", "duration_min": 165},
+    athlete={"nutrition": NUT}, wetter_zeile="Sonnig", model="egal",
+))
+pruefe(skip_lang["ernaehrung"] and "🥤" in skip_lang["ernaehrung"],
+       "SKIP liefert die Ernährung inklusive Mischmengen — falls er sie trotzdem fährt")
+pruefe(skip_lang["ernaehrung_von_berater"] is False,
+       "für SKIP läuft kein Ernährungsberater — kein Modell-Call für eine gestrichene Einheit")
+pruefe(skip_lang["beschreibung"] == "",
+       "SKIP bekommt weiterhin keine Beschreibung — nur die Ernährung ist neu")
 
 print("\n=== Frontend-Vertrag (vom Orchestrator zusammengebaut) ===")
 ATHLET = {"nutrition": {"rules": [

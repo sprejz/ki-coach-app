@@ -19,7 +19,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import anthropic
 
-from nutrition import nutrition_for_duration
+from nutrition import bottle_split, mix_totals, normalize_sport, nutrition_for_duration
 from training_load import (
     PMC_TAGE, compute_pmc, letzte_einheiten, tage_bis, tss_pro_tag, wochenstruktur,
 )
@@ -38,7 +38,7 @@ except Exception as _agent_err:          # pragma: no cover
     _AGENTS_IMPORTABLE = False
     _AGENTS_IMPORT_ERROR = str(_agent_err)
 
-APP_VERSION = "2.7.19"
+APP_VERSION = "2.7.21"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1274,6 +1274,53 @@ _NO_CACHE = {
 }
 
 
+@app.get("/api/nutrition")
+async def api_nutrition():
+    """Ernährung für heute und morgen — deterministisch, ohne Claude-Call.
+
+    Alles kommt aus der Tabelle in athlete.json plus den gecachten TP-Einheiten;
+    der Tab ist damit sofort da und kostenlos. **Die Dauer ist der Stand aus
+    TrainingPeaks**: hat ein Check eine Einheit gekürzt, steht die neue Dauer
+    erst nach „In TP anwenden" hier — deshalb liefert die Antwort `quelle` mit,
+    damit die Oberfläche das sagen kann statt es zu verschweigen (v2.7.21).
+    """
+    athlete = load_athlete()
+    nutrition = athlete.get("nutrition", {})
+    tage = []
+    for offset, label in ((0, "heute"), (1, "morgen")):
+        target = (date.today() + timedelta(days=offset)).isoformat()
+        cached = _tp_cache_get(target) or {}
+        if not cached and os.environ.get("TP_MCP_URL"):
+            asyncio.create_task(_tp_refresh(athlete, offset))
+        try:
+            wetter = await fetch_weather(athlete, day=offset)
+        except Exception as e:
+            logger.warning("api_nutrition: Wetter für %s nicht verfügbar: %s", target, e)
+            wetter = {}
+        is_hot = bool(wetter.get("is_hot"))
+        einheiten = []
+        for w in cached.get("workouts", []):
+            dauer = w.get("duration_min")
+            totals = mix_totals(dauer, nutrition, w.get("sport"), is_hot)
+            einheiten.append({
+                "id": w.get("id"), "sport": w.get("sport"),
+                "sport_norm": normalize_sport(w.get("sport", "")),
+                "title": w.get("title"), "duration_min": dauer,
+                "ernaehrung": nutrition_for_duration(dauer, nutrition,
+                                                     sport=w.get("sport"), is_hot=is_hot),
+                "totals": totals,
+                "flaschen": bottle_split(totals, nutrition.get("bottle_ml")) if totals else None,
+            })
+        tage.append({
+            "datum": target, "label": label, "is_hot": is_hot,
+            "temp_max": wetter.get("temp_max"),
+            "workouts": einheiten,
+            "loading": bool(not cached and os.environ.get("TP_MCP_URL")),
+        })
+    return JSONResponse({"tage": tage, "quelle": "trainingpeaks",
+                         "bottle_ml": nutrition.get("bottle_ml")}, headers=_NO_CACHE)
+
+
 @app.get("/api/tp/workouts")
 async def tp_workouts(day: str = "tomorrow"):
     tp_url = os.environ.get("TP_MCP_URL", "")
@@ -1462,6 +1509,11 @@ async def tp_apply(request: Request):
             note = "Athlete override – eigenes Gefühl"
             if weather_for_apply and _is_weather_sport(op_sport) and not _is_indoor(orig_title):
                 note = f"{note}\n{_wx_line(weather_for_apply)}"
+            # Wer eine MOD/SKIP-Einheit trotzdem fährt, braucht die Mengen
+            # genauso — sie stehen seit v2.7.20 auch an gestrichenen Einheiten
+            # im Check und kommen mit der Operation mit (v2.7.20).
+            if op.get("ernaehrung"):
+                note = f"{note}\nERNÄHRUNG: {op['ernaehrung']}"
             desc = f"{note}\n\n{orig_desc}".strip() if orig_desc else note
             try:
                 await call_tp_mcp("tp_update_workout", {"workout_id": workout_id,
