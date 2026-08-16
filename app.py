@@ -19,7 +19,10 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import anthropic
 
-from nutrition import bottle_split, mix_totals, normalize_sport, nutrition_for_duration
+from nutrition import (
+    bottle_split, braucht_verpflegung, mix_totals, normalize_sport,
+    nutrition_for_duration,
+)
 from training_load import (
     PMC_TAGE, compute_pmc, letzte_einheiten, tage_bis, tss_pro_tag, wochenstruktur,
 )
@@ -38,7 +41,7 @@ except Exception as _agent_err:          # pragma: no cover
     _AGENTS_IMPORTABLE = False
     _AGENTS_IMPORT_ERROR = str(_agent_err)
 
-APP_VERSION = "2.7.22"
+APP_VERSION = "2.7.23"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1300,6 +1303,10 @@ async def api_nutrition():
         is_hot = bool(wetter.get("is_hot"))
         einheiten = []
         for w in cached.get("workouts", []):
+            # Krafttraining o.ä. taucht hier gar nicht erst auf — es gibt
+            # nichts zu verpflegen, und eine leere Zeile wäre nur Rauschen.
+            if not braucht_verpflegung(nutrition, w.get("sport")):
+                continue
             dauer = w.get("duration_min")
             totals = mix_totals(dauer, nutrition, w.get("sport"), is_hot)
             einheiten.append({

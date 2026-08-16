@@ -41,6 +41,17 @@ def carbs_per_hour(nutrition: dict, sport: Optional[str] = None) -> int:
     return int(pro_sport.get(normalize_sport(sport), basis))
 
 
+def braucht_verpflegung(nutrition: dict, sport: Optional[str] = None) -> bool:
+    """Ob diese Sportart überhaupt eine Ernährungsempfehlung braucht.
+
+    Krafttraining verpflegt man nicht — die Empfehlung wäre nur Rauschen auf
+    der Karte. Welche Sportarten das betrifft, steht in athlete.json unter
+    `no_fuel_sports` (Normalformen), damit die Liste ohne Codeänderung wächst.
+    """
+    ohne = nutrition.get("no_fuel_sports") or []
+    return normalize_sport(sport) not in ohne if sport else True
+
+
 def _regel_fuer(duration_min: int, nutrition: dict) -> Optional[dict]:
     """Die Regel, deren Dauerfenster diese Einheit trifft."""
     for rule in nutrition.get("rules", []):
@@ -65,6 +76,8 @@ def mix_totals(duration_min: Optional[int], nutrition: dict,
     Mischverhältnisses auf die beiden Zucker.
     """
     if not duration_min or duration_min <= 0:
+        return None
+    if not braucht_verpflegung(nutrition, sport):
         return None
     # Nur wo die Regel überhaupt Carbs während der Einheit vorsieht. Diese
     # Prüfung steht hier und nicht beim Aufrufer, sonst bekommt die nächste
@@ -171,7 +184,7 @@ def format_mix(totals: dict) -> str:
 def nutrition_for_duration(duration_min: Optional[int], nutrition: dict,
                            sport: Optional[str] = None, is_hot: bool = False) -> str:
     """Findet die passende Ernährungsregel für eine Einheit dieser Dauer."""
-    if not duration_min:
+    if not duration_min or not braucht_verpflegung(nutrition, sport):
         return ""
     rule = _regel_fuer(duration_min, nutrition)
     if not rule:

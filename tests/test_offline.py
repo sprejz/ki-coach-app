@@ -199,6 +199,21 @@ pruefe(mix_totals(20, NUT, "Strength") is None and mix_totals(45, NUT, "Run") is
 pruefe(mix_totals(95, NUT, "Bike") is not None,
        "Ab der Carb-Regel liefert mix_totals Mengen")
 
+print("\n=== Kraft braucht keine Verpflegung (v2.7.23) ===")
+from nutrition import braucht_verpflegung  # noqa: E402
+for sport in ("Kraft", "Strength", "STABI Kraft"):
+    pruefe(not braucht_verpflegung(NUT, sport)
+           and nutrition_for_duration(120, NUT, sport=sport) == ""
+           and mix_totals(120, NUT, sport) is None,
+           f"{sport!r}: keine Empfehlung, keine Mengen")
+for sport in ("Bike", "Run", "Swim", "Golf"):
+    pruefe(braucht_verpflegung(NUT, sport) and nutrition_for_duration(120, NUT, sport=sport),
+           f"{sport}: bekommt weiterhin eine Empfehlung")
+pruefe(braucht_verpflegung(NUT, None) and nutrition_for_duration(120, NUT) != "",
+       "Ohne Sportart bleibt es bei der Empfehlung — nichts wird stillschweigend unterdrückt")
+pruefe(braucht_verpflegung({}, "Kraft"),
+       "Ohne no_fuel_sports in der Konfiguration ändert sich nichts")
+
 print("\n=== Flaschen-Rezeptur (v2.7.21) ===")
 from nutrition import bottle_split  # noqa: E402
 t_rad = mix_totals(165, NUT, "Bike")
