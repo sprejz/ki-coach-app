@@ -1,4 +1,4 @@
-# KI Coach App — v2.7.23
+# KI Coach App — v2.7.24
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -40,7 +40,7 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.7.23)
+├── CLAUDE.md            ← diese Datei (v2.7.24)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
 ├── coach_mcp.py         ← MCP-Server für Claude Desktop + Code (stdio lokal / HTTP remote)
 ├── requirements-mcp.txt ← nur für coach_mcp.py, eigenes venv (.venv-mcp)
@@ -380,6 +380,9 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.7.24 — Schwimmen ebenfalls ohne Verpflegung
+`no_fuel_sports` steht jetzt auf `["Kraft", "Schwimmen"]` — im Wasser lässt sich ohnehin nicht trinken. Reine Konfigurationsänderung in `athlete.json`, kein Code; genau dafür war die Liste gedacht. Der Test führt Schwimmen entsprechend bei den Sportarten ohne Verpflegung.
 
 ### v2.7.23 — Kraft braucht keine Verpflegung
 Eine Krafteinheit bekam „Vorher: Nüchtern … | Während: Wasser reicht | Nachher: normale Mahlzeit" — formal richtig, praktisch Rauschen auf jeder Karte und im Fueling-Tab.

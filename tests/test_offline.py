@@ -201,12 +201,12 @@ pruefe(mix_totals(95, NUT, "Bike") is not None,
 
 print("\n=== Kraft braucht keine Verpflegung (v2.7.23) ===")
 from nutrition import braucht_verpflegung  # noqa: E402
-for sport in ("Kraft", "Strength", "STABI Kraft"):
+for sport in ("Kraft", "Strength", "STABI Kraft", "Swim", "Schwimmen TE/LIT"):
     pruefe(not braucht_verpflegung(NUT, sport)
            and nutrition_for_duration(120, NUT, sport=sport) == ""
            and mix_totals(120, NUT, sport) is None,
            f"{sport!r}: keine Empfehlung, keine Mengen")
-for sport in ("Bike", "Run", "Swim", "Golf"):
+for sport in ("Bike", "Run", "Golf"):
     pruefe(braucht_verpflegung(NUT, sport) and nutrition_for_duration(120, NUT, sport=sport),
            f"{sport}: bekommt weiterhin eine Empfehlung")
 pruefe(braucht_verpflegung(NUT, None) and nutrition_for_duration(120, NUT) != "",

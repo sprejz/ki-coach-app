@@ -101,7 +101,8 @@
     },
     "bottle_ml": 950,
     "no_fuel_sports": [
-      "Kraft"
+      "Kraft",
+      "Schwimmen"
     ]
   },
   "pain_thresholds": {
