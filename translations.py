@@ -24,7 +24,8 @@ TRANSLATIONS = {
         "sec_ernaehrung":    "Ernährung",
         "ernaehrung_quelle": "Stand: TrainingPeaks — nach einem Check erst nach \u201eIn TP anwenden\u201c aktuell",
         "ernaehrung_flaschen": "Flaschen",
-        "ernaehrung_keine":  "Keine Einheit mit Verpflegungsbedarf",
+        "ernaehrung_keine":  "Keine Einheit geplant",
+        "ernaehrung_kein_bedarf": "kein Verpflegungsbedarf",
         # Section titles
         "sec_tomorrow":      "Morgen",
         "sec_today":         "Heute",
@@ -371,7 +372,8 @@ TRANSLATIONS = {
         "sec_ernaehrung":    "Nutrition",
         "ernaehrung_quelle": "Source: TrainingPeaks — after a check, only current once applied to TP",
         "ernaehrung_flaschen": "Bottles",
-        "ernaehrung_keine":  "No session needing fuel",
+        "ernaehrung_keine":  "No session planned",
+        "ernaehrung_kein_bedarf": "no fuel needed",
         # Section titles
         "sec_tomorrow":      "Tomorrow",
         "sec_today":         "Today",

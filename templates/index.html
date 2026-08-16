@@ -126,6 +126,8 @@ body {
 .ern-einheit > summary::-webkit-details-marker { display: none; }
 .ern-einheit > summary::after { content: '▸'; margin-left: auto; color: var(--muted); }
 .ern-einheit[open] > summary::after { content: '▾'; }
+.ern-ohne-bedarf { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 13px; color: var(--muted); opacity: .65; }
 .ern-detail { padding: 8px 2px 2px; }
 .ern-zeile { font-size: 12px; color: var(--muted); line-height: 1.6; }
 
@@ -1487,6 +1489,15 @@ function ernaehrungFlaschen(f) {
 
 function ernaehrungEinheit(w) {
   const dauer = w.duration_min ? `${Math.floor(w.duration_min / 60)}:${String(w.duration_min % 60).padStart(2, '0')} h` : '—';
+  // Kraft/Schwimmen: sichtbar, damit der Tag vollständig ist — aber grau und
+  // ohne aufklappbares Detail, es gibt schlicht nichts zu verpflegen.
+  if (w.kein_bedarf) {
+    return `<div class="ern-einheit ern-ohne-bedarf">
+      <span class="tp-sport-badge">${esc(w.sport_norm || w.sport || '?')}</span>
+      <span>${esc(w.title || w.sport || '?')}</span>
+      <span style="font-size:12px">${dauer} · ${esc(T.ernaehrung_kein_bedarf || '')}</span>
+    </div>`;
+  }
   const teile = (w.ernaehrung || '').split(' | ').filter(Boolean);
   const koerper = teile.length
     ? teile.map(t => `<div class="ern-zeile">${esc(t)}</div>`).join('')

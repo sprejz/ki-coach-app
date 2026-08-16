@@ -324,6 +324,15 @@ async def main():
            "Version und Pipeline-Status stehen im Profil-Panel")
     pruefe("loadErnaehrung" in _idx and "T.ernaehrung_quelle" in _idx,
            "der Tab lädt beim Öffnen und weist die Herkunft der Dauer aus")
+    # v2.7.25: Kraft/Schwimmen bleiben sichtbar, aber grau und ohne Detail —
+    # der Tag soll vollständig sein, ohne leere Hinweiszeilen.
+    pruefe("kein_bedarf" in quelle_ep,
+           "der Endpunkt markiert Einheiten ohne Verpflegungsbedarf, statt sie zu verschweigen")
+    pruefe("w.kein_bedarf" in _idx and "ern-ohne-bedarf" in _idx,
+           "das Frontend stellt sie grau und ohne aufklappbares Detail dar")
+    for lang in ("de", "en"):
+        pruefe(bool(TRANSLATIONS[lang].get("ernaehrung_kein_bedarf")),
+               f"ernaehrung_kein_bedarf ist gepflegt ({lang})")
     for lang in ("de", "en"):
         pruefe(all(TRANSLATIONS[lang].get(k) for k in
                    ("tab_ernaehrung", "sec_ernaehrung", "ernaehrung_quelle",

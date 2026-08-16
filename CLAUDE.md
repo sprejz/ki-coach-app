@@ -1,4 +1,4 @@
-# KI Coach App — v2.7.24
+# KI Coach App — v2.7.25
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -40,7 +40,7 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.7.24)
+├── CLAUDE.md            ← diese Datei (v2.7.25)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
 ├── coach_mcp.py         ← MCP-Server für Claude Desktop + Code (stdio lokal / HTTP remote)
 ├── requirements-mcp.txt ← nur für coach_mcp.py, eigenes venv (.venv-mcp)
@@ -380,6 +380,15 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.7.25 — Einheiten ohne Verpflegungsbedarf bleiben sichtbar
+v2.7.23/24 haben Kraft und Schwimmen ganz aus dem Fueling-Tab geworfen. An einem Tag mit nur diesen beiden stand dort dann „Keine Einheit geplant" — und der Tag sah aus, als wäre er vergessen worden.
+
+- Solche Einheiten stehen jetzt wieder in der Liste, aber **grau, ohne aufklappbares Detail** und mit dem Zusatz „kein Verpflegungsbedarf". Der Tag ist damit vollständig sichtbar, ohne dass leere Hinweiszeilen Rauschen machen.
+- Neues Feld `kein_bedarf` pro Einheit in `GET /api/nutrition`; das Frontend rendert diese Zeilen als schlichtes `div` statt als `<details>`.
+- `ernaehrung_keine` heißt wieder „Keine Einheit geplant" — der Leertext bedeutet jetzt wieder, was er sagt: gar keine Einheit im Kalender.
+
+Tests: der Endpunkt markiert solche Einheiten statt sie zu verschweigen, das Frontend stellt sie grau und nicht aufklappbar dar, `ernaehrung_kein_bedarf` ist in beiden Sprachen gepflegt.
 
 ### v2.7.24 — Schwimmen ebenfalls ohne Verpflegung
 `no_fuel_sports` steht jetzt auf `["Kraft", "Schwimmen"]` — im Wasser lässt sich ohnehin nicht trinken. Reine Konfigurationsänderung in `athlete.json`, kein Code; genau dafür war die Liste gedacht. Der Test führt Schwimmen entsprechend bei den Sportarten ohne Verpflegung.

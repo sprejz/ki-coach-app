@@ -41,7 +41,7 @@ except Exception as _agent_err:          # pragma: no cover
     _AGENTS_IMPORTABLE = False
     _AGENTS_IMPORT_ERROR = str(_agent_err)
 
-APP_VERSION = "2.7.24"
+APP_VERSION = "2.7.25"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1303,13 +1303,14 @@ async def api_nutrition():
         is_hot = bool(wetter.get("is_hot"))
         einheiten = []
         for w in cached.get("workouts", []):
-            # Krafttraining o.ä. taucht hier gar nicht erst auf — es gibt
-            # nichts zu verpflegen, und eine leere Zeile wäre nur Rauschen.
-            if not braucht_verpflegung(nutrition, w.get("sport")):
-                continue
+            # Kraft/Schwimmen bleiben in der Liste, aber ohne Empfehlung:
+            # so ist der Tag vollständig sichtbar, ohne dass leere Hinweise
+            # Rauschen machen. Das Frontend stellt sie grau und ohne Detail dar.
+            bedarf = braucht_verpflegung(nutrition, w.get("sport"))
             dauer = w.get("duration_min")
             totals = mix_totals(dauer, nutrition, w.get("sport"), is_hot)
             einheiten.append({
+                "kein_bedarf": not bedarf,
                 "id": w.get("id"), "sport": w.get("sport"),
                 "sport_norm": normalize_sport(w.get("sport", "")),
                 "title": w.get("title"), "duration_min": dauer,
