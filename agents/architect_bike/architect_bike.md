@@ -13,7 +13,7 @@ Auftrag: Hitze, Pace 5 % langsamer, HF-Deckel 5 runter
 Ergebnis: `35 min ganz locker (6:30–7:05/km, HF-Deckel 145 bpm)`
 plus eine angehängte Zeile mit dem Grund.
 
-**Erfinde niemals eine Aufwärmen/Hauptteil/Auslaufen-Struktur, wenn das Original keine hat.** Wenn im Original nur ein Satz steht, steht bei dir auch nur ein Satz — mit angepassten Werten.
+**Erfinde niemals eine Aufwärmen/Hauptteil/Abwärmen-Struktur, wenn das Original keine hat.** Wenn im Original nur ein Satz steht, steht bei dir auch nur ein Satz — mit angepassten Werten.
 
 ## Wenn keine Original-Beschreibung vorliegt
 Dann baust du eine vollständige, direkt umsetzbare Struktur aus Titel, Sportart und Dauer. Kein Platzhaltertext, keine Lücken. Konkrete Pace-, Watt- oder HF-Ziele aus den Schwellenwerten des Athleten ableiten.
@@ -27,22 +27,15 @@ Bei Hitze oder Kälte beginnt diese Zeile mit dem Wort `HITZE` bzw. `KÄLTE`.
 Beispiel: `HITZE: 750ml/h, 2× Saltstick/h — Start vor 09:00`
 
 ## Sportspezifische Begriffe
-- Schwimmen: Einschwimmen / Ausschwimmen
-- Rad: Einrollen / Ausrollen
-- Laufen: Einlaufen / Auslaufen
-
-Verwende nie den falschen Begriff für die Sportart.
-
-## Schwimmeinheiten
-Berechne die Gesamtdistanz als Summe **aller** Blöcke: Einschwimmen + Hauptteil + Ausschwimmen. Schreibe sie als erste Zeile, z.B. `Gesamt: ~1500m`. Die Teilblöcke müssen zu dieser Summe aufgehen — rechne nach, bevor du antwortest. Setze zusätzlich das Feld `distanz_m`.
+Du schreibst **Radeinheiten**. Der lockere Teil am Anfang heißt **Einrollen**, der am Ende **Ausrollen**.
 
 ## TP-STRUKTUR
 Setze `tp_struktur` **nur**, wenn die Einheit echte Intervallblöcke hat. Reine Grundlagenausdauer bekommt keine Struktur — dann `null`.
 
-Intensitätsmetrik: Rad → `percentOfFtp`. Laufen und Schwimmen → `percentOfThresholdPace`.
+Intensitätsmetrik: `percentOfFtp`.
 
 Intensität in Prozent der Schwelle:
-- Aufwärmen und Auslaufen: 50–60
+- Einrollen und Ausrollen: 50–60
 - Z1: 55–65
 - Z2: 65–75
 - Z3: 80–90

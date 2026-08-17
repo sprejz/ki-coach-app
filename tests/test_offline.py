@@ -199,6 +199,27 @@ pruefe(mix_totals(20, NUT, "Strength") is None and mix_totals(45, NUT, "Run") is
 pruefe(mix_totals(95, NUT, "Bike") is not None,
        "Ab der Carb-Regel liefert mix_totals Mengen")
 
+print("\n=== Disziplin-Vokabular in den Architekt-Prompts (v2.7.26) ===")
+# Der Laufcoach schrieb „lockeres Einrollen" — Rad-Vokabular. Ursache war
+# nicht der fehlende Hinweis, sondern das Gegenteil: jeder Disziplin-Prompt
+# trug die Begriffe ALLER Sportarten, das falsche Wort stand also im Kontext.
+_VOKABELN = {"Rad": ("Einrollen", "Ausrollen"),
+             "Laufen": ("Einlaufen", "Auslaufen"),
+             "Schwimmen": ("Einschwimmen", "Ausschwimmen")}
+for agent, eigene in (("architect_run", "Laufen"), ("architect_bike", "Rad"),
+                      ("architect_swim", "Schwimmen")):
+    text = (Path(__file__).parent.parent / f"agents/{agent}/{agent}.md").read_text(encoding="utf-8")
+    pruefe(all(w in text for w in _VOKABELN[eigene]),
+           f"{agent}: nennt die eigenen Begriffe {_VOKABELN[eigene]}")
+    fremd = [w for sportart, paar in _VOKABELN.items() if sportart != eigene
+             for w in paar if w in text]
+    pruefe(not fremd,
+           f"{agent}: keine fremden Disziplin-Begriffe im Prompt (gefunden: {fremd or 'keine'})")
+# Der generische Architekt bedient Kraft, Golf, Brick — er braucht alle.
+_gen = (Path(__file__).parent.parent / "agents/architect/architect.md").read_text(encoding="utf-8")
+pruefe(all(w in _gen for paar in _VOKABELN.values() for w in paar),
+       "architect (Kraft/Sonstiges) behält die vollständige Liste — er kennt die Sportart nicht vorab")
+
 print("\n=== Kraft braucht keine Verpflegung (v2.7.23) ===")
 from nutrition import braucht_verpflegung  # noqa: E402
 for sport in ("Kraft", "Strength", "STABI Kraft", "Swim", "Schwimmen TE/LIT"):

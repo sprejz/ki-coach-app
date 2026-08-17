@@ -1,4 +1,4 @@
-# KI Coach App — v2.7.25
+# KI Coach App — v2.7.26
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -40,7 +40,7 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.7.25)
+├── CLAUDE.md            ← diese Datei (v2.7.26)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
 ├── coach_mcp.py         ← MCP-Server für Claude Desktop + Code (stdio lokal / HTTP remote)
 ├── requirements-mcp.txt ← nur für coach_mcp.py, eigenes venv (.venv-mcp)
@@ -380,6 +380,19 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.7.26 — Jeder Disziplin-Architekt kennt nur sein eigenes Vokabular
+Im Live-Betrieb stand in einer **Laufeinheit** „lockeres Einrollen" — Rad-Vokabular. Die Regel dagegen gab es längst („Verwende nie den falschen Begriff für die Sportart"), sie stand nur direkt unter einer Liste, die alle drei Sportarten aufzählte: Einschwimmen, **Einrollen**, Einlaufen. Das falsche Wort war also im Kontext des Laufcoachs präsent, und eine Verbotsregel muss dagegen ankämpfen.
+
+Seit v2.7.12 hat jede Disziplin einen eigenen Agenten — dann gehört auch nur ihr eigenes Vokabular in ihren Prompt:
+
+- **`architect_run`** kennt nur noch Einlaufen/Auslaufen, **`architect_bike`** nur Einrollen/Ausrollen, **`architect_swim`** nur Einschwimmen/Ausschwimmen. Die fremden Begriffe kommen in diesen Dateien **überhaupt nicht mehr vor** — auch nicht in einer Verneinung, denn das hätte sie wieder in den Kontext geholt.
+- Mitgenommen: Lauf- und Radprompt trugen noch die komplette **Schwimmdistanz-Sektion** (Gesamtdistanz aus Ein-/Ausschwimmen berechnen) und die Intensitätsmetrik aller Sportarten — Reste aus der Prompt-Konsolidierung in v2.7.12/13. Beides ist jetzt disziplinrein.
+- Der generische `architect` (Kraft/Sonstiges/Golf/Brick) **behält die vollständige Liste** — er weiß vorab nicht, welche Sportart kommt.
+
+**Einschränkung:** Bei **GO** stammt die Beschreibung zeichengenau aus TrainingPeaks (v2.6.99). Steht „Einrollen" in einer GO-Laufeinheit, kommt es aus dem Originalplan und nicht von uns — dagegen hilft dieser Fix nicht.
+
+Tests: `test_offline.py` prüft für jeden der drei Disziplin-Prompts, dass die eigenen Begriffe vorkommen und **kein einziger fremder**, und dass der generische Architekt seine vollständige Liste behält.
 
 ### v2.7.25 — Einheiten ohne Verpflegungsbedarf bleiben sichtbar
 v2.7.23/24 haben Kraft und Schwimmen ganz aus dem Fueling-Tab geworfen. An einem Tag mit nur diesen beiden stand dort dann „Keine Einheit geplant" — und der Tag sah aus, als wäre er vergessen worden.
