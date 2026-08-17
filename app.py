@@ -41,7 +41,7 @@ except Exception as _agent_err:          # pragma: no cover
     _AGENTS_IMPORTABLE = False
     _AGENTS_IMPORT_ERROR = str(_agent_err)
 
-APP_VERSION = "2.7.26"
+APP_VERSION = "2.7.27"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -642,11 +642,54 @@ WTTR_TO_WMO = {
 }
 
 
-async def fetch_weather(athlete: dict, day: int = 1) -> dict:
+# Grobe Jahreszeit-Grenzen für gemäßigte Nordhalbkugel-Breiten (Monat →
+# plausibles Fenster für die Tageshöchsttemperatur in °C). Bewusst weit
+# gefasst: das ist ein Rauchmelder gegen kaputte Daten, keine Klimaprüfung.
+# Ohne diese Grenzen wäre „Blizzard, −2 °C" im August durchgegangen — der
+# Wert ist in sich stimmig, absurd ist nur der Monat.
+_TEMP_FENSTER = {1: (-20, 20), 2: (-20, 22), 3: (-15, 28), 4: (-8, 32),
+                 5: (-3, 36), 6: (3, 40), 7: (5, 42), 8: (5, 42),
+                 9: (0, 38), 10: (-5, 32), 11: (-12, 25), 12: (-18, 20)}
+
+
+def _wetter_plausibel(w: dict, lat: Optional[float] = None) -> Optional[str]:
+    """Grobe Widerspruchsprüfung. Gibt den Grund zurück, wenn etwas nicht stimmt.
+
+    Am 17.08.2026 meldete wttr.in für Ludwigsfelde „Blizzard, −2 °C" — mitten
+    im August, während Open-Meteo 12–20 °C lieferte. Die App hat das brav
+    verarbeitet: `is_cold`, Hallenbad statt Freibad, Kälte-Hinweise in der
+    Einheit. Solche Daten dürfen nicht stumm in eine Trainingsentscheidung
+    wandern.
+    """
+    tmin, tmax = w.get("temp_min"), w.get("temp_max")
+    if tmin is None or tmax is None:
+        return "Temperatur fehlt"
+    if not (-40 <= tmin <= 55 and -40 <= tmax <= 55):
+        return f"Temperatur außerhalb des Möglichen ({tmin}–{tmax} °C)"
+    if tmax < tmin:
+        return f"Maximum unter Minimum ({tmax} < {tmin})"
+    # Schnee/Eis bei zweistelligen Plusgraden ist ein Datenfehler, kein Wetter.
+    if w.get("code") in (71, 73, 75, 77, 85, 86) and tmax > 5:
+        return f"Schnee-Code {w.get('code')} bei {tmax} °C"
+    # Jahreszeit — nur für gemäßigte Nordhalbkugel-Breiten, sonst übersprungen.
+    datum = (w.get("datum") or "")[:10]
+    if lat is not None and 35 <= lat <= 65 and len(datum) == 10:
+        try:
+            monat = int(datum[5:7])
+        except ValueError:
+            monat = 0
+        unten, oben = _TEMP_FENSTER.get(monat, (-40, 55))
+        if not (unten <= tmax <= oben):
+            return (f"{tmax} °C passt nicht zu Monat {monat} "
+                    f"(erwartet {unten} bis {oben} °C)")
+    return None
+
+
+async def _fetch_wttr(athlete: dict, day: int) -> dict:
+    """Rückfallquelle. War bis v2.7.27 die Primärquelle."""
     lat = athlete["location"]["lat"]
     lon = athlete["location"]["lon"]
     url = f"https://wttr.in/{lat},{lon}?format=j1"
-    logger.info("fetch_weather: day=%s lat=%s lon=%s", day, lat, lon)
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(15.0),
         follow_redirects=True,
@@ -666,17 +709,61 @@ async def fetch_weather(athlete: dict, day: int = 1) -> dict:
     temp_max = float(day_data.get("maxtempC", "0") or "0")
     temp_min = float(day_data.get("mintempC", "0") or "0")
     rain_prob = max((int(h.get("chanceofrain", "0") or "0") for h in hourly_list), default=0)
-    datum = day_data.get("date", "")
     hourly = []
     for h in hourly_list:
         hour = int(h.get("time", "0") or "0") // 100
         if 6 <= hour <= 20:
-            hourly.append({
-                "hour": hour,
-                "rain": int(h.get("chanceofrain", "0") or "0"),
-                "temp": float(h.get("tempC", "0") or "0"),
-            })
-    result = {
+            hourly.append({"hour": hour,
+                           "rain": int(h.get("chanceofrain", "0") or "0"),
+                           "temp": float(h.get("tempC", "0") or "0")})
+    return _wetter_dict(day_data.get("date", ""), code, temp_min, temp_max,
+                        rain_prob, hourly, "wttr.in")
+
+
+async def _fetch_open_meteo(athlete: dict, day: int) -> dict:
+    """Primärquelle: Tageswerte plus stündliche Regenreihe für die Timeline."""
+    lat = athlete["location"]["lat"]
+    lon = athlete["location"]["lon"]
+    url = (
+        f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
+        f"&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"
+        f"&hourly=precipitation_probability,temperature_2m"
+        f"&forecast_days={max(2, day + 1)}&timezone=Europe%2FBerlin"
+    )
+    async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
+        r = await client.get(url)
+    r.raise_for_status()
+    data = r.json()
+    daily = data.get("daily", {})
+    dates = daily.get("time", [])
+    if day >= len(dates):
+        raise ValueError(f"Keine Wetterdaten für Tag {day}")
+    datum = dates[day]
+    temp_max = float((daily.get("temperature_2m_max") or [0])[day] or 0)
+    temp_min = float((daily.get("temperature_2m_min") or [0])[day] or 0)
+    rain_prob = int((daily.get("precipitation_probability_max") or [0])[day] or 0)
+    code = int((daily.get("weather_code") or [0])[day] or 0)
+
+    # Stündlich: nur der Zieltag, 6–20 Uhr — dieselbe Form wie bisher, damit
+    # die Regen-Timeline auf der Dark Card unverändert funktioniert.
+    stunden = data.get("hourly", {})
+    zeiten = stunden.get("time", [])
+    regen = stunden.get("precipitation_probability", [])
+    temps = stunden.get("temperature_2m", [])
+    hourly = []
+    for idx, ts in enumerate(zeiten):
+        if not ts.startswith(datum):
+            continue
+        h = int(ts[11:13])
+        if 6 <= h <= 20:
+            hourly.append({"hour": h,
+                           "rain": int((regen[idx] if idx < len(regen) else 0) or 0),
+                           "temp": float((temps[idx] if idx < len(temps) else 0) or 0)})
+    return _wetter_dict(datum, code, temp_min, temp_max, rain_prob, hourly, "open-meteo")
+
+
+def _wetter_dict(datum, code, temp_min, temp_max, rain_prob, hourly, quelle) -> dict:
+    return {
         "datum": datum,
         "code": code,
         "description": WMO.get(code, f"Code {code}"),
@@ -688,10 +775,36 @@ async def fetch_weather(athlete: dict, day: int = 1) -> dict:
         "is_hot": temp_max > 28,
         "is_cold": temp_max < 0,
         "hourly": hourly,
+        "quelle": quelle,
     }
-    logger.info("fetch_weather ok: datum=%s temp=%s-%s code=%s hourly=%d",
-                datum, temp_min, temp_max, code, len(hourly))
-    return result
+
+
+async def fetch_weather(athlete: dict, day: int = 1) -> dict:
+    """Prognose für heute (day=0) oder morgen (day=1).
+
+    Open-Meteo ist seit v2.7.27 die Primärquelle: wttr.in lieferte im August
+    2026 „Blizzard, −2 °C" für Brandenburg, und die App hat daraus brav
+    Kälte-Empfehlungen gebaut. wttr.in bleibt als Rückfall — aber nur, wenn
+    seine Werte die Plausibilitätsprüfung bestehen.
+    """
+    logger.info("fetch_weather: day=%s", day)
+    fehler = []
+    for name, holen in (("open-meteo", _fetch_open_meteo), ("wttr.in", _fetch_wttr)):
+        try:
+            w = await holen(athlete, day)
+        except Exception as e:
+            logger.warning("fetch_weather: %s nicht abrufbar: %s", name, e)
+            fehler.append(f"{name}: {e}")
+            continue
+        grund = _wetter_plausibel(w, athlete.get("location", {}).get("lat"))
+        if grund:
+            logger.error("fetch_weather: %s liefert unplausible Daten (%s) — verworfen", name, grund)
+            fehler.append(f"{name}: {grund}")
+            continue
+        logger.info("fetch_weather ok (%s): datum=%s temp=%s-%s code=%s hourly=%d",
+                    name, w["datum"], w["temp_min"], w["temp_max"], w["code"], len(w["hourly"]))
+        return w
+    raise ValueError("Kein Wetter verfügbar — " + "; ".join(fehler))
 
 
 async def fetch_weather_for_date(athlete: dict, target_date: str) -> dict:

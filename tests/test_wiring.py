@@ -578,6 +578,33 @@ async def main():
     pruefe("athlete?.pain_thresholds" in _idx,
            "buildModReason() liest die Schwellen weiterhin aus dem Profil")
 
+    # v2.7.27: wttr.in meldete am 17.08.2026 „Blizzard, −2 °C" für Brandenburg,
+    # die App baute daraus Kälte-Empfehlungen. Open-Meteo ist jetzt Primärquelle,
+    # und unplausible Daten werden verworfen statt durchgereicht.
+    print("\n=== Wetter: Quelle und Plausibilität (v2.7.27) ===")
+    _p = app._wetter_plausibel
+    pruefe(_p({"datum": "2026-08-18", "temp_min": -2.0, "temp_max": -2.0, "code": 75}, 52.3),
+           "−2 °C im August werden verworfen (der echte wttr.in-Fehler)")
+    pruefe(_p({"datum": "2026-08-18", "temp_min": 12.0, "temp_max": 20.0, "code": 75}, 52.3),
+           "Schnee-Code bei 20 °C wird verworfen")
+    pruefe(_p({"datum": "2026-08-18", "temp_min": 20.0, "temp_max": 10.0, "code": 1}, 52.3),
+           "Maximum unter Minimum wird verworfen")
+    pruefe(not _p({"datum": "2026-08-18", "temp_min": 12.2, "temp_max": 20.4, "code": 61}, 52.3),
+           "echte Open-Meteo-Werte kommen durch")
+    pruefe(not _p({"datum": "2026-07-20", "temp_min": 22.0, "temp_max": 38.0, "code": 0}, 52.3)
+           and not _p({"datum": "2026-01-20", "temp_min": -12.0, "temp_max": -8.0, "code": 75}, 52.3),
+           "echte Extreme (38 °C im Juli, −8 °C im Januar) bleiben gültig")
+    pruefe(not _p({"datum": "2026-08-18", "temp_min": -2.0, "temp_max": -2.0, "code": 75}, None),
+           "ohne Breitengrad greift die Jahreszeit-Regel nicht — keine Fehlalarme anderswo")
+    # Nicht Textpositionen vergleichen (der Docstring nennt wttr.in zuerst),
+    # sondern die tatsächliche Reihenfolge der Quellen im Code.
+    _wq = inspect.getsource(app.fetch_weather)
+    _reihenfolge = re.findall(r'\("(open-meteo|wttr\.in)",\s*_fetch_', _wq)
+    pruefe(_reihenfolge == ["open-meteo", "wttr.in"],
+           f"Open-Meteo wird vor wttr.in versucht (Reihenfolge: {_reihenfolge})")
+    pruefe("quelle" in inspect.getsource(app._wetter_dict),
+           "die Antwort nennt ihre Quelle, damit so ein Fehler auffindbar bleibt")
+
     print("\n=== Fallback bei Agent-Fehler ===")
     def kaputt(**kwargs):
         raise RuntimeError("simulierter Ausfall")

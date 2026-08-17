@@ -1,4 +1,4 @@
-# KI Coach App — v2.7.26
+# KI Coach App — v2.7.27
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -12,7 +12,7 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
   - `claude-haiku-4-5-20251001` → Abend-Check, Morgen-Check, Coach-Chat, TP-MCP-Calls über Claude
   - `claude-sonnet-4-6` → Workout-Analyse (braucht Reasoning über FIT-Daten)
 - **Wetter:**
-  - Prognose heute/morgen → **wttr.in** (`?format=j1`, Codes über `WTTR_TO_WMO` auf WMO gemappt)
+  - Prognose heute/morgen → **Open-Meteo** (seit v2.7.27 Primärquelle), **wttr.in** nur noch als Rückfall; beide durchlaufen eine Plausibilitätsprüfung
   - Vergangene Tage → **Open-Meteo** Forecast-API mit `past_days=7`
   - Stündliches Workout-Fenster → **Open-Meteo Archive-API**
 - **TrainingPeaks:** eigener MCP-Server auf Railway, angesprochen per **direktem JSON-RPC** (`call_tp_mcp`, SSE-Parsing). Der Umweg über den Claude-MCP-Connector ist in v2.7.18 entfallen — er hatte keinen Aufrufer mehr.
@@ -40,7 +40,7 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.7.26)
+├── CLAUDE.md            ← diese Datei (v2.7.27)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
 ├── coach_mcp.py         ← MCP-Server für Claude Desktop + Code (stdio lokal / HTTP remote)
 ├── requirements-mcp.txt ← nur für coach_mcp.py, eigenes venv (.venv-mcp)
@@ -380,6 +380,18 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.7.27 — Wetterquelle getauscht: wttr.in meldete Blizzard im August
+Beim Prüfen einer Laufeinheit stand in der Beschreibung „⚠️ SCHNEE/EIS". Das Modell hatte nicht halluziniert — `GET /api/weather?day=tomorrow` lieferte tatsächlich „Starker Schnee, −2 bis −2 °C" für Ludwigsfelde. **Mitte August.** Open-Meteo sagte für denselben Tag 12,2–20,4 °C. Wenige Stunden zuvor hatte dieselbe Quelle noch 36 °C gemeldet.
+
+Die Folgen reichten weit über einen schrägen Satz hinaus: `is_cold` stand auf `true`, der Wetter-Taktiker schickte ins Hallenbad und aufs Laufband, die Kälte-Regeln griffen — und auch die **Ernährung** hängt daran, weil `is_hot` Salz-, Flüssigkeits- und Flaschenmengen steuert.
+
+- **Open-Meteo ist jetzt Primärquelle** für die Prognose (heute/morgen), inklusive **stündlicher Regenreihe** für die Timeline auf der Dark Card — mit 15 Stundenwerten statt der 8 Drei-Stunden-Blöcke von wttr.in. Open-Meteo war ohnehin schon für Archiv- und Fenster-Wetter im Einsatz; damit ist eine Quelle weniger im Spiel.
+- **wttr.in bleibt als Rückfall.** Der Wechsel zu wttr.in in v2.4 hatte einen Grund (ConnectTimeouts bei Open-Meteo), deshalb wird die alte Quelle nicht entfernt, sondern nachgeordnet.
+- **`_wetter_plausibel()` prüft beide Quellen**, bevor ihre Daten in eine Trainingsentscheidung wandern: Temperatur im Möglichen, Maximum nicht unter Minimum, kein Schnee-Code bei über 5 °C — und ein grobes **Jahreszeit-Fenster** pro Monat für gemäßigte Nordhalbkugel-Breiten (35–65°). Letzteres ist der Teil, der den echten Fehler fängt: „Blizzard bei −2 °C" ist *in sich* stimmig, absurd ist nur der Monat. Außerhalb dieser Breiten greift die Regel nicht, statt Fehlalarme zu erzeugen.
+- **Die Antwort nennt ihre Quelle** (`quelle: open-meteo|wttr.in`), damit so ein Fehler beim nächsten Mal in einer Zeile sichtbar ist statt erst über eine seltsame Trainingsempfehlung.
+
+Tests: die echten kaputten Werte werden verworfen, echte Extreme (38 °C im Juli, −8 °C im Januar) bleiben gültig, ohne Breitengrad greift die Jahreszeit-Regel nicht, und die Quellenreihenfolge wird an der tatsächlichen Codereihenfolge geprüft statt an Textpositionen.
 
 ### v2.7.26 — Jeder Disziplin-Architekt kennt nur sein eigenes Vokabular
 Im Live-Betrieb stand in einer **Laufeinheit** „lockeres Einrollen" — Rad-Vokabular. Die Regel dagegen gab es längst („Verwende nie den falschen Begriff für die Sportart"), sie stand nur direkt unter einer Liste, die alle drei Sportarten aufzählte: Einschwimmen, **Einrollen**, Einlaufen. Das falsche Wort war also im Kontext des Laufcoachs präsent, und eine Verbotsregel muss dagegen ankämpfen.
