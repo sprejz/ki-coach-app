@@ -32,7 +32,7 @@ import strava
 # Agent-Pipeline (Sportmediziner + Wetter-Taktiker → Chefcoach). Import bewusst
 # defensiv: fehlt etwas, läuft die App weiter über den alten Monolith-Prompt.
 try:
-    from agents import analyst
+    from agents import analyst, analyst_bike, analyst_run, analyst_swim
     from agents import chat as chat_agent
     from orchestrator import run_check as _run_agent_check
     _AGENTS_IMPORTABLE = True
@@ -41,7 +41,26 @@ except Exception as _agent_err:          # pragma: no cover
     _AGENTS_IMPORTABLE = False
     _AGENTS_IMPORT_ERROR = str(_agent_err)
 
-APP_VERSION = "2.7.27"
+# Lauf/Rad/Schwimmen bekommen im Analyse-Tab denselben Disziplin-Coach, der
+# ihre Einheiten auch anpasst (agents/architect_run etc.) — vorher lief hier
+# für jede Sportart derselbe generische Performance-Analyst. Kraft/Sonstiges/
+# Golf/Brick fallen weiter auf agents/analyst zurück, wie beim Architekten.
+# Der Key ist derselbe wie in translations.py → T["agenten"], damit das
+# Frontend den Namen nicht neu erraten muss.
+_ANALYST_BY_SPORT = {}
+_ANALYST_AGENT_KEY_BY_SPORT = {
+    "Laufen": "architect_run",
+    "Rad": "architect_bike",
+    "Schwimmen": "architect_swim",
+}
+if _AGENTS_IMPORTABLE:
+    _ANALYST_BY_SPORT = {
+        "Laufen": analyst_run.run,
+        "Rad": analyst_bike.run,
+        "Schwimmen": analyst_swim.run,
+    }
+
+APP_VERSION = "2.7.28"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -2423,19 +2442,26 @@ async def tp_workouts_history(days: int = 5):
         return JSONResponse({"available": False, "days": [], "error": str(e)[:200]}, headers=_NO_CACHE)
 
 
-def _run_analysis_job_agent(job_id: str, quelle: Optional[str] = None, **kwargs):
+def _run_analysis_job_agent(job_id: str, quelle: Optional[str] = None,
+                            analyst_fn=None, analyst_agent: str = "analyst", **kwargs):
     """Analyse über den Performance-Analyst mit erzwungenem Schema.
 
     Im alten Pfad wurde ein Parse-Fehler zu {"bewertung": "ok", ...} — der
     Athlet sah ein Urteil, das keines war. Hier schlägt der Job stattdessen
     sichtbar fehl.
+
+    `analyst_fn`/`analyst_agent` kommen vom Sportart-Dispatch in
+    workout_analyze (_ANALYST_BY_SPORT) — Lauf/Rad/Schwimmen laufen über den
+    jeweiligen Disziplin-Coach, alles andere über den generischen Fallback.
     """
+    analyst_fn = analyst_fn or analyst.run
     try:
-        result = analyst.run(**kwargs)
-        logger.info("analysis job %s done (agent): bewertung=%s datenlage=%s",
-                    job_id, result.get("bewertung"), result.get("datenlage"))
+        result = analyst_fn(**kwargs)
+        logger.info("analysis job %s done (agent %s): bewertung=%s datenlage=%s",
+                    job_id, analyst_agent, result.get("bewertung"), result.get("datenlage"))
         result["_pipeline"] = "agents"
         result["quelle"] = quelle
+        result["analyst_agent"] = analyst_agent
         _analysis_jobs[job_id] = {"status": "done", "result": result}
     except Exception as e:
         logger.error("analysis job %s error (agent): %s: %s", job_id, type(e).__name__, e)
@@ -2702,9 +2728,15 @@ async def workout_analyze(
             )
             if _dauer_fuer_ernaehrung else ""
         )
+        # Lauf/Rad/Schwimmen an den jeweiligen Disziplin-Coach, alles andere
+        # (Kraft/Sonstiges/Golf/Brick) an den generischen Fallback.
+        _sport_norm = normalize_sport(sport)
+        _analyst_fn = _ANALYST_BY_SPORT.get(_sport_norm, analyst.run)
+        _analyst_agent = _ANALYST_AGENT_KEY_BY_SPORT.get(_sport_norm, "analyst")
         t = threading.Thread(
             target=_run_analysis_job_agent, kwargs={
-                "job_id": job_id, "athlete": athlete, "a_race": a_race,
+                "job_id": job_id, "analyst_fn": _analyst_fn, "analyst_agent": _analyst_agent,
+                "athlete": athlete, "a_race": a_race,
                 "sport": sport, "titel": title, "datum": target_date,
                 "fit": fit_data or None, "tp": tp_workout_data or None,
                 "wetter": weather_on_date or None, "load": load,

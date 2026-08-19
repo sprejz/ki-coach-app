@@ -3,6 +3,14 @@
 Ersetzt den freien JSON-Pfad aus _run_analysis_job_fast. Dort führte ein
 Parse-Fehler stillschweigend zu {"bewertung": "ok", "urteil": <Rohtext>} — der
 Athlet sah ein Urteil, das nie eines war. Mit erzwungenem Schema unmöglich.
+
+Lauf/Rad/Schwimmen haben eigene Disziplin-Agenten (agents/analyst_run,
+agents/analyst_bike, agents/analyst_swim — derselbe Coach, der die Einheit
+auch anpasst, siehe agents/architect_run etc.), die app.py per Sportart
+dispatcht. Dieses Modul bleibt der generische Fallback für Sportarten ohne
+Spezialisten (Kraft/Sonstiges/Golf/Brick) und liefert SCHEMA + build_input,
+die alle vier Varianten gemeinsam nutzen — hier lokal neu zu definieren
+würde sie vervierfachen.
 """
 import logging
 from pathlib import Path

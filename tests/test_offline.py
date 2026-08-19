@@ -14,8 +14,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from datetime import date, timedelta  # noqa: E402
 
 from agents import (  # noqa: E402
-    allgemeinmedic, analyst, architect, architect_bike, architect_run, architect_swim, chat, fueling,
-    head_coach, medic, periodizer, weather,
+    allgemeinmedic, analyst, analyst_bike, analyst_run, analyst_swim, architect, architect_bike,
+    architect_run, architect_swim, chat, fueling, head_coach, medic, periodizer, weather,
 )
 import orchestrator  # noqa: E402
 from orchestrator import _baue_einheit, normalize_sport  # noqa: E402
@@ -652,6 +652,44 @@ for _mod, _ordner, _zusatz_marker, _zusatz_beleg in (
     _geladen = _mod.load_prompt(_mod.SPORT, path=_prompt_datei)
     pruefe(_geladen == _prompt_text.strip(),
            f"architect_{_ordner}.load_prompt(path=...) liefert exakt den Dateiinhalt")
+
+print("\n=== Performance-Analyst: eigener Coach je Disziplin ===")
+# Bisher bewertete für Lauf/Rad/Schwimmen derselbe generische Performance-
+# Analyst (Coach Ben Krause) jede Einheit — obwohl Anpassung längst über drei
+# Disziplin-Coaches läuft (architect_run/_bike/_swim). Analog aufgeteilt:
+# derselbe Coach, der eine Sportart anpasst, bewertet sie jetzt auch.
+for _mod, _ordner, _zusatz_marker, _zusatz_beleg in (
+    (analyst_run, "run", "Lauf-spezifisch", "Kadenz"),
+    (analyst_bike, "bike", "Rad-spezifisch", "rpm"),
+    (analyst_swim, "swim", "Schwimm-spezifisch", "CSS"),
+):
+    pruefe(_mod.SCHEMA is analyst.SCHEMA,
+           f"analyst_{_ordner}.SCHEMA ist dasselbe Objekt wie der generische Fallback (keine Drift)")
+    pruefe(_mod.build_input is analyst.build_input,
+           f"analyst_{_ordner}.build_input ist dieselbe Funktion wie der generische Fallback")
+    _prompt_datei = _WURZEL / "agents" / f"analyst_{_ordner}" / f"analyst_{_ordner}.md"
+    pruefe(_prompt_datei.exists(), f"analyst_{_ordner}.md liegt im eigenen Agent-Ordner")
+    _prompt_text = _prompt_datei.read_text(encoding="utf-8")
+    pruefe("DATENQUELLEN" in _prompt_text and "BEWERTEN" in _prompt_text,
+           f"analyst_{_ordner}.md enthält den vollständigen generischen Kern-Prompt")
+    pruefe(_zusatz_marker in _prompt_text and _zusatz_beleg in _prompt_text,
+           f"analyst_{_ordner}.md enthält den {_ordner}-spezifischen Zusatz")
+    _geladen = _mod.load_prompt(_mod.SPORT, path=_prompt_datei)
+    pruefe(_geladen == _prompt_text.strip(),
+           f"analyst_{_ordner}.load_prompt(path=...) liefert exakt den Dateiinhalt")
+
+# Dieselbe Vokabular-Isolation wie bei den Architekten (v2.7.26) — die
+# Analyse-Urteile sind ebenfalls Freitext und könnten sonst "lockeres
+# Einrollen" in einer Laufanalyse schreiben.
+for _mod_name, _eigene in (("analyst_run", "Laufen"), ("analyst_bike", "Rad"),
+                          ("analyst_swim", "Schwimmen")):
+    _text = (_WURZEL / "agents" / _mod_name / f"{_mod_name}.md").read_text(encoding="utf-8")
+    pruefe(all(w in _text for w in _VOKABELN[_eigene]),
+           f"{_mod_name}: nennt die eigenen Begriffe {_VOKABELN[_eigene]}")
+    _fremd = [w for sportart, paar in _VOKABELN.items() if sportart != _eigene
+             for w in paar if w in _text]
+    pruefe(not _fremd,
+           f"{_mod_name}: keine fremden Disziplin-Begriffe im Prompt (gefunden: {_fremd or 'keine'})")
 
 print("\n=== Alle Agenten laden ihren Prompt aus dem eigenen Ordner (v2.7.13) ===")
 for _agentmodul, _ordner, _dateiname, _marker in (

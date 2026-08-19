@@ -2850,7 +2850,7 @@ function renderAnalysisCard(data) {
           <p style="font-size:13px;color:var(--text);line-height:1.5;margin:0">🍎 ${esc(ernaehrung)}</p>
         </div>` : ''}
     </div>
-    <div style="text-align:center;font-size:11px;color:var(--muted);margin-top:6px">${esc(agentTag('analyst'))}</div>
+    <div style="text-align:center;font-size:11px;color:var(--muted);margin-top:6px">${esc(agentTag(data.analyst_agent || 'analyst'))}</div>
     ${quelleNote(data.quelle)}
     ${engineNote(data._pipeline)}`;
 }

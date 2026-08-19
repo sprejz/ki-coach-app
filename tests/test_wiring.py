@@ -494,10 +494,46 @@ async def main():
 
     print("\n=== Coach-Chat und Analyst verdrahtet ===")
     import agents.analyst as analyst_mod
+    import agents.analyst_bike as analyst_bike_mod
+    import agents.analyst_run as analyst_run_mod
+    import agents.analyst_swim as analyst_swim_mod
     import agents.chat as chat_mod
     pruefe(app.chat_agent is chat_mod, "app.py nutzt den Chat-Agent")
     pruefe(app.analyst is analyst_mod, "app.py nutzt den Analyst-Agent")
     pruefe(hasattr(app, "_run_analysis_job_agent"), "Analyse-Job über den Agent existiert")
+
+    # v2.8: Lauf/Rad/Schwimmen bekommen im Analyse-Tab denselben Disziplin-
+    # Coach, der ihre Einheiten auch anpasst — vorher lief für jede Sportart
+    # derselbe generische Performance-Analyst.
+    pruefe(app._ANALYST_BY_SPORT.get("Laufen") is analyst_run_mod.run,
+           "app.py dispatcht 'Laufen' im Analyse-Tab an analyst_run")
+    pruefe(app._ANALYST_BY_SPORT.get("Rad") is analyst_bike_mod.run,
+           "app.py dispatcht 'Rad' im Analyse-Tab an analyst_bike")
+    pruefe(app._ANALYST_BY_SPORT.get("Schwimmen") is analyst_swim_mod.run,
+           "app.py dispatcht 'Schwimmen' im Analyse-Tab an analyst_swim")
+    pruefe(app._ANALYST_BY_SPORT.get("Kraft") is None
+           and app._ANALYST_BY_SPORT.get("Sonstiges") is None,
+           "Kraft/Sonstiges haben KEINEN Dispatch-Eintrag — fallen auf analyst.run zurück")
+    pruefe(app._ANALYST_AGENT_KEY_BY_SPORT.get("Laufen") == "architect_run"
+           and app._ANALYST_AGENT_KEY_BY_SPORT.get("Rad") == "architect_bike"
+           and app._ANALYST_AGENT_KEY_BY_SPORT.get("Schwimmen") == "architect_swim",
+           "Der Agent-Key für die Anzeige ist derselbe wie beim Architekten (gleicher Coach, gleiche Identität)")
+
+    # _run_analysis_job_agent ruft die übergebene analyst_fn auf und markiert
+    # das Ergebnis mit dem passenden Agent-Key fürs Frontend.
+    _analysis_job_id = "test-analyst-dispatch"
+    app._analysis_jobs.pop(_analysis_job_id, None)
+    app._run_analysis_job_agent(
+        job_id=_analysis_job_id,
+        analyst_fn=lambda **kw: {"bewertung": "gut", "urteil": "x", "naechster_schritt": "y",
+                                 "datenlage": "nur_plan", "ernaehrung_einschaetzung": ""},
+        analyst_agent="architect_run",
+        athlete={}, sport="Laufen", titel="Lauf", datum="2026-08-19",
+    )
+    _job = app._analysis_jobs.get(_analysis_job_id, {})
+    pruefe(_job.get("status") == "done" and _job.get("result", {}).get("analyst_agent") == "architect_run",
+           "_run_analysis_job_agent trägt den übergebenen analyst_agent-Key ins Ergebnis ein")
+    app._analysis_jobs.pop(_analysis_job_id, None)
 
     # Regression v2.7.1: tomorrow_str war im Monolith-Chatpfad nie definiert.
     # Der NameError landete im except und der Chat bekam immer

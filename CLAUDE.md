@@ -1,4 +1,4 @@
-# KI Coach App — v2.7.27
+# KI Coach App — v2.7.28
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -40,7 +40,7 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.7.27)
+├── CLAUDE.md            ← diese Datei (v2.7.28)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
 ├── coach_mcp.py         ← MCP-Server für Claude Desktop + Code (stdio lokal / HTTP remote)
 ├── requirements-mcp.txt ← nur für coach_mcp.py, eigenes venv (.venv-mcp)
@@ -49,7 +49,7 @@ ki-coach-app/
 ├── nutrition.py         ← Ernährungstabelle (deterministisch, von beiden Pfaden genutzt)
 ├── training_load.py     ← CTL/ATL/TSB aus der TSS-Historie (deterministisch)
 ├── strava.py            ← Strava-Auto-Match für die Analyse (OAuth direkt per httpx, kein MCP)
-├── agents/              ← base, medic, allgemeinmedic, weather, periodizer, head_coach, architect, architect_run, architect_bike, architect_swim, fueling, analyst, chat (je eigener Ordner, seit v2.7.12; Prompt-.md direkt daneben statt zentral, seit v2.7.13)
+├── agents/              ← base, medic, allgemeinmedic, weather, periodizer, head_coach, architect, architect_run, architect_bike, architect_swim, fueling, analyst, analyst_run, analyst_bike, analyst_swim, chat (je eigener Ordner, seit v2.7.12; Prompt-.md direkt daneben statt zentral, seit v2.7.13; Analyst-Disziplin-Split seit v2.7.28)
 ├── tests/               ← fixtures.py, test_offline.py, test_wiring.py, test_live.py
 ├── translations.py      ← UI-Texte + Monolith-Prompts (de/en)
 ├── templates/
@@ -209,8 +209,9 @@ TP unterstützt kein Supplementary Unicode → 🔥 wurde durch ♨️ ersetzt (
 3. TP-Workout direkt per MCP holen
 4. Prompt bauen: unterscheidet **Ist-Daten** (`tssActual`, HF, Pace, `perceivedExertion`/RPE …) von reinen **Plan-Daten** und weist Claude an, auch ohne Ist-Werte zu bewerten (v2.6.94)
 5. Job-Queue: Thread + `job_id`, Frontend pollt `GET /api/workout/analyze/{job_id}` (v2.6.5 — direkter Call lief in 60s-Timeouts)
+6. **Disziplin-Dispatch** (v2.7.28): `app._ANALYST_BY_SPORT` schickt Lauf/Rad/Schwimmen an `agents/analyst_run`/`_bike`/`_swim` — denselben Coach, der die Einheit auch anpasst (Finn Adler/Nils Brandt/Pia König aus `T["agenten"]`). Kraft/Sonstiges/Golf/Brick bleiben beim generischen `agents/analyst` (Coach Ben Krause).
 
-Antwort-JSON: `{"bewertung":"gut|ok|verbesserungsbedarf","urteil":"…","naechster_schritt":"…","ernaehrung_einschaetzung":"…","quelle":"fit_upload|strava|null"}`
+Antwort-JSON: `{"bewertung":"gut|ok|verbesserungsbedarf","urteil":"…","naechster_schritt":"…","ernaehrung_einschaetzung":"…","quelle":"fit_upload|strava|null","analyst_agent":"architect_run|architect_bike|architect_swim|analyst"}`
 Prompt-Leitlinie: keine erfundenen Kritikpunkte, echte Zahlen statt Floskeln (v2.6.91).
 
 `ernaehrung_einschaetzung` (v2.7.8) — Einschätzung, ob die Verpflegung zur Dauer/Intensität passte (Splits/HF-Drift, RPE, Dauer gegen die Tabellen-Basis aus `nutrition_for_duration()`), leer wenn die Datenlage nicht reicht. Erfindet keine eigenen Gramm-/ml-Zahlen — die kommen als `ernaehrung_basis` fertig berechnet in den Prompt.
@@ -380,6 +381,21 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.7.28 — Performance-Analyst nach Disziplin aufgeteilt
+Nutzerbeobachtung: im Analyse-Tab antwortete für **jede** Sportart derselbe generische Performance-Analyst (Coach Ben Krause) — obwohl die Anpassung (Workflow 1/2) seit v2.7.12 längst über drei eigene Disziplin-Coaches läuft. Unlogisch, denn ein Laufcoach liest Kadenz-Drift und Splits anders als ein Rad- oder Schwimmspezialist.
+
+Analog zum Architekten-Split aufgeteilt — derselbe Coach, der eine Sportart anpasst, bewertet sie jetzt auch:
+
+- **`agents/analyst_run`/`_bike`/`_swim`** (neu) — je ein eigenes Modul mit eigenem, disziplinspezifischem Prompt (Lauf: Kadenz als Ermüdungssignal, Splits, Gelände; Rad: kardiales Drift, NP vs. Ø-Leistung, Kadenz-Korridor, Indoor-Watt; Schwimmen: Pace gegen CSS, Intervall-Notation, Technik- statt Kraftverlust, Freiwasser). `SCHEMA` und `build_input` sind **nicht** dupliziert, sondern Referenzen auf `agents/analyst/analyst.py` — dieselbe Objektidentität wie beim Architekten-Split, damit eine künftige Schema-Änderung nicht an vier Stellen nachgezogen werden muss.
+- **`agents/analyst/analyst.py`** bleibt der generische Fallback für Sportarten ohne Spezialisten (Kraft/Sonstiges/Golf/Brick).
+- **`app.py`** — neues Dispatch-Dict `_ANALYST_BY_SPORT` (analog zu `orchestrator._ARCHITECT_BY_SPORT`), entscheidet über `normalize_sport(sport)`. Neues Antwortfeld `analyst_agent` nennt den Agent-Key, der tatsächlich gelaufen ist — **derselbe Key** wie beim Architekten (`architect_run`/`_bike`/`_swim`), keine eigene Analyst-Identität nötig: derselbe Coach hat die Einheit schon vorher formuliert.
+- **`templates/index.html`** — `agentTag(data.analyst_agent || 'analyst')` statt des fest verdrahteten `agentTag('analyst')`.
+- **Kein neuer Kostenfaktor**: weiterhin genau ein Claude-Call pro Analyse, nur ein anderer Prompt je nach Sportart.
+
+Kein Frontend-Konflikt mit der Disziplin-Vokabular-Regel aus v2.7.26 — die drei neuen Prompts nennen jeweils nur den eigenen Ein-/Auslaufen-/-rollen-/-schwimmen-Begriff, nie den einer anderen Sportart, gleiche Absicherung wie bei den Architekten.
+
+Tests: SCHEMA-/`build_input`-Gleichheit mit dem Fallback (keine Drift), Vokabular-Isolation je Disziplin-Prompt, das Dispatching in `app._ANALYST_BY_SPORT`, der Kraft/Sonstiges-Fallback und dass `_run_analysis_job_agent` den übergebenen `analyst_agent`-Key ins Ergebnis einträgt.
 
 ### v2.7.27 — Wetterquelle getauscht: wttr.in meldete Blizzard im August
 Beim Prüfen einer Laufeinheit stand in der Beschreibung „⚠️ SCHNEE/EIS". Das Modell hatte nicht halluziniert — `GET /api/weather?day=tomorrow` lieferte tatsächlich „Starker Schnee, −2 bis −2 °C" für Ludwigsfelde. **Mitte August.** Open-Meteo sagte für denselben Tag 12,2–20,4 °C. Wenige Stunden zuvor hatte dieselbe Quelle noch 36 °C gemeldet.
@@ -557,7 +573,7 @@ Die App hat inzwischen 11 Agenten-Rollen, aber sichtbar war davon nur ein grün/
 - **Lauf-/Rad-/Schwimmcoach** (die sportspezifischen Architekt-Prompts aus v2.7.10) bekommen drei eigene Namen (Finn Adler, Nils Brandt, Pia König) statt einer Person mit Sport-Tag.
 - **Coach-Chat** spricht durchgehend als Coach Tom Reiter (Chefcoach) — keine zwölfte, separate Identität; im Chat-Tab steht eine statische Zeile über dem Verlauf.
 - **`orchestrator.py`** — zwei neue, explizite Felder statt Text-Raten: `_chefcoach_ran` (False beim Allgemeinmediziner-Pause-Kurzschluss, sonst True) und `ernaehrung_von_berater` pro Sportart (True nur wenn der Ernährungsberater-Zusatz tatsächlich angehängt wurde).
-- **`templates/index.html`** — Dark Card zeigt pro MOD-Sportart den zuständigen Sport-Coach und ggf. Anna Feld (Ernährungsberaterin), am Kartenfuß eine „Mitgewirkt: …"-Zeile mit allen beteiligten Spezialisten. Analyse-Tab zeigt Coach Ben Krause. Welcher Architekt-Spezialist geschrieben hat, leitet das Frontend selbst aus Sportart+Badge ab — kein neues Backend-Feld nötig.
+- **`templates/index.html`** — Dark Card zeigt pro MOD-Sportart den zuständigen Sport-Coach und ggf. Anna Feld (Ernährungsberaterin), am Kartenfuß eine „Mitgewirkt: …"-Zeile mit allen beteiligten Spezialisten. Analyse-Tab zeigt seit v2.7.28 den per `analyst_agent` genannten Disziplin-Coach (vorher immer Coach Ben Krause). Welcher Architekt-Spezialist geschrieben hat, leitet das Frontend selbst aus Sportart+Badge ab — kein neues Backend-Feld nötig.
 - Bewusst nicht abgedeckt: SKIP-Einheiten unter dem Pause-Kurzschluss bekommen keine „Dr. Jonas Berger hat gestoppt"-Zuschreibung; der Chat ordnet keine einzelnen Sätze Unterthemen zu (bleibt eine Stimme).
 
 ### v2.7.10 — Sportspezifische Architekt-Prompts
