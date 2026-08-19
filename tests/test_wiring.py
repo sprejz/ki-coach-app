@@ -493,18 +493,18 @@ async def main():
     orchestrator.allgemeinmedic = allgemeinmedic
 
     print("\n=== Coach-Chat und Analyst verdrahtet ===")
-    import agents.analyst as analyst_mod
     import agents.analyst_bike as analyst_bike_mod
     import agents.analyst_run as analyst_run_mod
     import agents.analyst_swim as analyst_swim_mod
     import agents.chat as chat_mod
     pruefe(app.chat_agent is chat_mod, "app.py nutzt den Chat-Agent")
-    pruefe(app.analyst is analyst_mod, "app.py nutzt den Analyst-Agent")
     pruefe(hasattr(app, "_run_analysis_job_agent"), "Analyse-Job über den Agent existiert")
 
-    # v2.8: Lauf/Rad/Schwimmen bekommen im Analyse-Tab denselben Disziplin-
+    # v2.7.28: Lauf/Rad/Schwimmen bekommen im Analyse-Tab denselben Disziplin-
     # Coach, der ihre Einheiten auch anpasst — vorher lief für jede Sportart
-    # derselbe generische Performance-Analyst.
+    # derselbe generische Performance-Analyst (Coach Ben Krause), der über die
+    # UI nie erreichbar war (Analyse-Tab zeigt nur Lauf/Rad/Schwimmen) und
+    # deshalb ganz entfernt wurde.
     pruefe(app._ANALYST_BY_SPORT.get("Laufen") is analyst_run_mod.run,
            "app.py dispatcht 'Laufen' im Analyse-Tab an analyst_run")
     pruefe(app._ANALYST_BY_SPORT.get("Rad") is analyst_bike_mod.run,
@@ -512,12 +512,22 @@ async def main():
     pruefe(app._ANALYST_BY_SPORT.get("Schwimmen") is analyst_swim_mod.run,
            "app.py dispatcht 'Schwimmen' im Analyse-Tab an analyst_swim")
     pruefe(app._ANALYST_BY_SPORT.get("Kraft") is None
-           and app._ANALYST_BY_SPORT.get("Sonstiges") is None,
-           "Kraft/Sonstiges haben KEINEN Dispatch-Eintrag — fallen auf analyst.run zurück")
+           and app._ANALYST_BY_SPORT.get("Sonstiges") is None
+           and len(app._ANALYST_BY_SPORT) == 3,
+           "Kraft/Sonstiges/alles andere haben KEINEN Dispatch-Eintrag — kein generischer Fallback mehr")
+    pruefe(not hasattr(app, "analyst"),
+           "app.py importiert den generischen Analyst-Agent nicht mehr (entfernt)")
     pruefe(app._ANALYST_AGENT_KEY_BY_SPORT.get("Laufen") == "architect_run"
            and app._ANALYST_AGENT_KEY_BY_SPORT.get("Rad") == "architect_bike"
            and app._ANALYST_AGENT_KEY_BY_SPORT.get("Schwimmen") == "architect_swim",
            "Der Agent-Key für die Anzeige ist derselbe wie beim Architekten (gleicher Coach, gleiche Identität)")
+
+    # Eine nicht unterstützte Sportart wird jetzt vor dem Jobstart klar
+    # abgelehnt, statt still auf einen generischen Analysten zu fallen.
+    import inspect as _inspect_analyze
+    _analyze_quelle = _inspect_analyze.getsource(app.workout_analyze)
+    pruefe("err_analysis_sport_unsupported" in _analyze_quelle,
+           "workout_analyze lehnt nicht unterstützte Sportarten mit einer klaren Fehlermeldung ab")
 
     # _run_analysis_job_agent ruft die übergebene analyst_fn auf und markiert
     # das Ergebnis mit dem passenden Agent-Key fürs Frontend.

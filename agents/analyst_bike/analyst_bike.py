@@ -2,18 +2,18 @@
 
 Eigener Disziplin-Agent, analog zu agents/architect_bike: derselbe Coach, der
 Radeinheiten anpasst (Coach Nils Brandt, siehe translations.py → T["agenten"]),
-bewertet sie im Analyse-Tab jetzt auch. Bisher lief für jede Sportart derselbe
-generische Performance-Analyst (agents/analyst) — ein Radcoach liest
-kardiales Drift und NP/Ø-Leistung anders als ein Lauf- oder Schwimmspezialist.
+bewertet sie im Analyse-Tab. Es gibt (anders als beim Architekten) keinen
+generischen Kraft/Sonstiges-Fallback für die Analyse — der Analyse-Tab zeigt
+im Frontend ohnehin nur Lauf-/Rad-/Schwimmeinheiten zur Auswahl.
 
-SCHEMA und build_input bleiben zentral in agents/analyst/analyst.py (der
-generische Fallback für Kraft/Sonstiges/Golf nutzt dieselben Objekte) — hier
-ist nur der Prompt radspezifisch.
+SCHEMA und build_input bleiben zentral in agents/base.py (alle drei
+Disziplin-Agenten nutzen dieselben Objekte) — hier ist nur der Prompt
+radspezifisch.
 """
 from pathlib import Path
 
-from ..analyst.analyst import SCHEMA, build_input
-from ..base import HAIKU, call_agent, load_prompt
+from ..base import ANALYST_SCHEMA as SCHEMA
+from ..base import HAIKU, build_analyst_input as build_input, call_agent, load_prompt
 
 SPORT = "Rad"
 _PROMPT_PATH = Path(__file__).parent / "analyst_bike.md"

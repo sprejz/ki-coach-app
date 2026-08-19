@@ -66,7 +66,6 @@ TRANSLATIONS = {
             "architect_bike": {"name": "Coach Nils Brandt", "rolle": "Radcoach"},
             "architect_swim": {"name": "Coach Pia König",   "rolle": "Schwimmcoach"},
             "fueling":        {"name": "Anna Feld",         "rolle": "Ernährungsberatung"},
-            "analyst":        {"name": "Coach Ben Krause",  "rolle": "Performance-Analyse"},
         },
         # Bei GO schreibt kein Modell — die Beschreibung ist der Originaltext
         # aus TrainingPeaks. Statt einer leeren Zeile die Herkunft nennen.
@@ -343,6 +342,7 @@ TRANSLATIONS = {
         # Error messages (user-visible)
         "err_tp_url_missing":   "TP_MCP_URL nicht konfiguriert",
         "err_api_key_missing":  "ANTHROPIC_API_KEY nicht gesetzt",
+        "err_analysis_sport_unsupported": "Analyse nur für Lauf/Rad/Schwimmen verfügbar (Sportart: {sport})",
         "err_no_baseline":      "Keine Baseline — bitte zuerst CSVs hochladen",
         "err_claude_json":      "Ungültiges JSON von Claude: {e}",
         "err_weather_na":       "Wetterdaten nicht verfügbar",
@@ -413,7 +413,6 @@ TRANSLATIONS = {
             "architect_bike": {"name": "Coach Nils Brandt", "rolle": "Cycling Coach"},
             "architect_swim": {"name": "Coach Pia König",   "rolle": "Swimming Coach"},
             "fueling":        {"name": "Anna Feld",         "rolle": "Nutrition Coaching"},
-            "analyst":        {"name": "Coach Ben Krause",  "rolle": "Performance Analysis"},
         },
         "plan_original":     "Original plan taken from TrainingPeaks",
         "nutrition_basis":   "Amounts from the nutrition table in your profile",
@@ -682,6 +681,7 @@ TRANSLATIONS = {
         # Error messages (user-visible)
         "err_tp_url_missing":   "TP_MCP_URL not configured",
         "err_api_key_missing":  "ANTHROPIC_API_KEY not set",
+        "err_analysis_sport_unsupported": "Analysis only available for run/bike/swim (sport: {sport})",
         "err_no_baseline":      "No baseline — please upload CSVs first",
         "err_claude_json":      "Invalid JSON from Claude: {e}",
         "err_weather_na":       "Weather data unavailable",

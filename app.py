@@ -32,7 +32,7 @@ import strava
 # Agent-Pipeline (Sportmediziner + Wetter-Taktiker → Chefcoach). Import bewusst
 # defensiv: fehlt etwas, läuft die App weiter über den alten Monolith-Prompt.
 try:
-    from agents import analyst, analyst_bike, analyst_run, analyst_swim
+    from agents import analyst_bike, analyst_run, analyst_swim
     from agents import chat as chat_agent
     from orchestrator import run_check as _run_agent_check
     _AGENTS_IMPORTABLE = True
@@ -42,11 +42,13 @@ except Exception as _agent_err:          # pragma: no cover
     _AGENTS_IMPORT_ERROR = str(_agent_err)
 
 # Lauf/Rad/Schwimmen bekommen im Analyse-Tab denselben Disziplin-Coach, der
-# ihre Einheiten auch anpasst (agents/architect_run etc.) — vorher lief hier
-# für jede Sportart derselbe generische Performance-Analyst. Kraft/Sonstiges/
-# Golf/Brick fallen weiter auf agents/analyst zurück, wie beim Architekten.
-# Der Key ist derselbe wie in translations.py → T["agenten"], damit das
-# Frontend den Namen nicht neu erraten muss.
+# ihre Einheiten auch anpasst (agents/architect_run etc.). Anders als beim
+# Architekten gibt es hier KEINEN generischen Kraft/Sonstiges-Fallback (v2.7.28
+# entfernt) — der Analyse-Tab zeigt im Frontend ohnehin nur diese drei
+# Sportarten zur Auswahl (SPORT_OK-Filter in templates/index.html), ein
+# generischer Analyst wäre nie erreichbar gewesen, lief aber bis v2.7.27 als
+# totes Fallback-Gewicht mit. Der Key ist derselbe wie in translations.py →
+# T["agenten"], damit das Frontend den Namen nicht neu erraten muss.
 _ANALYST_BY_SPORT = {}
 _ANALYST_AGENT_KEY_BY_SPORT = {
     "Laufen": "architect_run",
@@ -60,7 +62,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "2.7.28"
+APP_VERSION = "2.7.29"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -2442,8 +2444,8 @@ async def tp_workouts_history(days: int = 5):
         return JSONResponse({"available": False, "days": [], "error": str(e)[:200]}, headers=_NO_CACHE)
 
 
-def _run_analysis_job_agent(job_id: str, quelle: Optional[str] = None,
-                            analyst_fn=None, analyst_agent: str = "analyst", **kwargs):
+def _run_analysis_job_agent(job_id: str, analyst_fn, analyst_agent: str,
+                            quelle: Optional[str] = None, **kwargs):
     """Analyse über den Performance-Analyst mit erzwungenem Schema.
 
     Im alten Pfad wurde ein Parse-Fehler zu {"bewertung": "ok", ...} — der
@@ -2452,9 +2454,9 @@ def _run_analysis_job_agent(job_id: str, quelle: Optional[str] = None,
 
     `analyst_fn`/`analyst_agent` kommen vom Sportart-Dispatch in
     workout_analyze (_ANALYST_BY_SPORT) — Lauf/Rad/Schwimmen laufen über den
-    jeweiligen Disziplin-Coach, alles andere über den generischen Fallback.
+    jeweiligen Disziplin-Coach. Andere Sportarten weist workout_analyze schon
+    vor dem Jobstart ab (siehe dort), es gibt keinen generischen Fallback.
     """
-    analyst_fn = analyst_fn or analyst.run
     try:
         result = analyst_fn(**kwargs)
         logger.info("analysis job %s done (agent %s): bewertung=%s datenlage=%s",
@@ -2610,6 +2612,13 @@ async def workout_analyze(
         raise HTTPException(500, T["err_api_key_missing"])
     if not tp_url:
         raise HTTPException(400, T["err_tp_url_missing"])
+    # Der Analyse-Tab zeigt im Frontend ohnehin nur Lauf-/Rad-/Schwimmeinheiten
+    # zur Auswahl (SPORT_OK-Filter in templates/index.html) — es gibt keinen
+    # generischen Fallback mehr für andere Sportarten (v2.7.28). Früh und klar
+    # ablehnen statt eine teure FIT-/Wetter-/Strava-Vorbereitung für eine
+    # Sportart zu machen, die ohnehin nicht analysiert werden kann.
+    if agents_enabled() and normalize_sport(sport) not in _ANALYST_BY_SPORT:
+        raise HTTPException(400, T["err_analysis_sport_unsupported"].format(sport=sport or "?"))
 
     # FIT-Datei sofort parsen (sync, schnell) bevor der Thread startet
     fit_data = {}
@@ -2728,11 +2737,11 @@ async def workout_analyze(
             )
             if _dauer_fuer_ernaehrung else ""
         )
-        # Lauf/Rad/Schwimmen an den jeweiligen Disziplin-Coach, alles andere
-        # (Kraft/Sonstiges/Golf/Brick) an den generischen Fallback.
+        # An den Disziplin-Coach der Sportart — der Check oben garantiert schon,
+        # dass sport zu Laufen/Rad/Schwimmen normalisiert.
         _sport_norm = normalize_sport(sport)
-        _analyst_fn = _ANALYST_BY_SPORT.get(_sport_norm, analyst.run)
-        _analyst_agent = _ANALYST_AGENT_KEY_BY_SPORT.get(_sport_norm, "analyst")
+        _analyst_fn = _ANALYST_BY_SPORT[_sport_norm]
+        _analyst_agent = _ANALYST_AGENT_KEY_BY_SPORT[_sport_norm]
         t = threading.Thread(
             target=_run_analysis_job_agent, kwargs={
                 "job_id": job_id, "analyst_fn": _analyst_fn, "analyst_agent": _analyst_agent,

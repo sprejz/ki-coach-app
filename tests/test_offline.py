@@ -14,9 +14,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from datetime import date, timedelta  # noqa: E402
 
 from agents import (  # noqa: E402
-    allgemeinmedic, analyst, analyst_bike, analyst_run, analyst_swim, architect, architect_bike,
+    allgemeinmedic, analyst_bike, analyst_run, analyst_swim, architect, architect_bike,
     architect_run, architect_swim, chat, fueling, head_coach, medic, periodizer, weather,
 )
+from agents.base import ANALYST_SCHEMA, analyst_datenlage, build_analyst_input  # noqa: E402
 import orchestrator  # noqa: E402
 from orchestrator import _baue_einheit, normalize_sport  # noqa: E402
 from tests import fixtures as fx  # noqa: E402
@@ -133,7 +134,7 @@ print("\n=== Schemas ===")
 for name, schema in [("medic", medic.SCHEMA), ("allgemeinmedic", allgemeinmedic.SCHEMA),
                      ("weather", weather.SCHEMA), ("fueling", fueling.SCHEMA),
                      ("head_coach", head_coach.SCHEMA), ("architect", architect.SCHEMA),
-                     ("periodizer", periodizer.SCHEMA), ("analyst", analyst.SCHEMA)]:
+                     ("periodizer", periodizer.SCHEMA), ("analyst", ANALYST_SCHEMA)]:
     vorher = len(fehler)
     validiere_schema(schema, name)
     pruefe(len(fehler) == vorher, f"{name}.SCHEMA ist gültig")
@@ -453,12 +454,12 @@ TP_IST = {"metrics": {"tss_actual": 78, "avg_hr": 158, "avg_power": 210, "avg_ca
           "rpe": 7, "description": "4×8min @ 5:20"}
 TP_NUR_PLAN = {"metrics": {"tss_planned": 75, "duration_planned": 1.0}, "description": "4×8min @ 5:20"}
 
-pruefe(analyst.datenlage(FIT, TP_IST) == "fit", "FIT-Datei schlägt TP-Ist")
-pruefe(analyst.datenlage(None, TP_IST) == "tp_ist", "Ohne FIT zählen die TP-Ist-Werte")
-pruefe(analyst.datenlage(None, TP_NUR_PLAN) == "nur_plan", "Nur Plandaten werden erkannt")
-pruefe(analyst.datenlage(None, None) == "nur_plan", "Gar keine Daten → nur_plan")
+pruefe(analyst_datenlage(FIT, TP_IST) == "fit", "FIT-Datei schlägt TP-Ist")
+pruefe(analyst_datenlage(None, TP_IST) == "tp_ist", "Ohne FIT zählen die TP-Ist-Werte")
+pruefe(analyst_datenlage(None, TP_NUR_PLAN) == "nur_plan", "Nur Plandaten werden erkannt")
+pruefe(analyst_datenlage(None, None) == "nur_plan", "Gar keine Daten → nur_plan")
 
-an_in = analyst.build_input(
+an_in = build_analyst_input(
     athlete={"ftp_watt": 286, "run_threshold_pace": "5:20", "css_per_100m": "2:20",
              "weight_kg": 84},
     a_race=fx.A_RACE_MALBORK, sport="Run", titel="Schwellenlauf", datum="2026-07-24",
@@ -474,24 +475,24 @@ pruefe("Ø 29.5 °C" in an_in, "Analyst sieht das Wetter zur Trainingszeit")
 pruefe("TSB -17.8" in an_in, "Analyst sieht die Belastungslage des Tages")
 pruefe("Laufschwelle: 5:20 /km" in an_in, "Analyst sieht die Schwelle zum Vergleich")
 
-an_plan = analyst.build_input(athlete={}, sport="Run", titel="Lauf", datum="2026-07-24",
+an_plan = build_analyst_input(athlete={}, sport="Run", titel="Lauf", datum="2026-07-24",
                               fit=None, tp=TP_NUR_PLAN)
 pruefe("NUR Plan-Daten" in an_plan, "Ohne Ist-Werte wird das im Prompt markiert")
 pruefe("Bewerte die Einheit trotzdem" in an_plan,
        "Ohne Ist-Werte wird trotzdem eine Bewertung verlangt")
 
-an_ernaehrung = analyst.build_input(athlete={}, sport="Run", titel="Lauf", datum="2026-07-24",
+an_ernaehrung = build_analyst_input(athlete={}, sport="Run", titel="Lauf", datum="2026-07-24",
                                     fit=None, tp=None, ernaehrung_basis="Während: 90g Carbs/h")
 pruefe("90g Carbs/h" in an_ernaehrung, "Analyst sieht die Ernährungsbasis für diese Dauer")
-pruefe("ernaehrung_einschaetzung" in analyst.SCHEMA["properties"],
+pruefe("ernaehrung_einschaetzung" in ANALYST_SCHEMA["properties"],
        "Analyst-Schema hat das Ernährungs-Einschätzungsfeld")
 
 # Regression: echte tp_get_workout-Antwort (snake_case unter "metrics"),
 # nicht die TP-eigenen camelCase-Namen — hat vor v2.7.9 dazu geführt, dass
 # beim Analysten nur "description" ankam, keine einzige Zahl.
-pruefe(analyst.datenlage(None, fx.TP_WORKOUT_STRUKTURIERT) == "tp_ist",
+pruefe(analyst_datenlage(None, fx.TP_WORKOUT_STRUKTURIERT) == "tp_ist",
        "Echte TP-Antwort wird als tp_ist erkannt (avg_hr/avg_power/avg_cadence in 'metrics')")
-an_echt = analyst.build_input(
+an_echt = build_analyst_input(
     athlete={"ftp_watt": 286, "run_threshold_pace": "5:20", "css_per_100m": "2:20"},
     sport="Run", titel="3x16 min. LC", datum="2026-07-29",
     fit=None, tp=fx.TP_WORKOUT_STRUKTURIERT,
@@ -657,16 +658,18 @@ print("\n=== Performance-Analyst: eigener Coach je Disziplin ===")
 # Bisher bewertete für Lauf/Rad/Schwimmen derselbe generische Performance-
 # Analyst (Coach Ben Krause) jede Einheit — obwohl Anpassung längst über drei
 # Disziplin-Coaches läuft (architect_run/_bike/_swim). Analog aufgeteilt:
-# derselbe Coach, der eine Sportart anpasst, bewertet sie jetzt auch.
+# derselbe Coach, der eine Sportart anpasst, bewertet sie jetzt auch. Anders
+# als beim Architekten gibt es keinen generischen Fallback mehr (v2.7.28) —
+# SCHEMA/build_input kommen direkt aus agents/base.py.
 for _mod, _ordner, _zusatz_marker, _zusatz_beleg in (
     (analyst_run, "run", "Lauf-spezifisch", "Kadenz"),
     (analyst_bike, "bike", "Rad-spezifisch", "rpm"),
     (analyst_swim, "swim", "Schwimm-spezifisch", "CSS"),
 ):
-    pruefe(_mod.SCHEMA is analyst.SCHEMA,
-           f"analyst_{_ordner}.SCHEMA ist dasselbe Objekt wie der generische Fallback (keine Drift)")
-    pruefe(_mod.build_input is analyst.build_input,
-           f"analyst_{_ordner}.build_input ist dieselbe Funktion wie der generische Fallback")
+    pruefe(_mod.SCHEMA is ANALYST_SCHEMA,
+           f"analyst_{_ordner}.SCHEMA ist dasselbe Objekt wie agents/base.py (keine Drift)")
+    pruefe(_mod.build_input is build_analyst_input,
+           f"analyst_{_ordner}.build_input ist dieselbe Funktion wie agents/base.py")
     _prompt_datei = _WURZEL / "agents" / f"analyst_{_ordner}" / f"analyst_{_ordner}.md"
     pruefe(_prompt_datei.exists(), f"analyst_{_ordner}.md liegt im eigenen Agent-Ordner")
     _prompt_text = _prompt_datei.read_text(encoding="utf-8")
@@ -700,7 +703,6 @@ for _agentmodul, _ordner, _dateiname, _marker in (
     (head_coach, "head_coach", "head_coach.md", None),
     (chat, "chat", "chat.md", None),
     (fueling, "fueling", "fueling.md", None),
-    (analyst, "analyst", "analyst.md", None),
 ):
     _erwartete_datei = _WURZEL / "agents" / _ordner / _dateiname
     pruefe(_erwartete_datei.exists(), f"{_ordner}/{_dateiname} liegt im eigenen Agent-Ordner")
@@ -723,7 +725,7 @@ pruefe(orchestrator._ARCHITECT_BY_SPORT.get("Kraft") is None
 _ERWARTETE_AGENTEN_SCHLUESSEL = [
     "medic", "allgemein", "wetter", "block", "chefcoach",
     "architect", "architect_run", "architect_bike", "architect_swim",
-    "fueling", "analyst",
+    "fueling",
 ]
 for _sprache in ("de", "en"):
     _registry = TRANSLATIONS[_sprache].get("agenten", {})
@@ -731,6 +733,11 @@ for _sprache in ("de", "en"):
         _eintrag = _registry.get(_schluessel, {})
         pruefe(bool(_eintrag.get("name")) and bool(_eintrag.get("rolle")),
                f"agenten['{_schluessel}'] hat name+rolle ({_sprache})")
+    # v2.7.28: "analyst" (Coach Ben Krause) entfernt — der generische
+    # Performance-Analyst war über die UI nie erreichbar (Analyse-Tab zeigt
+    # nur Lauf/Rad/Schwimmen), Lauf/Rad/Schwimmen nutzen jetzt architect_*.
+    pruefe("analyst" not in _registry,
+           f"agenten['analyst'] (Coach Ben Krause) ist entfernt, kein totes Fallback-Gewicht ({_sprache})")
 
 print(f"\n{'=' * 40}")
 if fehler:

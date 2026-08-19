@@ -1,4 +1,4 @@
-# KI Coach App — v2.7.28
+# KI Coach App — v2.7.29
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -40,7 +40,7 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 ## Dateistruktur
 ```
 ki-coach-app/
-├── CLAUDE.md            ← diese Datei (v2.7.28)
+├── CLAUDE.md            ← diese Datei (v2.7.29)
 ├── app.py               ← FastAPI Backend (~2200 Zeilen)
 ├── coach_mcp.py         ← MCP-Server für Claude Desktop + Code (stdio lokal / HTTP remote)
 ├── requirements-mcp.txt ← nur für coach_mcp.py, eigenes venv (.venv-mcp)
@@ -49,7 +49,7 @@ ki-coach-app/
 ├── nutrition.py         ← Ernährungstabelle (deterministisch, von beiden Pfaden genutzt)
 ├── training_load.py     ← CTL/ATL/TSB aus der TSS-Historie (deterministisch)
 ├── strava.py            ← Strava-Auto-Match für die Analyse (OAuth direkt per httpx, kein MCP)
-├── agents/              ← base, medic, allgemeinmedic, weather, periodizer, head_coach, architect, architect_run, architect_bike, architect_swim, fueling, analyst, analyst_run, analyst_bike, analyst_swim, chat (je eigener Ordner, seit v2.7.12; Prompt-.md direkt daneben statt zentral, seit v2.7.13; Analyst-Disziplin-Split seit v2.7.28)
+├── agents/              ← base, medic, allgemeinmedic, weather, periodizer, head_coach, architect, architect_run, architect_bike, architect_swim, fueling, analyst_run, analyst_bike, analyst_swim, chat (je eigener Ordner, seit v2.7.12; Prompt-.md direkt daneben statt zentral, seit v2.7.13; Analyst-Disziplin-Split seit v2.7.28, generischer Analyst-Fallback entfernt seit v2.7.29 — anders als beim Architekten braucht die Analyse keinen)
 ├── tests/               ← fixtures.py, test_offline.py, test_wiring.py, test_live.py
 ├── translations.py      ← UI-Texte + Monolith-Prompts (de/en)
 ├── templates/
@@ -209,9 +209,9 @@ TP unterstützt kein Supplementary Unicode → 🔥 wurde durch ♨️ ersetzt (
 3. TP-Workout direkt per MCP holen
 4. Prompt bauen: unterscheidet **Ist-Daten** (`tssActual`, HF, Pace, `perceivedExertion`/RPE …) von reinen **Plan-Daten** und weist Claude an, auch ohne Ist-Werte zu bewerten (v2.6.94)
 5. Job-Queue: Thread + `job_id`, Frontend pollt `GET /api/workout/analyze/{job_id}` (v2.6.5 — direkter Call lief in 60s-Timeouts)
-6. **Disziplin-Dispatch** (v2.7.28): `app._ANALYST_BY_SPORT` schickt Lauf/Rad/Schwimmen an `agents/analyst_run`/`_bike`/`_swim` — denselben Coach, der die Einheit auch anpasst (Finn Adler/Nils Brandt/Pia König aus `T["agenten"]`). Kraft/Sonstiges/Golf/Brick bleiben beim generischen `agents/analyst` (Coach Ben Krause).
+6. **Disziplin-Dispatch, kein generischer Fallback** (v2.7.28/v2.7.29): `app._ANALYST_BY_SPORT` schickt Lauf/Rad/Schwimmen an `agents/analyst_run`/`_bike`/`_swim` — denselben Coach, der die Einheit auch anpasst (Finn Adler/Nils Brandt/Pia König aus `T["agenten"]`). Andere Sportarten lehnt der Endpoint mit HTTP 400 ab, statt still auf einen generischen Analysten zu fallen — der Analyse-Tab bietet im Frontend ohnehin nur diese drei Sportarten zur Auswahl an (SPORT_OK-Filter in `templates/index.html`).
 
-Antwort-JSON: `{"bewertung":"gut|ok|verbesserungsbedarf","urteil":"…","naechster_schritt":"…","ernaehrung_einschaetzung":"…","quelle":"fit_upload|strava|null","analyst_agent":"architect_run|architect_bike|architect_swim|analyst"}`
+Antwort-JSON: `{"bewertung":"gut|ok|verbesserungsbedarf","urteil":"…","naechster_schritt":"…","ernaehrung_einschaetzung":"…","quelle":"fit_upload|strava|null","analyst_agent":"architect_run|architect_bike|architect_swim"}`
 Prompt-Leitlinie: keine erfundenen Kritikpunkte, echte Zahlen statt Floskeln (v2.6.91).
 
 `ernaehrung_einschaetzung` (v2.7.8) — Einschätzung, ob die Verpflegung zur Dauer/Intensität passte (Splits/HF-Drift, RPE, Dauer gegen die Tabellen-Basis aus `nutrition_for_duration()`), leer wenn die Datenlage nicht reicht. Erfindet keine eigenen Gramm-/ml-Zahlen — die kommen als `ernaehrung_basis` fertig berechnet in den Prompt.
@@ -381,6 +381,16 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.7.29 — Generischer Performance-Analyst wieder entfernt
+Direkte Nachfrage zu v2.7.28: „benötige ich den Performance-Analyst überhaupt noch?" Antwort beim genaueren Hinsehen: der generische Fallback (Coach Ben Krause, für Kraft/Sonstiges/Golf/Brick) war über die App-UI **nie erreichbar**. Der Analyse-Tab filtert die Liste im Frontend längst auf Rad/Bike/Lauf/Run/Schwimmen/Swim (`SPORT_OK` in `templates/index.html`) — ein Kraft- oder Golf-Workout taucht dort gar nicht als analysierbare Zeile auf. Anders als beim Architekten, dessen generischer Fallback im täglichen Check tatsächlich für Kraft-MOD-Einheiten läuft: der Analyst-Fallback war reines totes Gewicht, das v2.7.28 unnötig mitgezogen hat.
+
+- **`agents/analyst/` (das ganze Paket) gelöscht** — `analyst.py`, `analyst.md`, `__init__.py`. Kein generischer Coach mehr, keine Coach-Ben-Krause-Identität mehr in `translations.py` (de/en).
+- **`ANALYST_SCHEMA`, `build_analyst_input` und die Hilfsfunktionen (FIT-/TP-Labels, `analyst_datenlage`, Struktur-Rendering) sind nach `agents/base.py` gewandert** — dort liegt seit v2.7.12 schon `ARCHITECT_SCHEMA`/`build_architect_input`, aus demselben Grund: von mehreren Modulen gemeinsam genutzter Code gehört an eine Stelle statt in ein Modul, das nur zufällig auch als Fallback diente. `agents/analyst_run/_bike/_swim` importieren jetzt direkt aus `agents/base.py`.
+- **`app.py`** — `POST /api/workout/analyze` lehnt eine nicht unterstützte Sportart jetzt **früh und klar** mit HTTP 400 (`err_analysis_sport_unsupported`) ab, statt für sie eine teure FIT-/Wetter-/Strava-Vorbereitung zu machen und dann still auf einen nie erreichbaren Analysten zu fallen. `_ANALYST_BY_SPORT` hat nur noch drei Einträge, kein `.get(..., analyst.run)` mehr.
+- **`templates/index.html`** — zeigt die Coach-Zeile nur noch, wenn `analyst_agent` gesetzt ist (jetzt immer der Fall, wenn die Agent-Pipeline lief), kein `|| 'analyst'`-Fallback mehr auf eine nicht mehr existierende Identität.
+
+Tests entsprechend verschärft statt nur verschoben: `app._ANALYST_BY_SPORT` hat exakt drei Einträge, `app.analyst` existiert nicht mehr, `"analyst"` fehlt in der `agenten`-Registry beider Sprachen, und `workout_analyze` referenziert nachweislich die neue Fehlermeldung.
 
 ### v2.7.28 — Performance-Analyst nach Disziplin aufgeteilt
 Nutzerbeobachtung: im Analyse-Tab antwortete für **jede** Sportart derselbe generische Performance-Analyst (Coach Ben Krause) — obwohl die Anpassung (Workflow 1/2) seit v2.7.12 längst über drei eigene Disziplin-Coaches läuft. Unlogisch, denn ein Laufcoach liest Kadenz-Drift und Splits anders als ein Rad- oder Schwimmspezialist.
