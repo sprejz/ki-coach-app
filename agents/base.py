@@ -180,6 +180,68 @@ def call_agent_text(
     return text
 
 
+def call_agent_with_tools(
+    *,
+    prompt: str,
+    messages: list,
+    tools: list,
+    model: str = HAIKU,
+    max_tokens: int = 1500,
+    label: str = "agent",
+) -> dict:
+    """Tool-Use-Variante von call_agent_text — EIN Aufruf, kein Tool-Result-Loop.
+
+    Ruft Claude ein Tool, wird NICHTS ausgeführt: der Aufrufer bekommt Name+Input
+    zurück und entscheidet selbst, ob/wie daraus eine pending action wird
+    (propose-before-write). Es gibt bewusst keinen zweiten Turn — solange nichts
+    ausgeführt wurde, gibt es auch kein Tool-Ergebnis, das zurückgespielt werden
+    müsste.
+
+    Gibt {"text": str, "tool_call": {"name": str, "input": dict} | None} zurück.
+    """
+    client = _client()
+    try:
+        resp = client.messages.create(
+            model=model, max_tokens=max_tokens, system=prompt,
+            messages=messages, tools=tools,
+        )
+    except anthropic.APIStatusError as e:
+        logger.error("%s: API %s — %s", label, e.status_code, e.message)
+        raise AgentError(f"{label}: API-Fehler {e.status_code}: {e.message}") from e
+    except anthropic.APIConnectionError as e:
+        logger.error("%s: Verbindungsfehler — %s", label, e)
+        raise AgentError(f"{label}: API nicht erreichbar") from e
+
+    if resp.stop_reason == "refusal":
+        raise AgentError(f"{label}: Anfrage wurde abgelehnt")
+
+    text = "".join(b.text for b in resp.content if b.type == "text").strip()
+    tool_call = None
+    for b in resp.content:
+        if b.type == "tool_use":
+            tool_call = {"name": b.name, "input": b.input}
+            break  # nur der erste zählt — Single-Call-Design
+
+    # Bei max_tokens mitten im Tool-Input kann `input` unvollständig/leer sein —
+    # so ein Tool-Call ist nicht vertrauenswürdig, lieber verwerfen als eine
+    # halbe pending action daraus bauen.
+    if resp.stop_reason == "max_tokens" and tool_call is not None:
+        logger.warning("%s: Tool-Call bei max_tokens abgeschnitten, verworfen", label)
+        tool_call = None
+
+    if not text and not tool_call:
+        raise AgentError(f"{label}: leere Antwort")
+
+    USAGE.append({
+        "label": label, "model": model,
+        "in": resp.usage.input_tokens, "out": resp.usage.output_tokens,
+    })
+    logger.info("%s ok: model=%s in=%d out=%d tool=%s", label, model,
+                resp.usage.input_tokens, resp.usage.output_tokens,
+                tool_call["name"] if tool_call else "—")
+    return {"text": text, "tool_call": tool_call}
+
+
 # Architekt-Schema + Eingabebau leben hier statt in agents/architect, weil sie
 # ab v2.7.12 von vier Modulen genutzt werden (generischer Fallback für
 # Kraft/Sonstiges + je ein Disziplin-Agent für Lauf/Rad/Schwimm) — ohne diese

@@ -8,13 +8,107 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from ..base import HAIKU, call_agent_text, load_prompt
+from ..base import HAIKU, call_agent_with_tools, load_prompt
 
 logger = logging.getLogger(__name__)
 
 _PROMPT_PATH = Path(__file__).parent / "chat.md"
 
 MAX_HISTORIE = 10
+
+# Feldnamen bewusst identisch zu den call_tp_mcp-Argumenten (title, description,
+# date, text) — der Server reicht ein Tool-Input 1:1 weiter, keine Umbenennung
+# zwischen Tool-Aufruf und MCP-Call nötig. Wichtig: der Server EXECUTED hier
+# nichts — er löst date+workout_hint nur zu einer echten workout_id auf und legt
+# eine pending action an, die der Athlet erst per Klick bestätigen muss.
+PROPOSE_WORKOUT_UPDATE_TOOL = {
+    "name": "propose_workout_update",
+    "description": (
+        "Schlägt eine Änderung von Titel und/oder Beschreibung EINER bestehenden "
+        "TrainingPeaks-Einheit vor, die weiter oben im Kontext (TrainingPeaks-Plan) "
+        "aufgeführt ist. KEINE Änderung von Datum, Dauer oder Sportart möglich — nur "
+        "Titel/Beschreibung. Ruf dieses Tool NUR auf, wenn der Athlet klar und konkret "
+        "eine Änderung an EINER bestimmten, dir bereits bekannten Einheit verlangt. "
+        "Rate niemals eine workout_id — du bekommst nie eine gezeigt; date + "
+        "workout_hint reichen, der Server findet die Einheit selbst. Bist du unsicher, "
+        "welche Einheit oder welcher Tag gemeint ist, rufe das Tool NICHT auf, sondern "
+        "frag im Text nach."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "date": {
+                "type": "string",
+                "description": (
+                    "ISO-Datum (YYYY-MM-DD) der Einheit, exakt wie im "
+                    "TrainingPeaks-Plan-Abschnitt oben angegeben — nicht selbst "
+                    "berechnen oder raten."
+                ),
+            },
+            "workout_hint": {
+                "type": "string",
+                "description": (
+                    "Sportart oder ein Ausschnitt aus dem Titel der Einheit, WÖRTLICH "
+                    "aus der passenden Plan-Zeile oben kopiert, damit der Server an "
+                    "diesem Datum eindeutig die richtige Einheit findet."
+                ),
+            },
+            "new_title": {
+                "type": "string",
+                "description": "Neuer Titel der Einheit. Weglassen, wenn nur die Beschreibung geändert werden soll.",
+            },
+            "new_description": {
+                "type": "string",
+                "description": "Neue oder ergänzte Beschreibung der Einheit. Weglassen, wenn nur der Titel geändert werden soll.",
+            },
+            "summary": {
+                "type": "string",
+                "description": (
+                    "Ein kurzer, an den Athleten gerichteter deutscher Satz, der die "
+                    "vorgeschlagene Änderung zusammenfasst. Wird WÖRTLICH als "
+                    "Chat-Antwort und als Überschrift der Bestätigungs-Karte angezeigt, "
+                    "z.B. 'Ich schlage vor, den Longrun morgen in \"Longrun locker – "
+                    "Regen\" umzubenennen.'"
+                ),
+            },
+        },
+        "required": ["date", "workout_hint", "summary"],
+        "anyOf": [
+            {"required": ["new_title"]},
+            {"required": ["new_description"]},
+        ],
+    },
+}
+
+PROPOSE_CALENDAR_NOTE_TOOL = {
+    "name": "propose_calendar_note",
+    "description": (
+        "Schlägt eine NEUE Kalendernotiz in TrainingPeaks vor — z.B. für Krankheit, "
+        "Reise oder eine sonstige Information für den Kalender. KEINE neue "
+        "Trainingseinheit, keine Änderung einer bestehenden Einheit — dafür gibt es "
+        "propose_workout_update. Ruf dieses Tool nur bei einer klaren Bitte um einen "
+        "Kalendereintrag auf."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "date":    {"type": "string", "description": "ISO-Datum (YYYY-MM-DD) für die Notiz."},
+            "title":   {"type": "string", "description": "Kurzer Betreff der Notiz."},
+            "text":    {"type": "string", "description": "Notiztext."},
+            "summary": {
+                "type": "string",
+                "description": (
+                    "Kurzer deutscher Satz an den Athleten, der die vorgeschlagene "
+                    "Notiz zusammenfasst — wird wörtlich als Chat-Antwort und "
+                    "Karten-Überschrift verwendet."
+                ),
+            },
+        },
+        "required": ["date", "title", "text", "summary"],
+    },
+}
+
+CHAT_TOOLS = [PROPOSE_WORKOUT_UPDATE_TOOL, PROPOSE_CALENDAR_NOTE_TOOL]
 
 
 def build_context(*, athlete: dict, a_race: Optional[dict], tage_bis_a: Optional[int],
@@ -93,7 +187,10 @@ def build_context(*, athlete: dict, a_race: Optional[dict], tage_bis_a: Optional
 
 
 def run(*, nachricht: str, historie: Optional[list] = None, kontext: str = "",
-        model: str = HAIKU, max_tokens: int = 1500) -> str:
+        model: str = HAIKU, max_tokens: int = 1500) -> dict:
+    """Gibt {"text": str, "tool_call": {"name","input"}|None} zurück — der
+    Aufrufer (app.py) entscheidet, ob/wie er aus einem Tool-Call eine pending
+    action baut. Der Chat selbst führt nie etwas aus."""
     system = load_prompt("chat", path=_PROMPT_PATH)
     if kontext:
         system = f"{system}\n\n---\n\n{kontext}"
@@ -104,5 +201,5 @@ def run(*, nachricht: str, historie: Optional[list] = None, kontext: str = "",
             messages.append({"role": h["role"], "content": str(h["content"])})
     messages.append({"role": "user", "content": nachricht})
 
-    return call_agent_text(prompt=system, messages=messages, model=model,
-                           max_tokens=max_tokens, label="chat")
+    return call_agent_with_tools(prompt=system, messages=messages, tools=CHAT_TOOLS,
+                                 model=model, max_tokens=max_tokens, label="chat")

@@ -176,6 +176,20 @@ TRANSLATIONS = {
         "stage_architekt":    "Workout-Architekt formuliert aus…",
         "stage_monolith":     "Coach denkt nach…",
         "tp_applying":       "Wird in TrainingPeaks übernommen…",
+        # Chat-Vorschlagskarte (v2.8) — der Chat schreibt nie direkt, nur diese
+        # Karte + ein Klick lösen tp_apply-artige Schreibzugriffe aus.
+        "chat_proposal_header":          "Coach schlägt vor",
+        "chat_proposal_new_title_label": "Neuer Titel:",
+        "chat_proposal_new_desc_label":  "Neue Beschreibung:",
+        "btn_chat_confirm":              "Übernehmen",
+        "btn_chat_dismiss":              "Verwerfen",
+        "chat_proposal_applying":        "Wird übernommen…",
+        "chat_proposal_dismissed":       "Verworfen",
+        "chat_proposal_expired":         "Dieser Vorschlag ist abgelaufen — frag nochmal.",
+        "chat_ambiguous_workout":        "Ich habe an diesem Tag mehrere passende Einheiten gefunden — welche meinst du genau?",
+        "chat_no_matching_workout":      "Ich habe an diesem Tag keine passende Einheit gefunden — kannst du sie genauer beschreiben?",
+        "chat_proposal_invalid":         "Ich konnte daraus keinen eindeutigen Vorschlag machen — kannst du das nochmal genauer beschreiben?",
+        "chat_proposal_fallback_summary": "Ich schlage eine Änderung vor — schau dir die Details unten an.",
         # Claude prompts — system
         "prompt_system": (
             "Du bist KI Coach für {name}, Langdistanz-Triathlet.\n"
@@ -519,6 +533,20 @@ TRANSLATIONS = {
         "stage_architekt":    "Workout architect drafting…",
         "stage_monolith":     "Coach thinking…",
         "tp_applying":       "Applying to TrainingPeaks…",
+        # Chat proposal card (v2.8) — chat never writes directly, only this
+        # card + a click trigger tp_apply-style writes.
+        "chat_proposal_header":          "Coach suggests",
+        "chat_proposal_new_title_label": "New title:",
+        "chat_proposal_new_desc_label":  "New description:",
+        "btn_chat_confirm":              "Confirm",
+        "btn_chat_dismiss":              "Dismiss",
+        "chat_proposal_applying":        "Applying…",
+        "chat_proposal_dismissed":       "Dismissed",
+        "chat_proposal_expired":         "This proposal has expired — ask again.",
+        "chat_ambiguous_workout":        "I found several matching workouts that day — which one do you mean?",
+        "chat_no_matching_workout":      "I couldn't find a matching workout that day — can you describe it more precisely?",
+        "chat_proposal_invalid":         "I couldn't turn that into a clear proposal — can you describe it again more precisely?",
+        "chat_proposal_fallback_summary": "I'm suggesting a change — check the details below.",
         # Claude prompts — system
         "prompt_system": (
             "You are the AI Coach for {name}, a long-distance triathlete.\n"

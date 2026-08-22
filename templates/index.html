@@ -2743,11 +2743,12 @@ async function sendChatMessage() {
       body: JSON.stringify({message: msg, history: chatHistory}),
     });
     if (!r.ok) throw new Error(await r.text());
-    const {reply} = await r.json();
+    const {reply, proposal} = await r.json();
     chatHistory.push({role: 'user', content: msg});
     chatHistory.push({role: 'assistant', content: reply});
     document.getElementById('chat-typing')?.remove();
     appendChatBubble('assistant', reply);
+    if (proposal) appendProposalCard(proposal);
   } catch(e) {
     document.getElementById('chat-typing')?.remove();
     appendChatBubble('assistant', '⚠️ Fehler: ' + esc(String(e.message || e)));
@@ -2763,6 +2764,82 @@ document.addEventListener('keydown', e => {
     sendChatMessage();
   }
 });
+
+// Der Chat führt nie direkt aus — proposal ist nur ein Vorschlag, den der
+// Athlet hier per Klick bestätigen muss (v2.8). Erst der Klick auf
+// "Übernehmen" löst tatsächlich einen Schreibzugriff in TrainingPeaks aus.
+function appendProposalCard(proposal) {
+  const el = document.getElementById('chat-history');
+  if (!el) return;
+  const card = document.createElement('div');
+  card.className = 'chat-proposal-card';
+  card.style.cssText = [
+    'align-self:flex-start',
+    'max-width:88%',
+    'background:rgba(29,158,117,.06)',
+    'border:1px solid rgba(29,158,117,.3)',
+    'border-radius:12px 12px 12px 2px',
+    'padding:12px',
+    'font-size:13px',
+  ].join(';');
+
+  let bodyHtml;
+  if (proposal.type === 'workout_update') {
+    bodyHtml = `<div style="color:var(--muted);font-size:12px;margin-bottom:6px">` +
+      `${esc(proposal.date)} · ${esc(proposal.matched_sport || '')} · ${esc(proposal.matched_title || '')}</div>` +
+      (proposal.new_title ? `<div>→ ${esc(T.chat_proposal_new_title_label)} <b>${esc(proposal.new_title)}</b></div>` : '') +
+      (proposal.new_description ? `<div style="white-space:pre-wrap;margin-top:4px">→ ${esc(T.chat_proposal_new_desc_label)}<br>${esc(proposal.new_description)}</div>` : '');
+  } else {
+    bodyHtml = `<div style="color:var(--muted);font-size:12px;margin-bottom:6px">${esc(proposal.date)}</div>` +
+      `<div><b>${esc(proposal.title)}</b></div>` +
+      `<div style="white-space:pre-wrap;margin-top:4px">${esc(proposal.text)}</div>`;
+  }
+
+  card.innerHTML =
+    `<div style="font-weight:600;margin-bottom:8px">${esc(T.chat_proposal_header)}</div>` +
+    bodyHtml +
+    `<div class="chat-proposal-actions" style="display:flex;gap:8px;margin-top:10px">` +
+      `<button class="btn-tp" data-role="confirm">${esc(T.btn_chat_confirm)}</button>` +
+      `<button data-role="dismiss" style="background:transparent;border:1px solid rgba(255,255,255,.15);` +
+        `color:var(--muted);border-radius:8px;padding:8px 12px;font-size:13px;cursor:pointer">${esc(T.btn_chat_dismiss)}</button>` +
+    `</div>`;
+
+  card.querySelector('[data-role="confirm"]').onclick = () => confirmChatProposal(proposal.pending_id, card);
+  card.querySelector('[data-role="dismiss"]').onclick = () => dismissChatProposal(proposal.pending_id, card);
+  el.appendChild(card);
+  el.scrollTop = el.scrollHeight;
+}
+
+async function confirmChatProposal(pendingId, card) {
+  const actions = card.querySelector('.chat-proposal-actions');
+  const btn = actions?.querySelector('[data-role="confirm"]');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span style="display:inline-flex;align-items:center;gap:8px">` +
+      `<div class="spinner" style="width:14px;height:14px;border-width:2px"></div>${esc(T.chat_proposal_applying)}</span>`;
+  }
+  try {
+    const r = await fetch(`/api/chat/tp-action/${pendingId}/confirm`, {method: 'POST'});
+    if (!r.ok) throw new Error(await r.text());
+    const data = await r.json();
+    const rows = (data.actions || []).map(a =>
+      `<div style="font-size:12px;color:${a.status !== 'error' ? 'var(--green)' : 'var(--red)'}">` +
+      `${a.status !== 'error' ? '✓' : '✗'} ${esc(a.detail || '')}</div>`).join('');
+    if (actions) actions.outerHTML = rows;
+  } catch(e) {
+    if (actions) {
+      actions.insertAdjacentHTML('afterend',
+        `<div style="font-size:12px;color:var(--red);margin-top:6px">✗ ${esc(String(e.message || e))}</div>`);
+    }
+    if (btn) { btn.disabled = false; btn.textContent = T.btn_chat_confirm; }
+  }
+}
+
+function dismissChatProposal(pendingId, card) {
+  const actions = card.querySelector('.chat-proposal-actions');
+  if (actions) actions.outerHTML = `<div style="font-size:12px;color:var(--muted)">${esc(T.chat_proposal_dismissed)}</div>`;
+  fetch(`/api/chat/tp-action/${pendingId}/cancel`, {method: 'POST'}).catch(() => {});
+}
 
 async function forceRefreshTP(day) {
   const isAbend = day === 'tomorrow';

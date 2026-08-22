@@ -1,4 +1,4 @@
-# KI Coach App — v2.8.0
+# KI Coach App — v2.8.1
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -237,6 +237,8 @@ Freier Text, kein JSON. Kontext:
 
 Fehlt TP im Cache, wird ein Hintergrund-Refresh gestartet und Claude sagt dem Nutzer, dass die Daten in ~1 Minute da sind (v2.6.32). `max_tokens=1200`.
 
+**Chat kann TP-Änderungen vorschlagen (v2.8.1), nie direkt ausführen.** Nur im Agent-Pfad (`agents_enabled()`): Claude bekommt zwei Anthropic-Tools (`propose_workout_update` — Titel/Beschreibung einer bestehenden Einheit, `propose_calendar_note` — neue Kalendernotiz; `agents/chat/chat.py` → `CHAT_TOOLS`). Ruft es eins auf, wird **nichts ausgeführt** — der Server löst `date`+`workout_hint` serverseitig gegen den `_tp_cache` zu einer echten `workout_id` auf (Claude sieht nie eine `workout_id` und soll auch nie eine raten), legt bei genau einem Treffer eine `pending action` an (`app.py` → `_pending_tp_actions`, TTL 30min) und gibt der Antwort ein `proposal`-Feld mit. Bei 0 oder >1 Treffern: keine pending action, sondern eine deterministische Rückfrage (kein zweiter Claude-Call). Das Frontend zeigt eine Karte mit dem **tatsächlich gematchten** Titel/Sportart — das ist der eigentliche Sicherheits-Backstop, nicht die Matching-Logik. Erst ein Klick auf „Übernehmen" (`POST /api/chat/tp-action/{pending_id}/confirm`, pop-before-execute) ruft `call_tp_mcp` mit denselben Parametern auf, die `tp_apply` auch nutzt; „Verwerfen" (`.../cancel`) ist idempotent. Der Monolith-Fallback bekommt strukturell kein `tools=`, kann also nie einen Tool-Call erzeugen, unabhängig vom Prompt-Text.
+
 ---
 
 ## Claude JSON-Contract (Abend/Morgen)
@@ -381,6 +383,20 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.8.1 — Coach-Chat kann TP-Änderungen vorschlagen (Propose/Confirm)
+Bisher konnte der Chat nichts in TrainingPeaks ändern — `agents/chat/chat.md` sagte das dem Modell sogar explizit. Nutzerwunsch: der Chat soll TP-Änderungen vornehmen können. Weil das echte Schreibzugriffe auf einen produktiv genutzten Trainingskalender sind, vorab geklärt: **Vorschlag statt Sofort-Ausführung** (der Chat schreibt nie direkt, erst ein Klick bestätigt), Scope nur **bestehende Einheit anpassen (Titel/Beschreibung) + Kalendernotiz anlegen** — kein Verschieben, Löschen, keine neuen Einheiten.
+
+Das ist die erste Stelle im Code, die Anthropic Tool-Use/Function-Calling nutzt (bisher nur erzwungenes JSON-Schema via `output_config` oder reiner Freitext).
+
+- **`agents/base.py`** — neue `call_agent_with_tools()` neben `call_agent`/`call_agent_text`: ruft Claude **einmal** mit `tools=`, kein Tool-Result-Loop (solange nichts ausgeführt wurde, gibt es kein Ergebnis zum Zurückspielen). Gibt `{"text", "tool_call"}` zurück statt eines rohen Strings.
+- **`agents/chat/chat.py`** — zwei Tool-Schemas (`propose_workout_update`, `propose_calendar_note`, zusammengefasst in `CHAT_TOOLS`). Feldnamen bewusst identisch zu den `call_tp_mcp`-Argumenten (`title`, `description`, `date`, `text`) — keine Umbenennung zwischen Tool-Input und MCP-Call. Claude bekommt nie eine `workout_id` gezeigt und soll auch nie eine raten — `date` + `workout_hint` (wörtlich aus dem Plan-Kontext kopiert) reichen, der Server löst serverseitig auf. `run()` liefert jetzt ein `dict` statt `str`.
+- **`agents/chat/chat.md`** — die blockierende Zeile „Du änderst hier nichts in TrainingPeaks" raus, ersetzt durch: wann welches Tool erlaubt ist, dass nur Titel/Beschreibung änderbar sind, und dass bei Unklarheit **kein** Tool gerufen wird, sondern im Text nachgefragt wird.
+- **`app.py`** — `_match_tp_workouts()` (case-insensitive Substring-Match von `workout_hint` gegen `sport`/`title` im `_tp_cache`), `_resolve_workout_update_proposal()`/`_resolve_calendar_note_proposal()`/`_resolve_chat_tool_call()` (validieren die vom Anthropic-Tool-Schema **nicht** serverseitig erzwungenen Pflichtfelder selbst — `input` ist ungeprüftes Modell-Output). Bei 0 oder >1 Treffern: keine pending action, sondern eine Python-generierte Rückfrage. Neuer Store `_pending_tp_actions` (TTL 1800s, exakt das `_check_jobs`-Muster: TTL-Sweep-on-Insert, `uuid.hex[:10]`-Ids). Zwei neue Endpoints: `POST /api/chat/tp-action/{pending_id}/confirm` (pop-before-execute — ein zweites Bestätigen kann strukturell nicht doppelt anwenden, 404 bei fehlendem/abgelaufenem Eintrag) und `.../cancel` (idempotent). `coach_chat()` reicht einen Tool-Call an `_resolve_chat_tool_call()` durch und ergänzt die Antwort um ein `proposal`-Feld — der Monolith-Fallback bleibt unverändert (bekommt strukturell kein `tools=`, kann also nie einen Tool-Call erzeugen).
+- **`templates/index.html`** — `appendProposalCard()` rendert eine Karte im Chat-Verlauf mit dem **tatsächlich gematchten** Titel/Sportart (der eigentliche Sicherheits-Backstop, nicht die Matching-Logik) + Bestätigen/Verwerfen. `confirmChatProposal()`/`dismissChatProposal()` rufen die neuen Endpoints, gleiches visuelles Muster wie `applyToTP()` (Spinner im Button, grüne/rote Ergebniszeilen).
+- **`translations.py`** — zwölf neue de/en-Schlüsselpaare für Karten-Texte, Buttons und die drei Rückfrage-/Fehlertexte.
+
+Tests (`test_wiring.py`): `CHAT_TOOLS` hat exakt zwei Einträge ohne `workout_id`-Feld im Schema, ein eindeutiger Treffer legt die richtige `workout_id` server-seitig an (nicht von Claude geraten), zwei bzw. null Treffer erzeugen keine pending action, Bestätigen ruft `tp_update_workout` mit denselben Parametern wie `tp_apply`, ein zweites Bestätigen liefert 404 (pop-before-execute), `coach_chat` gibt bei einem Tool-Call ein `proposal`-Feld zurück, die alte Sperre ist aus dem Prompt raus.
 
 ### v2.8.0 — Desktop-Layout: Sidebar + Morgen/Abend/Fueling als Dashboard
 Die App war komplett iPhone-fixiert (`body{max-width:430px}`, keine einzige `@media`-Query). Ab 1024px Fensterbreite jetzt ein echtes Desktop-Layout, ein Template mit CSS-Breakpoints statt einer zweiten Route/Vorlage — passt zur Single-File-Frontend-Linie des Projekts.

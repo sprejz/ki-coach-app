@@ -62,7 +62,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "2.8.0"
+APP_VERSION = "2.8.1"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -128,6 +128,26 @@ _CHECK_JOB_TTL = 900       # 15 min — danach ist ein Ergebnis ohnehin wertlos
 # GC einen laufenden Check mitten im Lauf einsammeln.
 _check_tasks: set = set()
 
+# In-memory Store für vom Chat vorgeschlagene TP-Änderungen (v2.8) — der Chat
+# führt nie direkt aus, er legt hier nur einen Vorschlag ab, den der Athlet per
+# Klick bestätigen muss. TTL länger als bei Check-Jobs, weil hier ein Mensch
+# erst lesen und klicken muss, nicht ein Poll-Loop wartet.
+_pending_tp_actions: dict = {}   # pending_id -> {"type","ts", ...}
+_PENDING_TP_ACTION_TTL = 1800    # 30 min
+
+
+def _pending_action_start(entry: dict) -> str:
+    """Legt eine pending action an und räumt abgelaufene weg (prozesslokal,
+    exakt das Muster von _check_job_start())."""
+    jetzt = _time.time()
+    for alt in [k for k, v in _pending_tp_actions.items()
+                if jetzt - v.get("ts", 0) > _PENDING_TP_ACTION_TTL]:
+        _pending_tp_actions.pop(alt, None)
+    pending_id = uuid.uuid4().hex[:10]
+    entry["ts"] = jetzt
+    _pending_tp_actions[pending_id] = entry
+    return pending_id
+
 # ── TP Workout Cache + Background Refresh ────────────────────────────────────
 import time as _time
 _tp_cache: dict = {}             # date_str -> {"data": {...}, "ts": float}
@@ -145,6 +165,22 @@ def _tp_cache_get(date_str: str) -> Optional[dict]:
 
 def _tp_cache_set(date_str: str, data: dict):
     _tp_cache[date_str] = {"data": data, "ts": _time.time()}
+
+
+def _match_tp_workouts(date_str: str, hint: str) -> list:
+    """Case-insensitive Substring-Match von hint gegen sport/title der an
+    diesem Tag gecachten Workouts (v2.8, Chat-Vorschläge). 0 oder >1 Treffer
+    heißt: nicht auflösbar — das ist Absicht, keine workout_id wird geraten."""
+    cached = _tp_cache_get(date_str)
+    if not cached:
+        return []
+    hint_l = (hint or "").strip().lower()
+    if not hint_l:
+        return []
+    return [
+        w for w in cached.get("workouts", [])
+        if hint_l in (w.get("title") or "").lower() or hint_l in (w.get("sport") or "").lower()
+    ]
 
 def _extract_json(raw: str):
     """Extrahiert JSON aus einem String — auch wenn Modell Text darum herum schreibt."""
@@ -1223,6 +1259,129 @@ async def sync_sleep_history(request: Request):
     return {"added": added, "total": len(history)}
 
 
+# ── Chat → TP-Vorschläge (v2.8) ───────────────────────────────────────────────
+# Der Chat führt nie direkt aus. Ein Tool-Call von Claude landet hier, wird
+# gegen den TP-Cache aufgelöst und — nur bei genau einem Treffer — als pending
+# action abgelegt. Das Anthropic-Tool-Schema wird NICHT serverseitig erzwungen
+# (anders als output_config bei den anderen Agents) — `input` ist ungeprüftes
+# Modell-Output, die Validierung hier ist deshalb keine Fleißarbeit, sondern
+# die einzige tatsächliche Durchsetzung der Pflichtfelder.
+
+def _resolve_workout_update_proposal(args: dict):
+    date_str = str(args.get("date", "")).strip()
+    hint = str(args.get("workout_hint", "")).strip()
+    new_title = (args.get("new_title") or "").strip() or None
+    new_desc = (args.get("new_description") or "").strip() or None
+    try:
+        date.fromisoformat(date_str)
+    except ValueError:
+        return T["chat_proposal_invalid"], None
+    if not hint or (not new_title and not new_desc):
+        return T["chat_proposal_invalid"], None
+
+    matches = _match_tp_workouts(date_str, hint)
+    if not matches:
+        return T["chat_no_matching_workout"], None
+    if len(matches) > 1:
+        return T["chat_ambiguous_workout"], None
+
+    w = matches[0]
+    wid = w.get("id") or w.get("workout_id")
+    if not wid:
+        return T["chat_no_matching_workout"], None
+
+    pending_id = _pending_action_start({
+        "type": "workout_update", "workout_id": str(wid),
+        "title": new_title, "description": new_desc,
+        "matched_title": w.get("title", ""), "matched_sport": w.get("sport", ""),
+        "matched_date": date_str,
+    })
+    summary = str(args.get("summary") or "").strip() or T["chat_proposal_fallback_summary"]
+    proposal = {
+        "pending_id": pending_id, "type": "workout_update", "date": date_str,
+        "matched_title": w.get("title", ""), "matched_sport": w.get("sport", ""),
+        "new_title": new_title, "new_description": new_desc, "summary": summary,
+    }
+    return summary, proposal
+
+
+def _resolve_calendar_note_proposal(args: dict):
+    date_str = str(args.get("date", "")).strip()
+    title = str(args.get("title", "")).strip()
+    text = str(args.get("text", "")).strip()
+    try:
+        date.fromisoformat(date_str)
+    except ValueError:
+        return T["chat_proposal_invalid"], None
+    if not title or not text:
+        return T["chat_proposal_invalid"], None
+
+    pending_id = _pending_action_start({
+        "type": "calendar_note", "date": date_str, "title": title, "text": text,
+    })
+    summary = str(args.get("summary") or "").strip() or T["chat_proposal_fallback_summary"]
+    proposal = {"pending_id": pending_id, "type": "calendar_note",
+                "date": date_str, "title": title, "text": text, "summary": summary}
+    return summary, proposal
+
+
+def _resolve_chat_tool_call(tool_call: dict):
+    name, args = tool_call.get("name"), tool_call.get("input") or {}
+    if name == "propose_workout_update":
+        return _resolve_workout_update_proposal(args)
+    if name == "propose_calendar_note":
+        return _resolve_calendar_note_proposal(args)
+    logger.warning("coach_chat: unbekannter Tool-Call %r", name)
+    return T["chat_proposal_invalid"], None
+
+
+@app.post("/api/chat/tp-action/{pending_id}/confirm")
+async def chat_tp_action_confirm(pending_id: str):
+    if not os.environ.get("TP_MCP_URL"):
+        raise HTTPException(400, T["err_tp_url_missing"])
+    entry = _pending_tp_actions.pop(pending_id, None)  # pop-before-execute:
+    if not entry:                                        # Doppelklick kann nie
+        raise HTTPException(404, T["chat_proposal_expired"])  # doppelt anwenden
+    if _time.time() - entry["ts"] > _PENDING_TP_ACTION_TTL:
+        raise HTTPException(404, T["chat_proposal_expired"])
+
+    actions = []
+    if entry["type"] == "workout_update":
+        mcp_args = {"workout_id": entry["workout_id"]}
+        if entry.get("title"):
+            mcp_args["title"] = entry["title"]
+        if entry.get("description"):
+            mcp_args["description"] = entry["description"]
+        try:
+            result = await call_tp_mcp("tp_update_workout", mcp_args)
+            actions.append({"workout_id": entry["workout_id"], "badge": "CHAT", "status": "ok",
+                            "detail": entry.get("title") or entry.get("matched_title"),
+                            "mcp_response": result})
+        except Exception as e:
+            logger.error("chat tp-action confirm: tp_update_workout failed for %s: %s", pending_id, e)
+            actions.append({"workout_id": entry["workout_id"], "badge": "CHAT",
+                            "status": "error", "detail": str(e)})
+    elif entry["type"] == "calendar_note":
+        try:
+            result = await call_tp_mcp("tp_create_note", {
+                "date": entry["date"], "title": entry["title"], "text": entry["text"],
+            })
+            actions.append({"badge": "NOTE", "status": "ok", "detail": entry["title"],
+                            "mcp_response": result})
+        except Exception as e:
+            logger.error("chat tp-action confirm: tp_create_note failed for %s: %s", pending_id, e)
+            actions.append({"badge": "NOTE", "status": "error", "detail": str(e)})
+
+    logger.info("chat tp-action %s confirmed: %s", pending_id, entry["type"])
+    return {"ok": True, "actions": actions}
+
+
+@app.post("/api/chat/tp-action/{pending_id}/cancel")
+async def chat_tp_action_cancel(pending_id: str):
+    existed = _pending_tp_actions.pop(pending_id, None) is not None
+    return {"ok": True, "cancelled": existed}
+
+
 @app.post("/api/coach/chat")
 async def coach_chat(request: Request):
     """Freies Chat mit dem Coach — nutzt Athletenprofil als Kontext."""
@@ -1302,10 +1461,15 @@ async def coach_chat(request: Request):
                 load=load, ladend=tp_loading_labels,
                 heute_str=today_d.strftime("%A, %d.%m.%Y"),
             )
-            reply = await asyncio.to_thread(
+            result = await asyncio.to_thread(
                 chat_agent.run, nachricht=message, historie=history, kontext=kontext,
             )
-            return JSONResponse({"reply": reply, "_pipeline": "agents"}, headers=_NO_CACHE)
+            proposal = None
+            reply = result["text"]
+            if result["tool_call"]:
+                reply, proposal = _resolve_chat_tool_call(result["tool_call"])
+            return JSONResponse({"reply": reply, "proposal": proposal, "_pipeline": "agents"},
+                                headers=_NO_CACHE)
         except Exception as e:
             logger.error("Chat-Agent fehlgeschlagen, Fallback auf Monolith: %s: %s",
                          type(e).__name__, e)
@@ -1352,7 +1516,7 @@ async def coach_chat(request: Request):
         messages=messages,
     )
     reply = msg.content[0].text.strip()
-    return JSONResponse({"reply": reply, "_pipeline": "monolith"}, headers=_NO_CACHE)
+    return JSONResponse({"reply": reply, "proposal": None, "_pipeline": "monolith"}, headers=_NO_CACHE)
 
 
 @app.post("/api/baseline/calculate")

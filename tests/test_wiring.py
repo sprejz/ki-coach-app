@@ -8,16 +8,20 @@ Fallback greift und ob die Antwort die Form hat, die das Frontend erwartet.
 """
 import asyncio
 import inspect
+import json
 import os
 import re
 import sys
 from pathlib import Path
+
+from fastapi import HTTPException  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 os.environ["COACH_AGENTS"] = "1"
 os.environ.setdefault("ANTHROPIC_API_KEY", "dummy-fuer-test")
 
 import agents.allgemeinmedic as allgemeinmedic  # noqa: E402
+import agents.chat.chat as chat_agent  # noqa: E402
 import agents.architect as architect  # noqa: E402
 import agents.architect_bike as architect_bike  # noqa: E402
 import agents.architect_run as architect_run  # noqa: E402
@@ -107,6 +111,15 @@ def attrappe(name, antwort):
         mitschrieb[name + "_last"] = kwargs
         return antwort
     return _run
+
+
+class _FakeRequest:
+    """Attrappe für Request — coach_chat liest nur await .json()."""
+    def __init__(self, body):
+        self._body = body
+
+    async def json(self):
+        return self._body
 
 
 medic.run = attrappe("medic", FAKE_MEDIC)
@@ -716,6 +729,127 @@ async def main():
            "Frontend schickt die berechnete Ernährung mit in die tp/apply-Operation")
     pruefe('op.get("ernaehrung")' in inspect.getsource(app.tp_apply),
            "tp_apply nutzt die vorgerechnete Ernährung statt eines zweiten Claude-Calls")
+
+    print("\n=== Chat schlägt TP-Änderungen vor, führt nie direkt aus (v2.8) ===")
+    pruefe(len(chat_agent.CHAT_TOOLS) == 2,
+           "genau zwei Tools: Einheit anpassen, Notiz anlegen")
+    pruefe({t["name"] for t in chat_agent.CHAT_TOOLS}
+           == {"propose_workout_update", "propose_calendar_note"},
+           "die Tool-Namen sind die erwarteten")
+    for t in chat_agent.CHAT_TOOLS:
+        pruefe("workout_id" not in t["input_schema"]["properties"],
+               f"{t['name']}: Claude bekommt nie eine workout_id zum Raten angeboten")
+
+    # _tp_cache direkt befüllen — dieselbe Form wie _map_tp_workout sie liefert.
+    app._tp_cache.clear()
+    app._tp_cache_set("2026-01-15", {"workouts": [
+        {"id": "111", "sport": "Laufen", "title": "Longrun locker"},
+    ]})
+    app._tp_cache_set("2026-01-16", {"workouts": [
+        {"id": "222", "sport": "Rad", "title": "Grundlage"},
+        {"id": "333", "sport": "Rad", "title": "Grundlage lang"},
+    ]})
+
+    app._pending_tp_actions.clear()
+    summary, proposal = app._resolve_workout_update_proposal({
+        "date": "2026-01-15", "workout_hint": "Longrun",
+        "new_title": "Longrun locker – Regen", "summary": "Ich schlage eine Umbenennung vor.",
+    })
+    pruefe(proposal is not None and proposal["pending_id"] in app._pending_tp_actions,
+           "eindeutiger Treffer legt eine pending action an")
+    pruefe(app._pending_tp_actions[proposal["pending_id"]]["workout_id"] == "111",
+           "die richtige workout_id wurde server-seitig aufgelöst, nicht von Claude geraten")
+    pruefe(summary == "Ich schlage eine Umbenennung vor.",
+           "Claudes summary wird wörtlich als Antwort verwendet")
+
+    app._pending_tp_actions.clear()
+    _, proposal_mehrdeutig = app._resolve_workout_update_proposal({
+        "date": "2026-01-16", "workout_hint": "Rad",
+        "new_title": "X", "summary": "…",
+    })
+    pruefe(proposal_mehrdeutig is None and not app._pending_tp_actions,
+           "zwei Treffer am selben Tag → keine pending action, sondern Rückfrage")
+
+    _, proposal_kein_treffer = app._resolve_workout_update_proposal({
+        "date": "2026-01-15", "workout_hint": "Schwimmen",
+        "new_title": "X", "summary": "…",
+    })
+    pruefe(proposal_kein_treffer is None,
+           "kein Treffer → keine pending action, sondern Rückfrage")
+
+    _, proposal_ohne_aenderung = app._resolve_workout_update_proposal({
+        "date": "2026-01-15", "workout_hint": "Longrun", "summary": "…",
+    })
+    pruefe(proposal_ohne_aenderung is None,
+           "weder new_title noch new_description → ungültig, auch ohne API-seitige Schema-Pflicht")
+
+    app._pending_tp_actions.clear()
+    _, note_proposal = app._resolve_calendar_note_proposal({
+        "date": "2026-01-20", "title": "Krank", "text": "Erkältung, pausiert",
+        "summary": "Ich lege eine Notiz an.",
+    })
+    pruefe(note_proposal is not None and note_proposal["type"] == "calendar_note",
+           "Kalendernotiz-Vorschlag wird angelegt")
+
+    async def _fake_call_tp_mcp(tool_name, arguments):
+        mitschrieb.setdefault("call_tp_mcp", []).append((tool_name, arguments))
+        return {"id": arguments.get("workout_id", "neu")}
+    _orig_call_tp_mcp = app.call_tp_mcp
+    app.call_tp_mcp = _fake_call_tp_mcp
+    os.environ["TP_MCP_URL"] = "https://example.invalid/mcp"
+    try:
+        app._pending_tp_actions.clear()
+        _, p = app._resolve_workout_update_proposal({
+            "date": "2026-01-15", "workout_hint": "Longrun",
+            "new_title": "Neuer Titel", "summary": "…",
+        })
+        result = await app.chat_tp_action_confirm(p["pending_id"])
+        pruefe(result["ok"] is True and result["actions"][0]["status"] == "ok",
+               "Bestätigen führt tp_update_workout aus")
+        pruefe(mitschrieb["call_tp_mcp"][-1] == ("tp_update_workout",
+               {"workout_id": "111", "title": "Neuer Titel"}),
+               "dieselben Parameter wie tp_apply, keine Extra-Felder")
+        pruefe(p["pending_id"] not in app._pending_tp_actions,
+               "pop-before-execute: der Eintrag ist danach weg")
+
+        confirm_erneut_fehlgeschlagen = False
+        try:
+            await app.chat_tp_action_confirm(p["pending_id"])
+        except HTTPException as e:
+            confirm_erneut_fehlgeschlagen = (e.status_code == 404)
+        pruefe(confirm_erneut_fehlgeschlagen,
+               "ein zweites Bestätigen desselben Vorschlags kann nicht doppelt anwenden (404)")
+
+        cancel_result = await app.chat_tp_action_cancel("gibt-es-nicht")
+        pruefe(cancel_result == {"ok": True, "cancelled": False},
+               "Verwerfen eines unbekannten/abgelaufenen Vorschlags ist harmlos (idempotent)")
+    finally:
+        app.call_tp_mcp = _orig_call_tp_mcp
+
+    # coach_chat-Verdrahtung: chat_agent.run liefert jetzt {"text","tool_call"}.
+    # app.chat_agent ist das agents.chat-PAKET (from .chat import * in
+    # agents/chat/__init__.py kopiert den Namen beim Import) — das ist ein
+    # eigenes Namens-Binding, unabhängig vom agents.chat.chat-Submodul-Import
+    # oben. Gepatcht werden muss die Stelle, die app.py wirklich aufruft.
+    _orig_chat_run = app.chat_agent.run
+    app.chat_agent.run = lambda **kwargs: {
+        "text": "", "tool_call": {"name": "propose_workout_update",
+                                   "input": {"date": "2026-01-15", "workout_hint": "Longrun",
+                                             "new_title": "X", "summary": "Testvorschlag"}},
+    }
+    try:
+        req = _FakeRequest({"message": "Bitte den Longrun umbenennen", "history": []})
+        resp = await app.coach_chat(req)
+        data = json.loads(resp.body)
+        pruefe(data.get("proposal", {}).get("type") == "workout_update"
+               and data["reply"] == "Testvorschlag",
+               "coach_chat gibt bei einem Tool-Call ein proposal-Feld zurück")
+    finally:
+        app.chat_agent.run = _orig_chat_run
+
+    pruefe("Du änderst hier nichts in TrainingPeaks" not in
+           (Path(__file__).parent.parent / "agents" / "chat" / "chat.md").read_text(encoding="utf-8"),
+           "die alte Sperre im Prompt ist raus")
 
     # v2.7.4: die Checks laufen als Hintergrund-Job. Der POST darf nicht mehr
     # blockieren, das Ergebnis kommt per Polling, und die Stufen des
