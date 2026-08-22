@@ -341,6 +341,24 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
   font-size: 13px;
   line-height: 1.5;
 }
+.check-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.check-error {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: rgba(226,75,74,.12);
+  border: 1px solid rgba(226,75,74,.3);
+  border-radius: 8px;
+  color: var(--red);
+  font-size: 13px;
+  line-height: 1.5;
+}
 
 /* ── result card ──────────────────────────────────────────────────────────── */
 .result-wrap { padding: 0 16px; }
@@ -788,6 +806,49 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
   transition: opacity 0.22s ease;
 }
 .splash-status.fading { opacity: 0; }
+
+/* ── Desktop (v2.8.0) ─────────────────────────────────────────────────────── */
+@media (min-width: 1024px) {
+  body { max-width: none; }
+  #desktop-layout {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 24px;
+    padding: 0 24px;
+  }
+  #error-banner { flex-basis: 100%; }
+  .tabs {
+    flex-direction: column;
+    width: 220px;
+    flex-shrink: 0;
+    padding-top: 20px;
+    gap: 6px;
+  }
+  .tab-btn {
+    flex: none;
+    text-align: left;
+    border-radius: var(--radius);
+    font-size: 13px;
+    padding: 12px 14px;
+  }
+  #form-section { flex: 1; min-width: 0; }
+  .tab-panel, .result-wrap { max-width: 680px; margin: 0 auto; }
+
+  #form-section.dashboard-mode {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+  #form-section.dashboard-mode .tab-panel { max-width: none; margin: 0; }
+  #form-section.dashboard-mode .tab-panel[data-panel="morgen"],
+  #form-section.dashboard-mode .tab-panel[data-panel="abend"],
+  #form-section.dashboard-mode .tab-panel[data-panel="ernaehrung"] { display: block; }
+  #form-section.dashboard-mode .tab-panel[data-panel="analyse"],
+  #form-section.dashboard-mode .tab-panel[data-panel="erholung"],
+  #form-section.dashboard-mode .tab-panel[data-panel="chat"],
+  #form-section.dashboard-mode .tab-panel[data-panel="einstellungen"] { display: none; }
+}
 </style>
 </head>
 <body>
@@ -823,6 +884,7 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
   </div>
 </header>
 
+<div id="desktop-layout">
 <!-- Tabs -->
 <div class="tabs">
   <button class="tab-btn active" data-tab="morgen">{{ T.tab_morgen }}</button>
@@ -983,8 +1045,14 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
         <input type="number" id="wasser-temp" class="text-input" placeholder="z.B. 22" min="10" max="35" step="0.5">
       </div>
 
-      <button type="submit" class="btn-submit">{{ T.btn_abend }}</button>
+      <button type="submit" class="btn-submit" id="btn-submit-abend">{{ T.btn_abend }}</button>
+      <div class="check-status" id="check-status-abend" style="display:none">
+        <div class="spinner" style="width:16px;height:16px;border-width:2px"></div>
+        <span id="check-status-text-abend"></span>
+      </div>
+      <div class="check-error" id="check-error-abend" style="display:none"></div>
     </form>
+    <div id="result-section-abend" style="display:none" class="result-wrap"></div>
 
   </div>
 
@@ -1145,8 +1213,14 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
         <input type="number" id="wasser-temp-morgen" class="text-input" placeholder="z.B. 22" min="10" max="35" step="0.5">
       </div>
 
-      <button type="submit" class="btn-submit">{{ T.btn_morgen }}</button>
+      <button type="submit" class="btn-submit" id="btn-submit-morgen">{{ T.btn_morgen }}</button>
+      <div class="check-status" id="check-status-morgen" style="display:none">
+        <div class="spinner" style="width:16px;height:16px;border-width:2px"></div>
+        <span id="check-status-text-morgen"></span>
+      </div>
+      <div class="check-error" id="check-error-morgen" style="display:none"></div>
     </form>
+    <div id="result-section-morgen" style="display:none" class="result-wrap"></div>
   </div>
 
   <!-- Erholung -->
@@ -1282,9 +1356,7 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 
 
 </div><!-- #form-section -->
-
-<!-- Result section -->
-<div id="result-section" style="display:none" class="result-wrap"></div>
+</div><!-- #desktop-layout -->
 
 <!-- Loading overlay -->
 <div class="loading-overlay" id="loading-overlay" style="display:none">
@@ -1297,15 +1369,18 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 const T = {{ T_json|safe }};
 
 let athlete = null;
-let currentResult = null;
-let tpWorkouts = [];
+// Getrennter State für Morgen/Abend (v2.8): auf Desktop sind beide Checks
+// gleichzeitig als Dashboard-Spalten sichtbar und unabhängig bedienbar —
+// ein gemeinsames Ergebnis-Feld würde sich überschreiben, sobald z.B. der
+// Abend-Check fertig wird während das Morgen-Ergebnis noch angezeigt wird.
+const checkState = {
+  morgen: { result: null, formData: null, tpWorkouts: [], overrides: {} },
+  abend:  { result: null, formData: null, tpWorkouts: [], overrides: {} },
+};
 let tpWorkoutsAbend = [];
 let tpWorkoutsMorgen = [];
-let currentResultType = null;
-let currentFormData = null;
 let weatherToday = null;
 let weatherTomorrow = null;
-let userOverrides = {};
 let sleepHistory = [];
 let sleepBaseline = null;
 let erholungLoaded = false;
@@ -1454,17 +1529,24 @@ function nextARace() {
 }
 
 // ── tabs ──────────────────────────────────────────────────────────────────────
+// Auf Desktop (≥1024px) sind Morgen/Abend/Fueling ein permanentes 3-Spalten-
+// Dashboard (CSS-Grid, siehe @media-Block); die anderen vier Tabs bleiben
+// Einzelansichten. dashboard-mode steuert nur, welche CSS-Regeln greifen —
+// unter 1024px hat die Klasse keine Wirkung, initTabs()-Verhalten bleibt gleich.
+const DASHBOARD_TABS = ['morgen', 'abend', 'ernaehrung'];
 function initTabs() {
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const tab = btn.dataset.tab;
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.dataset.panel === tab));
+      document.getElementById('form-section').classList.toggle('dashboard-mode', DASHBOARD_TABS.includes(tab));
       if (tab === 'erholung' && !erholungLoaded) loadErholung();
       if (tab === 'analyse') renderAnalyseSection();
       if (tab === 'ernaehrung') loadErnaehrung();
     });
   });
+  document.getElementById('form-section').classList.add('dashboard-mode');
 }
 
 // ── Ernährung ─────────────────────────────────────────────────────────────────
@@ -1630,7 +1712,7 @@ function initForms() {
 
 async function submitAbend(e) {
   e.preventDefault();
-  setLoading(true);
+  setCheckLoading('abend', true);
   const body = {
     waden:              parseFloat(document.getElementById('waden-abend').value),
     knie:               parseFloat(document.getElementById('knie-abend').value),
@@ -1648,7 +1730,7 @@ async function submitAbend(e) {
     tp_workouts:        tpWorkoutsAbend.length ? tpWorkoutsAbend : undefined,
     weather_data:       weatherTomorrow ? JSON.stringify(weatherTomorrow) : undefined,
   };
-  currentFormData = {
+  checkState.abend.formData = {
     waden:       body.waden,
     knie:        body.knie,
     achilles_l:  body.achilles_l,
@@ -1667,18 +1749,18 @@ async function submitAbend(e) {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body),
-    });
+    }, stage => setCheckLoadingText('abend', stage));
     showResult(result, body, 'abend');
   } catch(err) {
-    showError(err.message || String(err), true);
+    showCheckError('abend', err.message || String(err));
   } finally {
-    setLoading(false);
+    setCheckLoading('abend', false);
   }
 }
 
 async function submitMorgen(e) {
   e.preventDefault();
-  setLoading(true);
+  setCheckLoading('morgen', true);
   const formData = new FormData();
   formData.append('waden',               document.getElementById('waden-morgen').value);
   formData.append('knie',                document.getElementById('knie-morgen').value);
@@ -1695,7 +1777,7 @@ async function submitMorgen(e) {
   if (weatherToday) formData.append('weather_data', JSON.stringify(weatherToday));
   const csvFile = document.getElementById('csv-upload')?.files[0];
   if (csvFile) formData.append('csv_file', csvFile);
-  currentFormData = {
+  checkState.morgen.formData = {
     knie:        parseFloat(document.getElementById('knie-morgen').value),
     achilles_l:  parseFloat(document.getElementById('achilles-l-morgen').value),
     achilles_r:  parseFloat(document.getElementById('achilles-r-morgen').value),
@@ -1709,7 +1791,8 @@ async function submitMorgen(e) {
     wasser_temp: document.getElementById('wasser-temp-morgen')?.value || null,
   };
   try {
-    const data = await runCheck('/api/check-morgen', { method: 'POST', body: formData });
+    const data = await runCheck('/api/check-morgen', { method: 'POST', body: formData },
+      stage => setCheckLoadingText('morgen', stage));
     const formSnapshot = {
       waden:      parseFloat(document.getElementById('waden-morgen').value),
       knie:       parseFloat(document.getElementById('knie-morgen').value),
@@ -1733,21 +1816,21 @@ async function submitMorgen(e) {
       erholungLoaded = false;
     }
   } catch(err) {
-    showError(err.message || String(err), true);
+    showCheckError('morgen', err.message || String(err));
   } finally {
-    setLoading(false);
+    setCheckLoading('morgen', false);
   }
 }
 
 // ── result rendering ──────────────────────────────────────────────────────────
-function showResult(data, formData, type) {
-  currentResult = data;
-  currentResultType = type;
-  tpWorkouts = type === 'abend' ? [...tpWorkoutsAbend] : [...tpWorkoutsMorgen];
-  const section = document.getElementById('result-section');
-  section.innerHTML = buildResult(data, formData, type);
+function showResult(data, fd, type) {
+  const st = checkState[type];
+  st.result = data;
+  st.tpWorkouts = type === 'abend' ? [...tpWorkoutsAbend] : [...tpWorkoutsMorgen];
+  const section = document.getElementById(`result-section-${type}`);
+  section.innerHTML = buildResult(data, fd, type);
   section.style.display = 'block';
-  document.getElementById('form-section').style.display = 'none';
+  document.getElementById(`form-${type}`).style.display = 'none';
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -1820,7 +1903,7 @@ function buildResult(data, fd, type) {
     h += `<div class="card-section">`;
     data.sportarten.forEach((s, idx) => {
       const isNonGo = s.badge === 'MOD' || s.badge === 'SKIP';
-      const isOverridden = !!userOverrides[idx];
+      const isOverridden = !!checkState[type].overrides[idx];
       const bc = isOverridden ? 'badge-override' : (s.badge === 'GO' ? 'badge-go' : s.badge === 'MOD' ? 'badge-mod' : 'badge-skip');
       const badgeLabel = isOverridden ? 'GO ↩' : s.badge;
       // s.architekt kommt vom Orchestrator und nennt den Agenten, der wirklich
@@ -1839,9 +1922,9 @@ function buildResult(data, fd, type) {
         : (s.ernaehrung_von_berater
             ? `<p class="sport-coach-tag">🥕 ${esc(agentTag('fueling'))}</p>`
             : `<p class="sport-coach-tag">📋 ${esc(T.nutrition_basis || '')}</p>`);
-      h += `<div class="sport-card" id="sport-card-${idx}">
+      h += `<div class="sport-card" id="sport-card-${type}-${idx}">
         <div class="sport-header">
-          <span class="badge ${bc}" id="sport-badge-${idx}">${esc(badgeLabel)}</span>
+          <span class="badge ${bc}" id="sport-badge-${type}-${idx}">${esc(badgeLabel)}</span>
           <span class="sport-name">${esc(s.sport)}</span>
         </div>
         ${s.details ? `<p class="sport-details">${esc(s.details)}</p>` : ''}
@@ -1849,7 +1932,7 @@ function buildResult(data, fd, type) {
         ${s.ernaehrung ? `<p class="sport-ernaehrung">🍎 ${esc(s.ernaehrung)}</p>` : ''}
         ${beraterZeile}
         ${coachZeile}
-        ${isNonGo ? `<button class="btn-override${isOverridden ? ' active' : ''}" id="override-btn-${idx}" onclick="toggleOverride(${idx})">${isOverridden ? 'Override aufheben' : 'Trotzdem machen'}</button>` : ''}
+        ${isNonGo ? `<button class="btn-override${isOverridden ? ' active' : ''}" id="override-btn-${type}-${idx}" onclick="toggleOverride('${type}', ${idx})">${isOverridden ? 'Override aufheben' : 'Trotzdem machen'}</button>` : ''}
       </div>`;
     });
     h += `</div>`;
@@ -1867,7 +1950,7 @@ function buildResult(data, fd, type) {
     const _hasNonGo = (data.sportarten || []).some(s => s.badge && s.badge !== 'GO');
     h += `<div class="card-section">
       <div class="section-lbl">TrainingPeaks</div>
-      <div id="tp-result-list">
+      <div id="tp-result-list-${type}">
         ${_tpWorks.map(w => {
           const _swim = /swim|schwimm/i.test(w.sport || '');
           const wxIcon = (!_swim && _wx?.is_cold) ? '❄️ ' : '';
@@ -1878,15 +1961,15 @@ function buildResult(data, fd, type) {
           </div>`;
         }).join('')}
       </div>
-      ${_hasNonGo ? `<button class="btn-tp" id="btn-tp-apply" onclick="applyToTP()">${T.btn_tp_apply}</button>` : ''}
+      ${_hasNonGo ? `<button class="btn-tp" id="btn-tp-apply-${type}" onclick="applyToTP('${type}')">${T.btn_tp_apply}</button>` : ''}
     </div>`;
   } else if (type === 'abend') {
     // Fallback: manual load when TP was not pre-loaded
     h += `<div class="card-section">
       <div class="section-lbl">TrainingPeaks</div>
-      <div id="tp-result-list" style="display:none"></div>
-      <button class="btn-tp" id="btn-tp-load" onclick="loadTPWorkouts()">${T.btn_tp_load}</button>
-      <button class="btn-tp" id="btn-tp-apply" onclick="applyToTP()" style="display:none">${T.btn_tp_apply}</button>
+      <div id="tp-result-list-${type}" style="display:none"></div>
+      <button class="btn-tp" id="btn-tp-load-${type}" onclick="loadTPWorkouts('${type}')">${T.btn_tp_load}</button>
+      <button class="btn-tp" id="btn-tp-apply-${type}" onclick="applyToTP('${type}')" style="display:none">${T.btn_tp_apply}</button>
     </div>`;
   }
 
@@ -1895,7 +1978,7 @@ function buildResult(data, fd, type) {
   // ob die Agent-Pipeline lief oder still auf den Monolith zurückgefallen ist.
   h += mitwirkendeNote(data);
   h += engineNote(data._pipeline);
-  h += `<button class="btn-back" onclick="backToForm()">← Zurück zum Formular</button>`;
+  h += `<button class="btn-back" onclick="backToForm('${type}')">← Zurück zum Formular</button>`;
   return h;
 }
 
@@ -1935,12 +2018,13 @@ function quelleNote(quelle) {
   return '';
 }
 
-function toggleOverride(idx) {
-  userOverrides[idx] = !userOverrides[idx];
-  const isOverridden = userOverrides[idx];
-  const badge = document.getElementById(`sport-badge-${idx}`);
-  const btn   = document.getElementById(`override-btn-${idx}`);
-  const sportarten = currentResult?.sportarten || [];
+function toggleOverride(type, idx) {
+  const st = checkState[type];
+  st.overrides[idx] = !st.overrides[idx];
+  const isOverridden = st.overrides[idx];
+  const badge = document.getElementById(`sport-badge-${type}-${idx}`);
+  const btn   = document.getElementById(`override-btn-${type}-${idx}`);
+  const sportarten = st.result?.sportarten || [];
   const origBadge  = sportarten[idx]?.badge || 'GO';
   if (badge) {
     badge.className = `badge ${isOverridden ? 'badge-override' : (origBadge === 'MOD' ? 'badge-mod' : 'badge-skip')}`;
@@ -1952,13 +2036,10 @@ function toggleOverride(idx) {
   }
 }
 
-function backToForm() {
-  document.getElementById('result-section').style.display = 'none';
-  document.getElementById('form-section').style.display = 'block';
-  currentResult = null;
-  currentFormData = null;
-  tpWorkouts = [];
-  userOverrides = {};
+function backToForm(type) {
+  document.getElementById(`result-section-${type}`).style.display = 'none';
+  document.getElementById(`form-${type}`).style.display = 'block';
+  checkState[type] = { result: null, formData: null, tpWorkouts: [], overrides: {} };
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -2486,15 +2567,15 @@ async function refreshAll() {
   if (btn) btn.classList.remove('spinning');
 
   // If a result card is currently showing, switch back to the form so fresh data is visible
-  const resultEl = document.getElementById('result-section');
-  if (resultEl && resultEl.style.display !== 'none') {
-    resultEl.style.display = 'none';
-    document.getElementById('form-section').style.display = 'block';
-    currentResult = null;
-    currentFormData = null;
-    tpWorkouts = [];
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
+  ['morgen', 'abend'].forEach(type => {
+    const resultEl = document.getElementById(`result-section-${type}`);
+    if (resultEl && resultEl.style.display !== 'none') {
+      resultEl.style.display = 'none';
+      document.getElementById(`form-${type}`).style.display = 'block';
+      checkState[type] = { result: null, formData: null, tpWorkouts: [], overrides: {} };
+    }
+  });
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 // ── render helpers ────────────────────────────────────────────────────────────
@@ -2979,9 +3060,9 @@ async function fetchAndRenderTP(day, renderFn, attempt) {
   } catch(_) {}
 }
 
-async function loadTPWorkouts() {
-  const btn = document.getElementById('btn-tp-load');
-  const list = document.getElementById('tp-result-list');
+async function loadTPWorkouts(type) {
+  const btn = document.getElementById(`btn-tp-load-${type}`);
+  const list = document.getElementById(`tp-result-list-${type}`);
   if (btn) { btn.disabled = true; btn.textContent = T.loading; }
   try {
     const r = await apiFetch('/api/tp/workouts?t=' + Date.now());
@@ -2991,7 +3072,7 @@ async function loadTPWorkouts() {
     } else if (!data.workouts?.length) {
       if (list) list.innerHTML = `<p style="color:var(--muted);font-size:13px">${T.tp_no_w}</p>`;
     } else {
-      tpWorkouts = data.workouts;
+      checkState[type].tpWorkouts = data.workouts;
       if (list) {
         list.innerHTML = data.workouts.map(w =>
           `<div class="tp-workout-item">
@@ -2999,7 +3080,7 @@ async function loadTPWorkouts() {
             <span>${esc(w.title || w.sport || '?')}${w.duration_min ? ` · ${w.duration_min}min` : ''}${w.tss ? ` · ${w.tss} TSS` : ''}</span>
           </div>`
         ).join('');
-        const applyBtn = document.getElementById('btn-tp-apply');
+        const applyBtn = document.getElementById(`btn-tp-apply-${type}`);
         if (applyBtn) applyBtn.style.display = 'block';
       }
     }
@@ -3011,10 +3092,11 @@ async function loadTPWorkouts() {
   }
 }
 
-async function applyToTP() {
-  if (!currentResult || !tpWorkouts.length) return;
-  const btn  = document.getElementById('btn-tp-apply');
-  const list = document.getElementById('tp-result-list');
+async function applyToTP(type) {
+  const st = checkState[type];
+  if (!st.result || !st.tpWorkouts.length) return;
+  const btn  = document.getElementById(`btn-tp-apply-${type}`);
+  const list = document.getElementById(`tp-result-list-${type}`);
 
   // Loading state — spinner inside button
   if (btn) {
@@ -3026,14 +3108,14 @@ async function applyToTP() {
 
   try {
     // Kein Sport-Matching — tpWorkouts[i] bekommt sportarten[i].badge (gleiche Reihenfolge)
-    const sportarten = currentResult.sportarten || [];
-    const _wxApply = currentResultType === 'morgen' ? weatherToday : weatherTomorrow;
+    const sportarten = st.result.sportarten || [];
+    const _wxApply = type === 'morgen' ? weatherToday : weatherTomorrow;
     const _wxExtreme = _wxApply?.is_hot || _wxApply?.is_cold;
-    const operations = tpWorkouts.reduce((acc, w, i) => {
+    const operations = st.tpWorkouts.reduce((acc, w, i) => {
       const wid = w.id ?? w.workoutId ?? w.workout_id ?? w.Id ?? w.ID ?? null;
       if (!wid) { console.warn('applyToTP: no id in workout', JSON.stringify(w)); return acc; }
       const origBadge   = sportarten[i]?.badge || 'GO';
-      const isOverride  = !!userOverrides[i];
+      const isOverride  = !!st.overrides[i];
       const badge       = isOverride ? 'GO' : origBadge;
       // GO-Workouts: immer schicken wenn Outdoor-Wettersportart (Lauf/Rad/Golf) — Backend schreibt Wetter in Beschreibung
       const _isWeatherSport = s => /lauf|run|golf|bike|rad|cycl/i.test(s || '');
@@ -3046,7 +3128,7 @@ async function applyToTP() {
         sport:         w.sport || '',
         description:   sportarten[i]?.beschreibung || sportarten[i]?.details || '',
         ernaehrung:    sportarten[i]?.ernaehrung || '',
-        reason:        origBadge === 'MOD' ? buildModReason(currentFormData) : '',
+        reason:        origBadge === 'MOD' ? buildModReason(st.formData) : '',
         duration_min:  w.duration_min || null,
         tss:           w.tss || null,
         tp_struktur:   sportarten[i]?.tp_struktur || null,
@@ -3061,16 +3143,16 @@ async function applyToTP() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         operations,
-        day:        currentResultType === 'morgen' ? 'today' : 'tomorrow',
-        symptome:   currentFormData?.symptome   || '',
-        knie:       currentFormData?.knie       ?? 0,
-        achilles_l: currentFormData?.achilles_l ?? 0,
-        achilles_r: currentFormData?.achilles_r ?? 0,
-        muedigkeit: currentFormData?.muedigkeit ?? 1,
-        fieber:        currentFormData?.fieber        ?? null,
-        blutdruck_sys: currentFormData?.blutdruck_sys ?? null,
-        blutdruck_dia: currentFormData?.blutdruck_dia ?? null,
-        medikamente:   currentFormData?.medikamente   ?? '',
+        day:        type === 'morgen' ? 'today' : 'tomorrow',
+        symptome:   st.formData?.symptome   || '',
+        knie:       st.formData?.knie       ?? 0,
+        achilles_l: st.formData?.achilles_l ?? 0,
+        achilles_r: st.formData?.achilles_r ?? 0,
+        muedigkeit: st.formData?.muedigkeit ?? 1,
+        fieber:        st.formData?.fieber        ?? null,
+        blutdruck_sys: st.formData?.blutdruck_sys ?? null,
+        blutdruck_dia: st.formData?.blutdruck_dia ?? null,
+        medikamente:   st.formData?.medikamente   ?? '',
       }),
     });
     if (!r.ok) {
@@ -3095,13 +3177,13 @@ async function applyToTP() {
     box.innerHTML = rows;
 
     // Auto-reload workouts to show updated TP titles
-    const day = currentResultType === 'morgen' ? 'today' : 'tomorrow';
+    const day = type === 'morgen' ? 'today' : 'tomorrow';
     let freshHtml = '';
     try {
       const rNew = await apiFetch(`/api/tp/workouts?day=${day}&t=${Date.now()}`);
       const fresh = await rNew.json();
       if (fresh.available && fresh.workouts?.length) {
-        tpWorkouts = fresh.workouts;
+        st.tpWorkouts = fresh.workouts;
         freshHtml = fresh.workouts.map(w =>
           `<div class="tp-workout-item">` +
           `<span class="tp-sport-badge">${esc(w.sport || '?')}</span>` +
@@ -3182,6 +3264,37 @@ function setLoadingText(stage) {
   el.textContent = (stage && T['stage_' + stage]) || T.claude_analyzing;
 }
 
+// Eigene Lade-/Fehleranzeige pro Check (v2.8) statt des globalen Overlays:
+// auf Desktop können Morgen und Abend gleichzeitig laufen — ein gemeinsamer
+// Spinner/Banner würde sich zwischen beiden Stufentexten überschreiben.
+function setCheckLoading(type, isLoading) {
+  const status = document.getElementById(`check-status-${type}`);
+  const btn    = document.getElementById(`btn-submit-${type}`);
+  if (status) status.style.display = isLoading ? 'flex' : 'none';
+  if (btn) btn.disabled = isLoading;
+  // Fehlerbanner nur beim STARTEN eines neuen Checks löschen — beim Beenden
+  // (finally, nach einem evtl. catch) darf eine gerade gesetzte Fehlermeldung
+  // nicht sofort wieder verschwinden.
+  if (isLoading) {
+    const error = document.getElementById(`check-error-${type}`);
+    if (error) error.style.display = 'none';
+  }
+}
+function setCheckLoadingText(type, stage) {
+  const el = document.getElementById(`check-status-text-${type}`);
+  if (el) el.textContent = (stage && T['stage_' + stage]) || T.claude_analyzing;
+}
+// Bleibt stehen bis zum nächsten Check-Start (kein 8s-Timer, v2.7.17-Prinzip
+// gilt weiter) — Antippen schließt ihn vorzeitig.
+function showCheckError(type, msg) {
+  const el = document.getElementById(`check-error-${type}`);
+  if (!el) return;
+  el.textContent = msg;
+  el.style.display = 'block';
+  el.style.cursor = 'pointer';
+  el.onclick = () => { el.style.display = 'none'; };
+}
+
 // Der Check läuft seit v2.7.4 als Hintergrund-Job: POST liefert sofort eine
 // job_id, das Ergebnis kommt per Polling. Ein 15 s offener Request überlebte
 // weder Proxy-Timeouts noch wechselnden Mobilfunk.
@@ -3206,7 +3319,7 @@ async function fetchMitFrist(url, init, ms) {
   }
 }
 
-async function runCheck(url, init) {
+async function runCheck(url, init, onStage) {
   const r = await fetchMitFrist(url, init, CHECK_POST_MS);
   if (!r.ok) throw new Error(await r.text());
   const { job_id } = await r.json();
@@ -3238,7 +3351,7 @@ async function runCheck(url, init) {
     const job = await sr.json();
     if (job.status === 'done')  return job.result;
     if (job.status === 'error') throw new Error(job.error || 'Check fehlgeschlagen');
-    setLoadingText(job.stage);
+    if (onStage) onStage(job.stage); else setLoadingText(job.stage);
   }
   throw new Error('Check dauert ungewöhnlich lange — bitte nochmal versuchen');
 }

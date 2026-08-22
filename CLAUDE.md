@@ -1,11 +1,11 @@
-# KI Coach App — v2.7.29
+# KI Coach App — v2.8.0
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
 
 ## Architektur
 - **Backend:** Python FastAPI (`app.py`, ein File)
-- **Frontend:** Single HTML-Datei mit Jinja2-Templating (`templates/index.html`), iPhone-optimiert (320–390px)
+- **Frontend:** Single HTML-Datei mit Jinja2-Templating (`templates/index.html`), mobile-first (320–390px) mit Desktop-Breakpoint ab 1024px (v2.8.0)
 - **i18n:** alle UI-Texte *und* alle Claude-Prompts in `translations.py` (`de` / `en`), Sprache über `APP_LANG`
 - **Hosting:** Railway (Docker)
 - **Claude-Modelle:**
@@ -381,6 +381,16 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.8.0 — Desktop-Layout: Sidebar + Morgen/Abend/Fueling als Dashboard
+Die App war komplett iPhone-fixiert (`body{max-width:430px}`, keine einzige `@media`-Query). Ab 1024px Fensterbreite jetzt ein echtes Desktop-Layout, ein Template mit CSS-Breakpoints statt einer zweiten Route/Vorlage — passt zur Single-File-Frontend-Linie des Projekts.
+
+- **Sidebar statt oberer Tab-Leiste** (`#desktop-layout`-Wrapper um `.tabs`/`#form-section`, neuer `@media (min-width:1024px)`-Block): dieselben 7 `.tab-btn`, nur restyled (Spalte links, 220px), keine JS-Änderung an `initTabs()`s Grundlogik nötig. `.tab-panel`/`.result-wrap` auf 680px Lesebreite gedeckelt — greift automatisch auch für Erholung/Analyse/Chat/Profil als Einzelansichten (Chat-Bubbles mit `max-width:88%` landen dadurch bei ~600px, ohne JS-Änderung).
+- **Morgen/Abend/Fueling als permanentes 3-Spalten-Grid** auf Desktop (`#form-section.dashboard-mode`, CSS-Grid), gesteuert über ein zusätzliches `classList.toggle` in `initTabs()`. Erholung/Analyse/Chat/Profil bleiben Einzelansichten (`display:none` im Grid) — als fokussierte Task-Ansichten (Chat-Verlauf, Workout-Upload) bringt Nebeneinander-Anzeige wenig, bei den beiden Checks + Ernährung dagegen ist der tägliche Blick auf alle drei gleichzeitig der eigentliche Nutzen.
+- **Der eigentliche Umbau: Morgen und Abend hatten sich einen einzigen globalen Ergebnis-State geteilt** (`currentResult`, `currentResultType`, `currentFormData`, `tpWorkouts`, `userOverrides`, ein gemeinsames `#result-section`, nicht-namespaced DOM-Ids wie `sport-card-${idx}`). Auf Desktop gleichzeitig sichtbar hätte das bedeutet: der zuletzt abgeschlossene Check überschreibt den anderen, "In TP anwenden" hätte im schlimmsten Fall die falschen Daten geschrieben. Ersetzt durch ein `checkState = {morgen:{...}, abend:{...}}`-Objekt; `showResult`/`buildResult`/`toggleOverride`/`backToForm`/`applyToTP`/`loadTPWorkouts` bekommen alle einen expliziten `type`-Parameter statt auf globale Variablen zu lesen. Zwei eigene Ergebnis-Container (`#result-section-abend`/`-morgen`, je im eigenen `.tab-panel`) statt des einen globalen — auf Mobil bleibt das Verhalten dadurch automatisch identisch (nur ein Panel je aktiv), auf Desktop können beide Checks jetzt unabhängig voneinander laufen, Ergebnis zeigen und einzeln in TP angewendet werden.
+- **Eigene Lade-/Fehleranzeige pro Check** (`setCheckLoading`/`setCheckLoadingText`/`showCheckError`, neue `.check-status`/`.check-error`-Elemente je Formular) statt des einen globalen `.loading-overlay`/`#error-banner` — sonst hätten zwei gleichzeitig laufende Checks sich denselben Spinnertext/dieselbe Fehlermeldung streitig gemacht. `runCheck()` bekommt dafür einen optionalen dritten Parameter (`onStage`-Callback), der reine Polling-Body (v2.7.17) bleibt unverändert. Fehler bleiben wie beim alten Banner dauerhaft stehen (kein 8s-Timer) und sind per Antippen schließbar. Der globale Banner/Overlay bleibt für echte seitenweite Ereignisse (Profil-Ladefehler beim Start, Baseline-CSV-Upload) bestehen.
+
+Tests: `test_wiring.py`s Check auf den alten `showError(err.message || String(err), true)`-Aufruf (v2.7.17) ist auf die neue `showCheckError()`-Stelle umgeschrieben — geprüft wird weiterhin dieselbe Eigenschaft (kein Auto-Hide-Timer, Klick-Dismiss), nur an der neuen Stelle.
 
 ### v2.7.29 — Generischer Performance-Analyst wieder entfernt
 Direkte Nachfrage zu v2.7.28: „benötige ich den Performance-Analyst überhaupt noch?" Antwort beim genaueren Hinsehen: der generische Fallback (Coach Ben Krause, für Kraft/Sonstiges/Golf/Brick) war über die App-UI **nie erreichbar**. Der Analyse-Tab filtert die Liste im Frontend längst auf Rad/Bike/Lauf/Run/Schwimmen/Swim (`SPORT_OK` in `templates/index.html`) — ein Kraft- oder Golf-Workout taucht dort gar nicht als analysierbare Zeile auf. Anders als beim Architekten, dessen generischer Fallback im täglichen Check tatsächlich für Kraft-MOD-Einheiten läuft: der Analyst-Fallback war reines totes Gewicht, das v2.7.28 unnötig mitgezogen hat.

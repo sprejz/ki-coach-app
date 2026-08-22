@@ -352,7 +352,15 @@ async def main():
            "Ein einzelner Netzfehler wirft den laufenden Job nicht weg (Retry-Zähler)")
     pruefe("sr.status === 404" in check_js,
            "404 bleibt ein harter Abbruch — der Job existiert wirklich nicht mehr")
-    pruefe(_idx.count("showError(err.message || String(err), true)") == 2,
+    # v2.8: eigene Fehleranzeige pro Check statt des globalen Banners — auf
+    # Desktop laufen Morgen und Abend evtl. gleichzeitig, ein gemeinsamer
+    # Banner würde sich überschreiben. showCheckError() hat keinen 8s-Timer
+    # (bleibt stehen bis zum nächsten Check-Start) und ist per Klick schließbar
+    # — dasselbe Prinzip wie das alte showError(..., bleibt=true).
+    pruefe("showCheckError('abend'," in _idx and "showCheckError('morgen'," in _idx,
+           "Abend- und Morgen-Check zeigen ihren Fehler in ihrer eigenen Anzeige")
+    check_error_js = _idx[_idx.index("function showCheckError"):_idx.index("function showCheckError") + 400]
+    pruefe("setTimeout" not in check_error_js and "el.onclick" in check_error_js,
            "Abend- und Morgen-Check zeigen ihren Fehler dauerhaft statt ihn nach 8 s zu verstecken")
 
     print("\n=== Eingaben kommen bei den Agents an ===")
