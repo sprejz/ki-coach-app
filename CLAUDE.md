@@ -1,4 +1,4 @@
-# KI Coach App — v2.8.1
+# KI Coach App — v2.8.2
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -383,6 +383,14 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.8.2 — Chat-Tools liefen live nie, weil `anyOf` auf oberster Ebene stand
+Nutzer-Rückmeldung: „ich konnte über den Chat am iPhone keine Änderung in TP vornehmen" — noch am selben Tag wie v2.8.1. Mit dem echten `ANTHROPIC_API_KEY` reproduziert: **jeder** `messages.create(..., tools=CHAT_TOOLS)`-Aufruf schlug mit `400 invalid_request_error` fehl (`input_schema does not support oneOf, allOf, or anyOf at the top level`) — `PROPOSE_WORKOUT_UPDATE_TOOL`s `input_schema` hatte genau das, um „mindestens `new_title` oder `new_description`" zu erzwingen. `coach_chat`s `except Exception` fing das ab und fiel still auf den Monolith zurück, der die Fähigkeit gar nicht kennt — die Karte konnte dadurch nie erscheinen, mit `/api/version` sah die Pipeline trotzdem gesund aus (der Fehler passiert erst beim tatsächlichen Tool-Use-Call, nicht beim Import).
+
+- **`agents/chat/chat.py`** — `anyOf` aus `PROPOSE_WORKOUT_UPDATE_TOOL.input_schema` entfernt. Die Regel „mindestens eines von beiden" steht jetzt nur noch in der Tool-Beschreibung und wird — wie ohnehin schon dokumentiert, das Anthropic-Schema wird serverseitig nie erzwungen — von `app._resolve_workout_update_proposal()` durchgesetzt, die das schon vorher prüfte.
+- Live mit echtem Key gegen die Produktions-TP-Daten verifiziert (nicht nur gegen Attrappen wie beim ursprünglichen Test): eindeutiger Treffer liefert jetzt `_pipeline: "agents"` mit korrektem `proposal` (echte `workout_id` aus dem TP-Cache), eine normale Frage ohne Änderungswunsch liefert weiterhin reinen Text ohne Tool-Aufruf.
+
+**Lehre für künftige Tool-Schemas:** Anthropics `input_schema` ist kein beliebiges JSON-Schema — `oneOf`/`allOf`/`anyOf` sind nur innerhalb von `properties`-Feldern erlaubt, nicht auf der Objekt-Wurzel. Ein lokaler Test mit `ANTHROPIC_API_KEY=dummy` (wie in `test_wiring.py`) kann das nicht fangen, da er nie wirklich bei Anthropic ankommt — nur ein Lauf mit echtem Key deckt sowas auf.
 
 ### v2.8.1 — Coach-Chat kann TP-Änderungen vorschlagen (Propose/Confirm)
 Bisher konnte der Chat nichts in TrainingPeaks ändern — `agents/chat/chat.md` sagte das dem Modell sogar explizit. Nutzerwunsch: der Chat soll TP-Änderungen vornehmen können. Weil das echte Schreibzugriffe auf einen produktiv genutzten Trainingskalender sind, vorab geklärt: **Vorschlag statt Sofort-Ausführung** (der Chat schreibt nie direkt, erst ein Klick bestätigt), Scope nur **bestehende Einheit anpassen (Titel/Beschreibung) + Kalendernotiz anlegen** — kein Verschieben, Löschen, keine neuen Einheiten.

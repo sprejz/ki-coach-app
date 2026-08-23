@@ -27,12 +27,13 @@ PROPOSE_WORKOUT_UPDATE_TOOL = {
         "Schlägt eine Änderung von Titel und/oder Beschreibung EINER bestehenden "
         "TrainingPeaks-Einheit vor, die weiter oben im Kontext (TrainingPeaks-Plan) "
         "aufgeführt ist. KEINE Änderung von Datum, Dauer oder Sportart möglich — nur "
-        "Titel/Beschreibung. Ruf dieses Tool NUR auf, wenn der Athlet klar und konkret "
-        "eine Änderung an EINER bestimmten, dir bereits bekannten Einheit verlangt. "
-        "Rate niemals eine workout_id — du bekommst nie eine gezeigt; date + "
-        "workout_hint reichen, der Server findet die Einheit selbst. Bist du unsicher, "
-        "welche Einheit oder welcher Tag gemeint ist, rufe das Tool NICHT auf, sondern "
-        "frag im Text nach."
+        "Titel/Beschreibung. Gib MINDESTENS eines von new_title/new_description an — "
+        "ein Aufruf ohne beides wird verworfen. Ruf dieses Tool NUR auf, wenn der "
+        "Athlet klar und konkret eine Änderung an EINER bestimmten, dir bereits "
+        "bekannten Einheit verlangt. Rate niemals eine workout_id — du bekommst nie "
+        "eine gezeigt; date + workout_hint reichen, der Server findet die Einheit "
+        "selbst. Bist du unsicher, welche Einheit oder welcher Tag gemeint ist, rufe "
+        "das Tool NICHT auf, sondern frag im Text nach."
     ),
     "input_schema": {
         "type": "object",
@@ -73,10 +74,6 @@ PROPOSE_WORKOUT_UPDATE_TOOL = {
             },
         },
         "required": ["date", "workout_hint", "summary"],
-        "anyOf": [
-            {"required": ["new_title"]},
-            {"required": ["new_description"]},
-        ],
     },
 }
 
