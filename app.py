@@ -62,7 +62,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "2.8.2"
+APP_VERSION = "2.8.3"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1325,12 +1325,53 @@ def _resolve_calendar_note_proposal(args: dict):
     return summary, proposal
 
 
+def _resolve_workout_skip_proposal(args: dict):
+    date_str = str(args.get("date", "")).strip()
+    hint = str(args.get("workout_hint", "")).strip()
+    try:
+        date.fromisoformat(date_str)
+    except ValueError:
+        return T["chat_proposal_invalid"], None
+    if not hint:
+        return T["chat_proposal_invalid"], None
+
+    matches = _match_tp_workouts(date_str, hint)
+    if not matches:
+        return T["chat_no_matching_workout"], None
+    if len(matches) > 1:
+        return T["chat_ambiguous_workout"], None
+
+    w = matches[0]
+    wid = w.get("id") or w.get("workout_id")
+    if not wid:
+        return T["chat_no_matching_workout"], None
+
+    # Dieselbe Konvention wie SKIP/STOP im Abend-/Morgen-Check (tp_apply) —
+    # Titel bekommt ❌-Präfix, die Einheit wird nicht gelöscht.
+    new_title = T["tp_skip_renamed"].format(title=clean_title(w.get("title", "")))
+
+    pending_id = _pending_action_start({
+        "type": "workout_skip", "workout_id": str(wid), "title": new_title,
+        "matched_title": w.get("title", ""), "matched_sport": w.get("sport", ""),
+        "matched_date": date_str,
+    })
+    summary = str(args.get("summary") or "").strip() or T["chat_proposal_fallback_summary"]
+    proposal = {
+        "pending_id": pending_id, "type": "workout_skip", "date": date_str,
+        "matched_title": w.get("title", ""), "matched_sport": w.get("sport", ""),
+        "new_title": new_title, "summary": summary,
+    }
+    return summary, proposal
+
+
 def _resolve_chat_tool_call(tool_call: dict):
     name, args = tool_call.get("name"), tool_call.get("input") or {}
     if name == "propose_workout_update":
         return _resolve_workout_update_proposal(args)
     if name == "propose_calendar_note":
         return _resolve_calendar_note_proposal(args)
+    if name == "propose_workout_skip":
+        return _resolve_workout_skip_proposal(args)
     logger.warning("coach_chat: unbekannter Tool-Call %r", name)
     return T["chat_proposal_invalid"], None
 
@@ -1346,7 +1387,7 @@ async def chat_tp_action_confirm(pending_id: str):
         raise HTTPException(404, T["chat_proposal_expired"])
 
     actions = []
-    if entry["type"] == "workout_update":
+    if entry["type"] in ("workout_update", "workout_skip"):
         mcp_args = {"workout_id": entry["workout_id"]}
         if entry.get("title"):
             mcp_args["title"] = entry["title"]

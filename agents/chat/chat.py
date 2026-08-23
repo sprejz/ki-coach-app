@@ -105,7 +105,50 @@ PROPOSE_CALENDAR_NOTE_TOOL = {
     },
 }
 
-CHAT_TOOLS = [PROPOSE_WORKOUT_UPDATE_TOOL, PROPOSE_CALENDAR_NOTE_TOOL]
+PROPOSE_WORKOUT_SKIP_TOOL = {
+    "name": "propose_workout_skip",
+    "description": (
+        "Schlägt vor, EINE bestehende TrainingPeaks-Einheit zu streichen — z.B. weil "
+        "sie ausfällt oder etwas anderes Vorrang hat. Die Einheit wird dabei NICHT "
+        "gelöscht, sondern genau wie im Abend-/Morgen-Check mit ❌ im Titel markiert "
+        "(derselbe Titel-Präfix, den auch der SKIP-Badge dort setzt). Du gibst keinen "
+        "neuen Titel an — der Server übernimmt die Umbenennung nach dieser festen "
+        "Konvention. Ruf dieses Tool auf, wenn der Athlet klar eine bestimmte Einheit "
+        "streichen will (\"streich\", \"fällt aus\", \"lass weg\", \"nicht heute\"). "
+        "Rate niemals eine workout_id — date + workout_hint reichen, der Server findet "
+        "die Einheit selbst."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "date": {
+                "type": "string",
+                "description": (
+                    "ISO-Datum (YYYY-MM-DD) der Einheit, exakt wie im "
+                    "TrainingPeaks-Plan-Abschnitt oben angegeben."
+                ),
+            },
+            "workout_hint": {
+                "type": "string",
+                "description": (
+                    "Sportart oder ein Ausschnitt aus dem Titel der Einheit, WÖRTLICH "
+                    "aus der passenden Plan-Zeile oben kopiert."
+                ),
+            },
+            "summary": {
+                "type": "string",
+                "description": (
+                    "Ein kurzer, an den Athleten gerichteter deutscher Satz, der das "
+                    "Streichen zusammenfasst. Wird wörtlich als Chat-Antwort und "
+                    "Karten-Überschrift verwendet."
+                ),
+            },
+        },
+        "required": ["date", "workout_hint", "summary"],
+    },
+}
+
+CHAT_TOOLS = [PROPOSE_WORKOUT_UPDATE_TOOL, PROPOSE_CALENDAR_NOTE_TOOL, PROPOSE_WORKOUT_SKIP_TOOL]
 
 
 def build_context(*, athlete: dict, a_race: Optional[dict], tage_bis_a: Optional[int],

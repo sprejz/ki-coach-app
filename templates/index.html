@@ -2789,6 +2789,10 @@ function appendProposalCard(proposal) {
       `${esc(proposal.date)} · ${esc(proposal.matched_sport || '')} · ${esc(proposal.matched_title || '')}</div>` +
       (proposal.new_title ? `<div>→ ${esc(T.chat_proposal_new_title_label)} <b>${esc(proposal.new_title)}</b></div>` : '') +
       (proposal.new_description ? `<div style="white-space:pre-wrap;margin-top:4px">→ ${esc(T.chat_proposal_new_desc_label)}<br>${esc(proposal.new_description)}</div>` : '');
+  } else if (proposal.type === 'workout_skip') {
+    bodyHtml = `<div style="color:var(--muted);font-size:12px;margin-bottom:6px">` +
+      `${esc(proposal.date)} · ${esc(proposal.matched_sport || '')} · ${esc(proposal.matched_title || '')}</div>` +
+      `<div>→ ${esc(T.chat_proposal_skip_label)} <b>${esc(proposal.new_title)}</b></div>`;
   } else {
     bodyHtml = `<div style="color:var(--muted);font-size:12px;margin-bottom:6px">${esc(proposal.date)}</div>` +
       `<div><b>${esc(proposal.title)}</b></div>` +

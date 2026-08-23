@@ -731,14 +731,17 @@ async def main():
            "tp_apply nutzt die vorgerechnete Ernährung statt eines zweiten Claude-Calls")
 
     print("\n=== Chat schlägt TP-Änderungen vor, führt nie direkt aus (v2.8) ===")
-    pruefe(len(chat_agent.CHAT_TOOLS) == 2,
-           "genau zwei Tools: Einheit anpassen, Notiz anlegen")
+    pruefe(len(chat_agent.CHAT_TOOLS) == 3,
+           "genau drei Tools: Einheit anpassen, Notiz anlegen, Einheit streichen")
     pruefe({t["name"] for t in chat_agent.CHAT_TOOLS}
-           == {"propose_workout_update", "propose_calendar_note"},
+           == {"propose_workout_update", "propose_calendar_note", "propose_workout_skip"},
            "die Tool-Namen sind die erwarteten")
     for t in chat_agent.CHAT_TOOLS:
         pruefe("workout_id" not in t["input_schema"]["properties"],
                f"{t['name']}: Claude bekommt nie eine workout_id zum Raten angeboten")
+        pruefe("anyOf" not in t["input_schema"] and "oneOf" not in t["input_schema"]
+               and "allOf" not in t["input_schema"],
+               f"{t['name']}: kein oneOf/allOf/anyOf auf oberster Ebene (von Anthropic abgelehnt, v2.8.2)")
 
     # _tp_cache direkt befüllen — dieselbe Form wie _map_tp_workout sie liefert.
     app._tp_cache.clear()
@@ -790,6 +793,19 @@ async def main():
     })
     pruefe(note_proposal is not None and note_proposal["type"] == "calendar_note",
            "Kalendernotiz-Vorschlag wird angelegt")
+
+    # v2.8.3 — "streich die Einheit" darf jetzt vorgeschlagen werden (dieselbe
+    # ❌-Titel-Konvention wie SKIP im Check, kein echtes Löschen).
+    app._pending_tp_actions.clear()
+    _, skip_proposal = app._resolve_workout_skip_proposal({
+        "date": "2026-01-15", "workout_hint": "Longrun", "summary": "Ich streiche den Longrun.",
+    })
+    pruefe(skip_proposal is not None and skip_proposal["type"] == "workout_skip",
+           "eindeutiger Treffer legt einen Streich-Vorschlag an")
+    pruefe(skip_proposal["new_title"] == app.T["tp_skip_renamed"].format(title="Longrun locker"),
+           "derselbe ❌-Titel-Präfix wie SKIP im Abend-/Morgen-Check")
+    pruefe(app._pending_tp_actions[skip_proposal["pending_id"]]["workout_id"] == "111",
+           "auch hier die server-seitig aufgelöste workout_id, nicht geraten")
 
     async def _fake_call_tp_mcp(tool_name, arguments):
         mitschrieb.setdefault("call_tp_mcp", []).append((tool_name, arguments))
