@@ -22,7 +22,8 @@ import orchestrator  # noqa: E402
 from orchestrator import _baue_einheit, normalize_sport  # noqa: E402
 from tests import fixtures as fx  # noqa: E402
 from training_load import (  # noqa: E402
-    PMC_TAGE, compute_pmc, letzte_einheiten, tage_bis, trainingsstreak, tss_pro_tag, wochenstruktur,
+    PMC_TAGE, compute_pmc, letzte_einheiten, pmc_von_tp, tage_bis, trainingsstreak, tss_pro_tag,
+    wochenstruktur,
 )
 from translations import TRANSLATIONS  # noqa: E402
 import strava  # noqa: E402
@@ -163,6 +164,28 @@ pruefe(streak == 6, f"Trainingsstreak zählt korrekt 6 Tage (18.–23.8.), nicht
 pruefe(trainingsstreak([], bis=date(2026, 8, 24)) == 0, "Ohne Daten kein Streak, kein Absturz")
 pruefe("trainingsstreak" in Path(periodizer.__file__).read_text(encoding="utf-8"),
        "Der Periodisierer-Prompt bekommt den fertig gezählten Streak, statt selbst zu zählen")
+
+# Live gemeldet: TSB stimmte nicht (App: -38,8, TP selbst zeigte -19) — Ursache
+# war ein in TP doppelt erfasster Lauf (Geräte-Sync + manueller Eintrag), den
+# unsere eigene Nachrechnung aus tp_get_workouts doppelt summiert hat.
+# pmc_von_tp() übernimmt TPs eigene, bereits korrekte tp_get_fitness-Zahlen
+# unverändert statt selbst nachzurechnen (v2.8.6).
+tp_daily = [
+    {"date": "2026-08-22", "tss": 257.54, "ctl": 111.1, "atl": 130.6, "tsb": -1.9},
+    {"date": "2026-08-23", "tss": 95.95, "ctl": 110.7, "atl": 125.6, "tsb": -19.5},
+    {"date": "2026-08-24", "tss": 0.0, "ctl": 108.1, "atl": 107.7, "tsb": -14.9},
+    {"date": "2026-08-25", "tss": 999, "ctl": 999, "atl": 999, "tsb": 999},  # nach 'bis', muss ignoriert werden
+]
+tp_load = pmc_von_tp(tp_daily, bis=date(2026, 8, 24))
+pruefe(tp_load["ctl"] == 108.1 and tp_load["atl"] == 107.7 and tp_load["tsb"] == -14.9,
+       f"pmc_von_tp übernimmt TPs eigene Werte unverändert, nicht {tp_load}")
+pruefe(tp_load["tage_mit_daten"] == 2, "tage_mit_daten zählt nur Tage mit TSS > 0")
+pruefe(len(tp_load["verlauf"]) == 3, "Tage nach 'bis' werden nicht mitgeliefert")
+leer_tp = pmc_von_tp(None, bis=date(2026, 8, 24))
+pruefe(leer_tp["ctl"] == 0.0 and leer_tp["verlauf"] == [], "Ohne TP-Daten kein Absturz, alles 0")
+pruefe("tp_get_fitness" in (Path(__file__).parent.parent / "app.py").read_text(encoding="utf-8"),
+       "app.py holt CTL/ATL/TSB über tp_get_fitness, nicht mehr nur aus eigener Nachrechnung")
+
 pruefe(tage_bis("2026-09-06", ab=HEUTE) == 43, "Tage bis Malbork: 43")
 pruefe(tage_bis("", ab=HEUTE) is None and tage_bis("kaputt", ab=HEUTE) is None,
        "Ungültiges Datum → None statt Absturz")

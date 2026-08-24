@@ -24,7 +24,7 @@ from nutrition import (
     nutrition_for_duration,
 )
 from training_load import (
-    PMC_TAGE, compute_pmc, letzte_einheiten, tage_bis, trainingsstreak, tss_pro_tag, wochenstruktur,
+    PMC_TAGE, letzte_einheiten, pmc_von_tp, tage_bis, trainingsstreak, wochenstruktur,
 )
 from translations import TRANSLATIONS
 import strava
@@ -62,7 +62,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "2.8.5"
+APP_VERSION = "2.8.6"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -2090,10 +2090,15 @@ async def _letztes_rennen(heute: date) -> Optional[dict]:
 
 
 async def _fetch_training_load(athlete: dict):
-    """Holt die TSS-Historie aus TP und rechnet CTL/ATL/TSB aus.
+    """Holt CTL/ATL/TSB direkt von TP und die TSS-Historie für den Kontext.
 
-    Der Zeitraum muss dem PMC-Fenster entsprechen (`PMC_TAGE`) — mit weniger
-    Historie startet CTL zu spät bei 0 und kommt systematisch zu niedrig raus.
+    CTL/ATL/TSB kommen über `tp_get_fitness` von TP selbst (v2.8.6) — nicht
+    mehr aus eigener Nachrechnung. Live-Fehler: unsere Summe aus
+    `tp_get_workouts` zählte einen am 23.8. doppelt in TP erfassten Lauf
+    (Geräte-Sync + manueller Eintrag, identische Dauer/TSS, andere Titel) mit,
+    TSB kam bei uns auf −38,8 statt der von TP selbst gezeigten −19. TP kennt
+    seine eigene Historie (auch über unser `PMC_TAGE`-Fenster hinaus) und
+    seine eigenen Dateneigenheiten besser als eine Nachrechnung von außen.
 
     Gibt (load, woche) zurück, oder (None, None) wenn TP nicht erreichbar ist —
     dann läuft der Check ohne Periodisierer weiter.
@@ -2105,19 +2110,25 @@ async def _fetch_training_load(athlete: dict):
 
     heute = date.today()
     try:
-        roh = await call_tp_mcp("tp_get_workouts", {
-            "start_date": (heute - timedelta(days=PMC_TAGE)).isoformat(),
-            "end_date": heute.isoformat(),
-            "type": "completed",
-        })
+        roh, fitness = await asyncio.gather(
+            call_tp_mcp("tp_get_workouts", {
+                "start_date": (heute - timedelta(days=PMC_TAGE)).isoformat(),
+                "end_date": heute.isoformat(),
+                "type": "completed",
+            }),
+            call_tp_mcp("tp_get_fitness", {"days": PMC_TAGE}),
+        )
     except Exception as e:
-        logger.warning("training_load: TP-Historie nicht abrufbar: %s", e)
+        logger.warning("training_load: TP-Historie/Fitness nicht abrufbar: %s", e)
+        return None, None
+    if isinstance(fitness, dict) and fitness.get("isError"):
+        logger.warning("training_load: tp_get_fitness meldet Fehler: %s", fitness.get("message"))
         return None, None
 
     items = roh if isinstance(roh, list) else roh.get("workouts", roh.get("items", []))
     items = items or []
     load_sports = athlete.get("load_sports") or None
-    load = compute_pmc(tss_pro_tag(items), bis=heute)
+    load = pmc_von_tp(fitness.get("daily_data") if isinstance(fitness, dict) else None, bis=heute)
     load["letzte_einheiten"] = letzte_einheiten(items, bis=heute, load_sports=load_sports)
     load["trainingsstreak"] = trainingsstreak(items, bis=heute, load_sports=load_sports)
     load["letztes_rennen"] = await _letztes_rennen(heute)

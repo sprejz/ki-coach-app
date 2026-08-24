@@ -1,15 +1,17 @@
 """Belastungskennzahlen aus der TSS-Historie — Performance Management Chart.
 
-Der TrainingPeaks-MCP liefert kein fertiges CTL/ATL/TSB, aber jedes
-abgeschlossene Workout trägt einen TSS-Ist-Wert. Daraus lassen sich die Kennzahlen
-mit den Standardformeln exakt nachrechnen:
+CTL/ATL/TSB kommen seit v2.8.6 direkt von TP selbst (`tp_get_fitness`, siehe
+`pmc_von_tp`) — TP kennt die eigene Historie und eigene Dateneigenheiten
+(z.B. doppelt erfasste Einheiten durch Geräte-Sync + manuellen Eintrag)
+besser als eine Nachrechnung von außen. `compute_pmc` implementiert dieselben
+Standardformeln weiterhin als deterministische Referenz:
 
     CTL(heute) = CTL(gestern) + (TSS(heute) - CTL(gestern)) / 42
     ATL(heute) = ATL(gestern) + (TSS(heute) - ATL(gestern)) / 7
     TSB(heute) = CTL(gestern) - ATL(gestern)
 
-Bewusst kein Agent: das ist Arithmetik mit einer definierten Antwort. Ein
-Modell könnte hier nur Zahlen halluzinieren.
+Bewusst kein Agent für beide Wege: das ist Arithmetik mit einer definierten
+Antwort. Ein Modell könnte hier nur Zahlen halluzinieren.
 """
 import logging
 from datetime import date, timedelta
@@ -153,6 +155,31 @@ def trainingsstreak(workouts: list, bis: Optional[date] = None,
     return streak
 
 
+def _pmc_zusammenfassung(verlauf: list) -> dict:
+    """Verdichtet eine Tages-Verlaufsliste (datum/tss/ctl/atl/tsb) zu den
+    Kennzahlen, die Chefcoach und Periodisierer brauchen. Von `compute_pmc`
+    und `pmc_von_tp` geteilt, damit die Aggregation nicht zweimal auseinanderlaufen kann.
+    """
+    if not verlauf:
+        return {"ctl": 0.0, "atl": 0.0, "tsb": 0.0, "ramp_7d": 0.0, "ctl_vor_28d": 0.0,
+                "tss_7d": 0.0, "tss_28d": 0.0, "tage_mit_daten": 0, "verlauf": []}
+    heute = verlauf[-1]
+    vor_7 = verlauf[-8] if len(verlauf) >= 8 else verlauf[0]
+    vor_28 = verlauf[-29] if len(verlauf) >= 29 else verlauf[0]
+    return {
+        "ctl": heute["ctl"],
+        "atl": heute["atl"],
+        "tsb": heute["tsb"],
+        # Ramp Rate: CTL-Zuwachs pro Woche. Über ~7 gilt als riskant.
+        "ramp_7d": round(heute["ctl"] - vor_7["ctl"], 1),
+        "ctl_vor_28d": vor_28["ctl"],
+        "tss_7d": round(sum(v["tss"] for v in verlauf[-7:]), 0),
+        "tss_28d": round(sum(v["tss"] for v in verlauf[-28:]), 0),
+        "tage_mit_daten": sum(1 for v in verlauf if v["tss"] > 0),
+        "verlauf": verlauf[-14:],
+    }
+
+
 def compute_pmc(tss_pro_tag_: dict, bis: Optional[date] = None, tage: int = PMC_TAGE) -> dict:
     """Rechnet CTL, ATL und TSB bis zum Stichtag hoch.
 
@@ -160,6 +187,10 @@ def compute_pmc(tss_pro_tag_: dict, bis: Optional[date] = None, tage: int = PMC_
     TSS 0 und lassen die Werte korrekt abklingen. Deshalb muss `tss_pro_tag_`
     den **gesamten** Zeitraum abdecken: fehlende Tage sind von echten Ruhetagen
     nicht zu unterscheiden und drücken CTL nach unten (siehe PMC_TAGE).
+
+    Nicht mehr der Live-Pfad für den Periodisierer (siehe `pmc_von_tp`,
+    v2.8.6) — bleibt als deterministische Referenzrechnung erhalten, u.a. für
+    Tests und falls `tp_get_fitness` einmal nicht zur Verfügung steht.
     """
     bis = bis or date.today()
     start = bis - timedelta(days=tage)
@@ -177,22 +208,33 @@ def compute_pmc(tss_pro_tag_: dict, bis: Optional[date] = None, tage: int = PMC_
                         "ctl": round(ctl, 1), "atl": round(atl, 1), "tsb": round(tsb, 1)})
         tag += timedelta(days=1)
 
-    heute = verlauf[-1]
-    vor_7 = verlauf[-8] if len(verlauf) >= 8 else verlauf[0]
-    vor_28 = verlauf[-29] if len(verlauf) >= 29 else verlauf[0]
+    return _pmc_zusammenfassung(verlauf)
 
-    return {
-        "ctl": heute["ctl"],
-        "atl": heute["atl"],
-        "tsb": heute["tsb"],
-        # Ramp Rate: CTL-Zuwachs pro Woche. Über ~7 gilt als riskant.
-        "ramp_7d": round(heute["ctl"] - vor_7["ctl"], 1),
-        "ctl_vor_28d": vor_28["ctl"],
-        "tss_7d": round(sum(v["tss"] for v in verlauf[-7:]), 0),
-        "tss_28d": round(sum(v["tss"] for v in verlauf[-28:]), 0),
-        "tage_mit_daten": sum(1 for v in verlauf if v["tss"] > 0),
-        "verlauf": verlauf[-14:],
-    }
+
+def pmc_von_tp(daily_data: Optional[list], bis: Optional[date] = None) -> dict:
+    """Baut denselben Kennzahlen-Vertrag wie `compute_pmc`, aber aus TPs
+    eigener PMC-Antwort (`tp_get_fitness`) statt aus einer Nachrechnung.
+
+    TP kennt seine komplette Trainingshistorie (nicht nur unser PMC_TAGE-
+    Fenster) und seine eigenen Dateneigenheiten — unsere Nachrechnung aus
+    `tp_get_workouts` driftete auseinander, sobald TP selbst einen Tag doppelt
+    erfasst hatte (Geräte-Sync + manueller Eintrag, identische Dauer/TSS,
+    andere Titel): TSB −38,8 bei uns statt der von TP selbst gezeigten −19
+    (v2.8.6). TP übernimmt damit auch implizit jede Art von Datenbereinigung,
+    die TP selbst für seine eigene Anzeige vornimmt.
+    """
+    grenze = (bis or date.today()).isoformat()
+    tage = sorted(
+        (d for d in (daily_data or []) if d.get("date") and d["date"] <= grenze),
+        key=lambda d: d["date"],
+    )
+    verlauf = [
+        {"datum": d["date"], "tss": float(d.get("tss") or 0.0),
+         "ctl": float(d.get("ctl") or 0.0), "atl": float(d.get("atl") or 0.0),
+         "tsb": float(d.get("tsb") or 0.0)}
+        for d in tage
+    ]
+    return _pmc_zusammenfassung(verlauf)
 
 
 def wochenstruktur(workouts: list, ab: Optional[date] = None, tage: int = 7,

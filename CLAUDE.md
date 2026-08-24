@@ -1,4 +1,4 @@
-# KI Coach App — v2.8.5
+# KI Coach App — v2.8.6
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -383,6 +383,18 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.8.6 — CTL/ATL/TSB kommen jetzt direkt von TP, nicht mehr aus eigener Nachrechnung
+Live-Rückmeldung: „TSB stimmt nicht — TP zeigt −19 (letzte Woche) und −17 (aktuelle Woche), die App −38,8." Gegenprobe direkt gegen die Produktionsdaten: unsere `letzte_einheiten`-Liste zeigte am 23.8. **zwei** Lauf-Einträge mit exakt identischer Dauer (87min) und identischem TSS (96) — „KPL" und „Ludwigsfelde", offenbar derselbe Lauf einmal manuell benannt und einmal per Geräte-Sync automatisch betitelt, in TP nicht miteinander verknüpft. Unsere Summe zählte beide (192 TSS statt 96), was `training_load.compute_pmc()` über die exponentielle ATL-Glättung zu einem deutlich zu niedrigen TSB hochrechnete.
+
+Der eigentliche Fehler war der Architekturentscheid selbst: „TSS ist TSS, egal welche Disziplin" (v2.8.4) stimmt, aber **TSS ist nicht TSS, wenn TP dieselbe Einheit zweimal zählt** — ein Duplikat in TPs eigenen Daten kann unsere Nachrechnung nicht erkennen, TP selbst (mit Zugriff auf die komplette Rohhistorie und eigener Sync-Logik) offenkundig schon, denn TPs eigene Anzeige war korrekt.
+
+- **Der TrainingPeaks-MCP-Server** (separates Repo `trainingpeaks-mcp`, eigener Railway-Service) hat bereits ein passendes Tool: **`tp_get_fitness`** — ruft TPs eigenen `/fitness/v1/.../performancedata`-Endpoint auf und liefert TPs bereits fertig gerechnetes CTL/ATL/TSB pro Tag. Live gegen Produktion geprüft: liefert für den 23.8. TSS 95,95 (nicht 191,9) und aktuell TSB −14,9 — nah an den von Hendrik genannten TP-Werten, unsere eigene Rechnung war die Abweichung.
+- **`training_load.pmc_von_tp(daily_data, bis)`** (neu) baut aus `tp_get_fitness`s Antwort denselben Kennzahlen-Vertrag (`ctl`/`atl`/`tsb`/`ramp_7d`/`ctl_vor_28d`/`tss_7d`/`tss_28d`/`tage_mit_daten`/`verlauf`), den vorher `compute_pmc()` selbst berechnet hat — **übernimmt** TPs Zahlen, statt sie nachzurechnen. Die gemeinsame Aggregation (Ramp Rate, 7d/28d-Summen, 14-Tage-Ausschnitt) ist in `_pmc_zusammenfassung()` ausgelagert, damit `compute_pmc` und `pmc_von_tp` nicht auseinanderlaufen können.
+- **`app._fetch_training_load()`** ruft jetzt `tp_get_workouts` (für Titel/Sportart-Kontext: `letzte_einheiten`/`trainingsstreak`/`wochenstruktur`) und `tp_get_fitness` (für CTL/ATL/TSB) parallel per `asyncio.gather`. Schlägt `tp_get_fitness` fehl, läuft der Check wie bisher bei jedem TP-Fehler ohne Periodisierer weiter (`None, None`) — kein stiller Rückfall auf die alte, jetzt als unzuverlässig erkannte Eigenrechnung.
+- **`compute_pmc()`/`tss_pro_tag()` bleiben im Code** (weiterhin von Tests abgedeckt) — als dokumentierte deterministische Referenzrechnung, aber **nicht mehr im Live-Pfad**. Bewusst nicht gelöscht: eine größere Aufräumentscheidung, die getrennt von diesem Bugfix ansteht, falls gewünscht.
+
+Tests (`test_offline.py`): `pmc_von_tp()` übernimmt TPs Werte unverändert (mit den echten 23.8.-Produktionszahlen als Fixture), ignoriert Tage nach dem Stichtag, stürzt ohne Daten nicht ab; `compute_pmc()` bleibt unverändert grün (Regressionsschutz für die weiterhin vorhandene Referenzrechnung); `app.py` referenziert nachweislich `tp_get_fitness`.
 
 ### v2.8.5 — Periodisierer verzählte sich, Trainingsstreak jetzt vorgerechnet
 Live-Rückmeldung: die App zeigte „Erholungstag nach 13 Tagen ohne Pause" (TSB −38,8, ATL 119,4) — tatsächlich lag die letzte Pause laut TP nur 6 Tage zurück. Gegenprobe über `/api/load`: `letzte_einheiten` zeigt genau einen Ruhetag am 17.8., danach durchgehend Training bis zum 23.8. — 6 Tage, nicht 13. `periodizer.md` instruierte das Modell zwar schon seit v2.7.14 „zähle ab, statt zu vermuten", aber genau dieses Nachzählen aus der Tages-Tabelle war die Fehlerquelle, nicht die Datenlage — dieselbe Klasse Fehler, wegen der `training_load.py` CTL/ATL/TSB von Anfang an deterministisch statt vom Modell rechnen lässt.
