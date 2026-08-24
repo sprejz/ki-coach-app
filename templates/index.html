@@ -844,6 +844,12 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
   #form-section.dashboard-mode .tab-panel[data-panel="morgen"],
   #form-section.dashboard-mode .tab-panel[data-panel="abend"],
   #form-section.dashboard-mode .tab-panel[data-panel="ernaehrung"] { display: block; }
+  /* Grid-Reihenfolge folgt dem Tagesablauf (Morgen vor Abend), nicht der
+     DOM-Reihenfolge der Panels (die aus historischen Gründen abend/morgen/
+     ernaehrung ist) — v2.8.8. */
+  #form-section.dashboard-mode .tab-panel[data-panel="morgen"] { order: 1; }
+  #form-section.dashboard-mode .tab-panel[data-panel="abend"] { order: 2; }
+  #form-section.dashboard-mode .tab-panel[data-panel="ernaehrung"] { order: 3; }
   #form-section.dashboard-mode .tab-panel[data-panel="analyse"],
   #form-section.dashboard-mode .tab-panel[data-panel="erholung"],
   #form-section.dashboard-mode .tab-panel[data-panel="chat"],

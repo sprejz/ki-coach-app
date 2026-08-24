@@ -1,4 +1,4 @@
-# KI Coach App — v2.8.7
+# KI Coach App — v2.8.8
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -383,6 +383,11 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.8.8 — Desktop-Dashboard: Morgen vor Abend
+Nutzerbeobachtung: im Desktop-3-Spalten-Dashboard (v2.8.0) stand „Abend" links von „Morgen" — falsch herum für den Tagesablauf. Ursache: das Grid ordnet ohne explizites CSS nach DOM-Reihenfolge der `.tab-panel`-Elemente, und die liegen historisch als abend/morgen/ernaehrung im Template (die mobile Tab-Leiste selbst war schon immer korrekt Morgen-vor-Abend sortiert, v2.7.22 — das Dashboard-Grid folgte dem nicht).
+
+- **`templates/index.html`** — drei `order`-Regeln auf die `dashboard-mode`-Panels (`morgen:1`, `abend:2`, `ernaehrung:3`) statt die große Markup-Reihenfolge im Body zu verschieben — kleinere, risikoärmere Änderung als die beiden Panel-Blöcke (je hunderte Zeilen) im Quelltext zu vertauschen.
 
 ### v2.8.7 — Periodisierer muss CTL/ATL immer neben TSB nennen, nicht isoliert
 Nutzerfrage nach v2.8.6: „warum nutzt du nicht CTL und ATL zur Analyse?" — berechtigt: `agents/periodizer/periodizer.py` bekam CTL/ATL im Prompt-Kontext zwar schon immer mitgeliefert, aber `periodizer.md` instruierte nur TSB-Schwellen als Entscheidungsgrundlage und im Beispielsatz („TSB −22 nach neun Tagen ohne Erholung"), nie CTL/ATL selbst zu nennen. Der Chefcoach sieht von Periodisierer ohnehin nur die fertige Text-Begründung (`heute_begruendung`/`hinweis`), keine Rohzahlen — stand dort nur TSB, tauchten CTL/ATL im gesamten Entscheidungsweg nirgends mehr auf.
