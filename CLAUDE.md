@@ -1,4 +1,4 @@
-# KI Coach App — v2.8.3
+# KI Coach App — v2.8.4
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -383,6 +383,16 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.8.4 — Ruhetag-Erkennung ignoriert Kraft/Sonstiges, konfigurierbar
+Nutzerbeobachtung: der Periodisierer erkannte einen Tag mit ausschließlich Kraft (oder Golf/Sonstiges) nicht als Ruhetag — `training_load.letzte_einheiten()`/`wochenstruktur()` markierten jeden Tag mit **irgendeiner** TP-Einheit als Trainingstag, unabhängig von der Sportart. Für die Ausdauerplanung ist ein reiner Stabi-Tag aber ein Ruhetag.
+
+- **`training_load.py`** — neuer Parameter `load_sports` bei `letzte_einheiten()`/`wochenstruktur()`, Default `DEFAULT_LOAD_SPORTS = ["Rad", "Laufen", "Schwimmen"]`. Nur Einheiten, deren `normalize_sport()`-Ergebnis in dieser Liste steht, zählen als „Trainingstag" — ein Tag mit nur Kraft/Golf/Sonstiges liefert jetzt eine leere `einheiten`-Liste und erscheint dem Periodisierer korrekt als Ruhetag. `normalize_sport` kommt aus `nutrition.py` (bereits Blattmodul, keine neue Abhängigkeit).
+- **Konfigurierbar statt hartkodiert**, analog zu `no_fuel_sports`: neues Feld `load_sports` in `athlete.json` (Default `["Rad", "Laufen", "Schwimmen"]`). `app._fetch_training_load()` reicht `athlete.get("load_sports")` an beide Funktionen durch — ohne Eintrag (oder leere Auswahl) greift der Code-Default.
+- **Profil-Tab** — vier Checkboxen (Rad/Laufen/Schwimmen/Kraft) unter den chronischen Befunden, `fillProfileForm()`/`saveProfile()` lesen/schreiben `load_sports`. Golf/Brick/Sonstiges sind bewusst nicht wählbar — `normalize_sport()` kennt nur diese vier Namen plus den Sonstiges-Fallback.
+- **CTL/ATL/TSB bleiben unverändert** — `tss_pro_tag()`/`compute_pmc()` filtern nicht nach Sportart, ein TSS-Wert ist echte physiologische Belastung unabhängig von der Disziplin. Betroffen ist nur der **Text**, den der Periodisierer über die letzten/kommenden Tage sieht (und der `/api/load`-Output für den MCP-Server) — dort steht jetzt „Ruhetag (0 TSS)" statt einer Kraft-Einheit, wenn Kraft nicht in `load_sports` steht.
+
+Tests (`test_offline.py`): ein reiner Kraft-Tag gilt per Default als Ruhetag bei `letzte_einheiten()` **und** `wochenstruktur()`, wird Kraft explizit in `load_sports` aufgenommen, zählt der Tag wieder mit seiner echten TSS-Summe.
 
 ### v2.8.3 — Chat darf jetzt auch Einheiten streichen
 Live-Test nach v2.8.2: „Die Radeinheit heute bitte streichen, ich habe ein Date" — der Coach hat das (korrekt gemäß der bis dahin festgelegten Regeln) abgelehnt und auf den Abend-/Morgen-Check verwiesen, weil Streichen/Verschieben bewusst außerhalb des ursprünglichen Scopes lag. Auf Nachfrage entschieden: Streichen soll erlaubt sein — und lässt sich technisch günstig nachrüsten, weil „Streichen" im bestehenden Check-Flow (`tp_apply`) ohnehin nur eine **Titel-Umbenennung** ist (`❌ {Titel} (KI)`, TP löscht dabei nichts), also dieselbe Tool-Klasse wie `propose_workout_update` — kein neues MCP-Recht nötig.

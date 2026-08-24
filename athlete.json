@@ -12,6 +12,7 @@
   "threshold_hr_bike": 145,
   "threshold_hr_run": 150,
   "swim_outdoor_min_celsius": 15,
+  "load_sports": ["Rad", "Laufen", "Schwimmen"],
   "races": [
     {
       "name": "Altmark-Triathlon",

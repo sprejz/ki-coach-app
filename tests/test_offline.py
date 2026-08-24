@@ -126,6 +126,22 @@ pruefe(len(woche) == 7, "Wochenstruktur umfasst 7 Tage")
 pruefe(woche[0]["ist_heute"] and not woche[1]["ist_heute"], "Nur der erste Tag ist 'heute'")
 pruefe(woche[0]["tss_summe"] == 75, "TSS-Summe pro Tag stimmt")
 pruefe(woche[3]["einheiten"] == [], "Tage ohne Einheiten bleiben leer")
+
+# Ein reiner Kraft-/Golftag ist für die Ausdauerplanung ein Ruhetag — nicht
+# jede Sportart aus TP zählt als Trainingstag (v2.8.4).
+kraft_roh = roh + [{"date": "2026-07-25", "sport": "Strength", "title": "Stabi", "tss": 30}]
+le_kraft = letzte_einheiten(kraft_roh, bis=date(2026, 7, 25), tage=2)
+pruefe(le_kraft[1]["einheiten"] == [] and le_kraft[1]["tss_summe"] == 0,
+       "Ein reiner Kraft-Tag gilt per Default als Ruhetag (Kraft zählt nicht als Load-Sport)")
+le_kraft_konfiguriert = letzte_einheiten(kraft_roh, bis=date(2026, 7, 25), tage=2,
+                                        load_sports=["Rad", "Laufen", "Schwimmen", "Kraft"])
+pruefe(le_kraft_konfiguriert[1]["tss_summe"] == 30,
+       "Wird Kraft explizit als Load-Sport konfiguriert, zählt der Tag wieder")
+
+woche_kraft = wochenstruktur(
+    [{"_day": HEUTE.isoformat(), "sport": "Strength", "title": "Stabi", "tss": 30}], ab=HEUTE)
+pruefe(woche_kraft[0]["einheiten"] == [] and woche_kraft[0]["tss_summe"] == 0,
+       "Wochenstruktur: ein Kraft-Tag zählt per Default ebenfalls als Ruhetag")
 pruefe(tage_bis("2026-09-06", ab=HEUTE) == 43, "Tage bis Malbork: 43")
 pruefe(tage_bis("", ab=HEUTE) is None and tage_bis("kaputt", ab=HEUTE) is None,
        "Ungültiges Datum → None statt Absturz")

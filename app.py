@@ -62,7 +62,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "2.8.3"
+APP_VERSION = "2.8.4"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -2116,8 +2116,9 @@ async def _fetch_training_load(athlete: dict):
 
     items = roh if isinstance(roh, list) else roh.get("workouts", roh.get("items", []))
     items = items or []
+    load_sports = athlete.get("load_sports") or None
     load = compute_pmc(tss_pro_tag(items), bis=heute)
-    load["letzte_einheiten"] = letzte_einheiten(items, bis=heute)
+    load["letzte_einheiten"] = letzte_einheiten(items, bis=heute, load_sports=load_sports)
     load["letztes_rennen"] = await _letztes_rennen(heute)
 
     # Wochenplan bevorzugt aus dem bestehenden 7-Tage-Cache, kein zusätzlicher
@@ -2139,7 +2140,7 @@ async def _fetch_training_load(athlete: dict):
                         len(geplant))
         except Exception as e:
             logger.warning("training_load: Wochenplan nicht abrufbar: %s", e)
-    woche = wochenstruktur(geplant, ab=heute)
+    woche = wochenstruktur(geplant, ab=heute, load_sports=load_sports)
 
     _LOAD_CACHE.update({"ts": _time.time(), "data": load, "woche": woche})
     logger.info("training_load: CTL=%.1f ATL=%.1f TSB=%.1f ramp=%.1f (%d Tage mit Daten, "

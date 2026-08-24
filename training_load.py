@@ -15,10 +15,22 @@ import logging
 from datetime import date, timedelta
 from typing import Optional
 
+from nutrition import normalize_sport
+
 logger = logging.getLogger(__name__)
 
 CTL_TAGE = 42   # Fitness, langfristig
 ATL_TAGE = 7    # Ermüdung, kurzfristig
+
+# Welche Sportarten für den Periodisierer als "Trainingstag" zählen. Ein
+# Tag mit ausschließlich Kraft (oder Golf/Sonstiges) sah bisher wie ein
+# Trainingstag aus statt wie der Ruhetag, der er für die Ausdauerplanung
+# tatsächlich ist — konfigurierbar über athlete.json → `load_sports`.
+DEFAULT_LOAD_SPORTS = ["Rad", "Laufen", "Schwimmen"]
+
+
+def _zaehlt_als_load(w: dict, load_sports: list) -> bool:
+    return normalize_sport(w.get("sport", "")) in load_sports
 
 # Länge des PMC-Fensters. CTL startet bei 0 und läuft sich erst ein, deshalb
 # muss der Aufrufer **genauso viele Tage Historie mitliefern** wie hier
@@ -74,18 +86,26 @@ def tss_pro_tag(workouts: list) -> dict:
     return pro_tag
 
 
-def letzte_einheiten(workouts: list, bis: Optional[date] = None, tage: int = 10) -> list:
+def letzte_einheiten(workouts: list, bis: Optional[date] = None, tage: int = 10,
+                     load_sports: Optional[list] = None) -> list:
     """Was in den letzten Tagen tatsächlich absolviert wurde — mit Titeln.
 
     Der Periodisierer sah bisher nur TSS-Zahlen pro Tag. Ein Wettkampf, ein
     Testlauf und ein zäher Grundlagentag mit gleichem TSS sind darin nicht zu
     unterscheiden — genau daran ist die Einordnung „neun Tage Belastungsblock"
     nach einem Rennen gescheitert (v2.7.13).
+
+    Nur Sportarten aus `load_sports` (Default `DEFAULT_LOAD_SPORTS`) zählen als
+    Einheit — ein Tag mit ausschließlich Kraft o.ä. gilt sonst fälschlich nicht
+    als Ruhetag (v2.8.4).
     """
+    load_sports = load_sports or DEFAULT_LOAD_SPORTS
     bis = bis or date.today()
     ab = bis - timedelta(days=tage - 1)
     nach_tag: dict = {}
     for w in workouts or []:
+        if not _zaehlt_als_load(w, load_sports):
+            continue
         tag = _tag(w)
         if tag and ab.isoformat() <= tag <= bis.isoformat():
             nach_tag.setdefault(tag, []).append(w)
@@ -149,11 +169,20 @@ def compute_pmc(tss_pro_tag_: dict, bis: Optional[date] = None, tage: int = PMC_
     }
 
 
-def wochenstruktur(workouts: list, ab: Optional[date] = None, tage: int = 7) -> list:
-    """Fasst die geplanten Einheiten der kommenden Tage zusammen."""
+def wochenstruktur(workouts: list, ab: Optional[date] = None, tage: int = 7,
+                   load_sports: Optional[list] = None) -> list:
+    """Fasst die geplanten Einheiten der kommenden Tage zusammen.
+
+    Wie bei `letzte_einheiten`: nur `load_sports` zählen als Einheit, damit ein
+    reiner Kraft-/Golftag im Periodisierer-Kontext als „nichts geplant" (=
+    Ruhetag) erscheint statt als Trainingstag.
+    """
+    load_sports = load_sports or DEFAULT_LOAD_SPORTS
     ab = ab or date.today()
     nach_tag: dict = {}
     for w in workouts or []:
+        if not _zaehlt_als_load(w, load_sports):
+            continue
         tag = _tag(w)
         if tag:
             nach_tag.setdefault(tag, []).append(w)
