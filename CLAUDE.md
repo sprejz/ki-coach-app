@@ -1,4 +1,4 @@
-# KI Coach App — v2.8.4
+# KI Coach App — v2.8.5
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -383,6 +383,15 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.8.5 — Periodisierer verzählte sich, Trainingsstreak jetzt vorgerechnet
+Live-Rückmeldung: die App zeigte „Erholungstag nach 13 Tagen ohne Pause" (TSB −38,8, ATL 119,4) — tatsächlich lag die letzte Pause laut TP nur 6 Tage zurück. Gegenprobe über `/api/load`: `letzte_einheiten` zeigt genau einen Ruhetag am 17.8., danach durchgehend Training bis zum 23.8. — 6 Tage, nicht 13. `periodizer.md` instruierte das Modell zwar schon seit v2.7.14 „zähle ab, statt zu vermuten", aber genau dieses Nachzählen aus der Tages-Tabelle war die Fehlerquelle, nicht die Datenlage — dieselbe Klasse Fehler, wegen der `training_load.py` CTL/ATL/TSB von Anfang an deterministisch statt vom Modell rechnen lässt.
+
+- **`training_load.trainingsstreak()`** (neu) — zählt aufeinanderfolgende Tage mit `load_sports`-TSS (siehe v2.8.4) rückwärts ab **gestern** (heute zählt nicht mit, dessen Rolle wird gerade erst bestimmt), bis der erste Tag ohne TSS auftaucht oder `PMC_TAGE` erreicht ist. Bewusst dieselbe `load_sports`-Filterung wie `letzte_einheiten`/`wochenstruktur` — ein reiner Kraft-Tag unterbricht den Streak nicht, weil er für die Ausdauerplanung ohnehin ein Ruhetag ist.
+- **`app._fetch_training_load()`** reicht `load["trainingsstreak"]` durch, **`agents/periodizer/periodizer.py`** hängt die fertig gezählte Zahl **als erste Kennzahl, fett hervorgehoben** an den Prompt: „diese Zahl exakt übernehmen, nicht selbst nachzählen".
+- **`periodizer.md`** — die alte Anweisung „Zähle Ruhetage ab, statt sie zu vermuten" war Teil des Problems, nicht die Lösung: sie forderte eigenes Nachzählen, statt die jetzt mitgelieferte Zahl zu nennen. Ersetzt durch die Anweisung, ausschließlich die mitgelieferte Zahl zu verwenden. Die `warnung`-Schwelle „kein Erholungstag in den letzten 10 Tagen" ist entsprechend auf „Trainingsstreak ≥ 10" umformuliert.
+
+Tests (`test_offline.py`): `trainingsstreak()` zählt anhand der echten Produktionszahlen (17.8. Pause, 18.–23.8. durchgehend) korrekt 6, nicht 13; ohne Daten kein Absturz; der Periodisierer-Prompt referenziert `trainingsstreak` nachweislich.
 
 ### v2.8.4 — Ruhetag-Erkennung ignoriert Kraft/Sonstiges, konfigurierbar
 Nutzerbeobachtung: der Periodisierer erkannte einen Tag mit ausschließlich Kraft (oder Golf/Sonstiges) nicht als Ruhetag — `training_load.letzte_einheiten()`/`wochenstruktur()` markierten jeden Tag mit **irgendeiner** TP-Einheit als Trainingstag, unabhängig von der Sportart. Für die Ausdauerplanung ist ein reiner Stabi-Tag aber ein Ruhetag.

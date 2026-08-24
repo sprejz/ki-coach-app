@@ -65,6 +65,10 @@ def build_input(*, load: dict, woche: list, a_race: Optional[dict],
     lines.append(f"- TSS letzte 7 Tage: {load.get('tss_7d', '?')}")
     lines.append(f"- TSS letzte 28 Tage: {load.get('tss_28d', '?')}")
     lines.append(f"- Tage mit Trainingsdaten im Zeitraum: {load.get('tage_mit_daten', 0)}")
+    lines.append(
+        f"- **Trainingstage in Folge ohne Pause (bis gestern, fertig gezählt): "
+        f"{load.get('trainingsstreak', '?')}** — diese Zahl exakt übernehmen, nicht selbst nachzählen."
+    )
 
     verlauf = load.get("verlauf") or []
     if verlauf:

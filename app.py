@@ -24,7 +24,7 @@ from nutrition import (
     nutrition_for_duration,
 )
 from training_load import (
-    PMC_TAGE, compute_pmc, letzte_einheiten, tage_bis, tss_pro_tag, wochenstruktur,
+    PMC_TAGE, compute_pmc, letzte_einheiten, tage_bis, trainingsstreak, tss_pro_tag, wochenstruktur,
 )
 from translations import TRANSLATIONS
 import strava
@@ -62,7 +62,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "2.8.4"
+APP_VERSION = "2.8.5"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -2119,6 +2119,7 @@ async def _fetch_training_load(athlete: dict):
     load_sports = athlete.get("load_sports") or None
     load = compute_pmc(tss_pro_tag(items), bis=heute)
     load["letzte_einheiten"] = letzte_einheiten(items, bis=heute, load_sports=load_sports)
+    load["trainingsstreak"] = trainingsstreak(items, bis=heute, load_sports=load_sports)
     load["letztes_rennen"] = await _letztes_rennen(heute)
 
     # Wochenplan bevorzugt aus dem bestehenden 7-Tage-Cache, kein zusätzlicher

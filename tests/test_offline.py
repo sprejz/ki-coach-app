@@ -22,7 +22,7 @@ import orchestrator  # noqa: E402
 from orchestrator import _baue_einheit, normalize_sport  # noqa: E402
 from tests import fixtures as fx  # noqa: E402
 from training_load import (  # noqa: E402
-    PMC_TAGE, compute_pmc, letzte_einheiten, tage_bis, tss_pro_tag, wochenstruktur,
+    PMC_TAGE, compute_pmc, letzte_einheiten, tage_bis, trainingsstreak, tss_pro_tag, wochenstruktur,
 )
 from translations import TRANSLATIONS  # noqa: E402
 import strava  # noqa: E402
@@ -142,6 +142,27 @@ woche_kraft = wochenstruktur(
     [{"_day": HEUTE.isoformat(), "sport": "Strength", "title": "Stabi", "tss": 30}], ab=HEUTE)
 pruefe(woche_kraft[0]["einheiten"] == [] and woche_kraft[0]["tss_summe"] == 0,
        "Wochenstruktur: ein Kraft-Tag zählt per Default ebenfalls als Ruhetag")
+
+# Live wurde "13 Tage ohne Pause" behauptet, obwohl die letzte Pause 6 Tage
+# zurücklag — der Periodisierer hatte aus der Tabelle selbst nachgezählt und
+# sich verzählt. Jetzt deterministisch vorgerechnet statt geschätzt (v2.8.5).
+streak_roh = [
+    {"date": "2026-08-15", "sport": "Bike", "tss": 133},
+    {"date": "2026-08-16", "sport": "Run", "tss": 160},
+    {"date": "2026-08-17", "sport": "Run", "tss": 0},   # Pause, kein TSS
+    {"date": "2026-08-18", "sport": "Swim", "tss": 64},
+    {"date": "2026-08-19", "sport": "Run", "tss": 34},
+    {"date": "2026-08-20", "sport": "Swim", "tss": 100},
+    {"date": "2026-08-21", "sport": "Swim", "tss": 103},
+    {"date": "2026-08-22", "sport": "Bike", "tss": 149},
+    {"date": "2026-08-23", "sport": "Run", "tss": 96},
+    {"date": "2026-08-24", "sport": "Run", "tss": 0},   # heute, noch nichts absolviert
+]
+streak = trainingsstreak(streak_roh, bis=date(2026, 8, 24))
+pruefe(streak == 6, f"Trainingsstreak zählt korrekt 6 Tage (18.–23.8.), nicht {streak}")
+pruefe(trainingsstreak([], bis=date(2026, 8, 24)) == 0, "Ohne Daten kein Streak, kein Absturz")
+pruefe("trainingsstreak" in Path(periodizer.__file__).read_text(encoding="utf-8"),
+       "Der Periodisierer-Prompt bekommt den fertig gezählten Streak, statt selbst zu zählen")
 pruefe(tage_bis("2026-09-06", ab=HEUTE) == 43, "Tage bis Malbork: 43")
 pruefe(tage_bis("", ab=HEUTE) is None and tage_bis("kaputt", ab=HEUTE) is None,
        "Ungültiges Datum → None statt Absturz")

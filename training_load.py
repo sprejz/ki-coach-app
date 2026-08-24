@@ -127,6 +127,32 @@ def letzte_einheiten(workouts: list, bis: Optional[date] = None, tage: int = 10,
     return ergebnis
 
 
+def trainingsstreak(workouts: list, bis: Optional[date] = None,
+                    load_sports: Optional[list] = None, max_tage: int = PMC_TAGE) -> int:
+    """Aufeinanderfolgende Trainingstage direkt vor `bis`, ohne Pause.
+
+    Deterministisch statt vom Periodisierer geschätzt: die Prompt-Anweisung
+    „zähle ab, statt zu vermuten" reichte nicht — live wurde „13 Tage ohne
+    Pause" behauptet, obwohl die letzte Pause 6 Tage zurücklag (v2.8.5). Zählt
+    rückwärts ab dem Tag vor `bis` (heute selbst zählt nicht — dessen Rolle
+    wird ja gerade erst bestimmt), bis der erste Tag ohne `load_sports`-TSS
+    auftaucht oder `max_tage` erreicht ist.
+    """
+    load_sports = load_sports or DEFAULT_LOAD_SPORTS
+    bis = bis or date.today()
+    tage_mit_tss = {
+        _tag(w) for w in (workouts or [])
+        if _zaehlt_als_load(w, load_sports) and _tss(w) > 0
+    }
+    streak = 0
+    tag = bis - timedelta(days=1)
+    grenze = bis - timedelta(days=max_tage)
+    while tag >= grenze and tag.isoformat() in tage_mit_tss:
+        streak += 1
+        tag -= timedelta(days=1)
+    return streak
+
+
 def compute_pmc(tss_pro_tag_: dict, bis: Optional[date] = None, tage: int = PMC_TAGE) -> dict:
     """Rechnet CTL, ATL und TSB bis zum Stichtag hoch.
 
