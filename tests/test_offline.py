@@ -475,8 +475,10 @@ pruefe("Letztes Rennen: GEWOBA Bremen" in per_nach_rennen and "vor 2 Tagen" in p
 pruefe("Tatsächlich absolviert" not in per_in,
        "Ohne Daten bleibt der Abschnitt weg statt leer dazustehen")
 per_prompt = (Path(__file__).parent.parent / "agents/periodizer/periodizer.md").read_text(encoding="utf-8")
-pruefe("Tatsächlich absolviert" in per_prompt and "Ruhetage ab" in per_prompt,
-       "Der Prompt weist an, Ruhetage abzuzählen statt zu schätzen")
+pruefe("Tatsächlich absolviert" in per_prompt and "fertig gezählt" in per_prompt,
+       "Der Prompt weist an, die mitgelieferte Trainingsstreak-Zahl zu übernehmen statt selbst zu zählen")
+pruefe("CTL und ATL immer zusammen mit TSB" in per_prompt,
+       "Der Prompt verlangt CTL/ATL neben TSB, nicht TSB isoliert (v2.8.7)")
 
 hc_mit_block = head_coach.build_input(
     athlete={"name": "H"}, a_race=fx.A_RACE_MALBORK,

@@ -1,4 +1,4 @@
-# KI Coach App — v2.8.6
+# KI Coach App — v2.8.7
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -383,6 +383,16 @@ Analyse-Tab mit Coach-Urteil pro Einheit, Job-Queue gegen 60s-Timeouts, FIT-Uplo
 
 ### v2.6.61–v2.6.95 — Feinschliff
 Hitze-Schwelle auf 28°C, Hallenbad/Indoor von Hitze ausgenommen. Athlete-Override-Button. Rennen aus TP-Events statt `athlete.json` (89-Tage-Limit, Fallback). Race-Strip iPhone-tauglich. PIN-Schutz eingeführt und wieder verworfen. FIT-Analyse auf Sonnet, `fitparse` → `fitdecode`. Analyse unterscheidet Ist- von Plan-Daten und liest RPE. Emoji-Präfixe werden im Frontend gestrippt.
+
+### v2.8.7 — Periodisierer muss CTL/ATL immer neben TSB nennen, nicht isoliert
+Nutzerfrage nach v2.8.6: „warum nutzt du nicht CTL und ATL zur Analyse?" — berechtigt: `agents/periodizer/periodizer.py` bekam CTL/ATL im Prompt-Kontext zwar schon immer mitgeliefert, aber `periodizer.md` instruierte nur TSB-Schwellen als Entscheidungsgrundlage und im Beispielsatz („TSB −22 nach neun Tagen ohne Erholung"), nie CTL/ATL selbst zu nennen. Der Chefcoach sieht von Periodisierer ohnehin nur die fertige Text-Begründung (`heute_begruendung`/`hinweis`), keine Rohzahlen — stand dort nur TSB, tauchten CTL/ATL im gesamten Entscheidungsweg nirgends mehr auf.
+
+Fachlich relevant: TSB als reine Differenz sagt ohne CTL-Niveau wenig — TSB −15 bei CTL 50/ATL 65 (schwach ausgebildeter Athlet) ist ein anderes Signal als TSB −15 bei CTL 108/ATL 123 (sehr hohes Grundniveau, tolerantfähig für tiefere Werte in einem Aufbaublock).
+
+- **`agents/periodizer/periodizer.md`** — neue Regel: CTL und ATL immer zusammen mit TSB nennen, nie isoliert; die TSB-Schwellentabelle ist relativ zum CTL-Niveau zu lesen, nicht absolut. `zuruecknehmen`-Begründung und der Beispielsatz am Ende verlangen jetzt explizit alle drei Zahlen.
+- Reine Prompt-Änderung, kein Code — die Kennzahlen waren immer schon im Input, nur die Formulierungspflicht fehlte.
+
+Nebenbefund beim Testen: der Test für die alte Formulierung „Zähle Ruhetage ab" (`"Ruhetage ab" in per_prompt`) war seit v2.8.5 kaputt, ohne dass es aufgefallen ist — die Zeile wurde dort durch die Trainingsstreak-Anweisung ersetzt, der Test aber nicht mitgezogen (die Sandbox, in der getestet wurde, konnte `tests.test_offline` wegen eines `httpx`-Importhängers nicht komplett durchlaufen lassen). Jetzt auf die aktuelle Formulierung („fertig gezählt") korrigiert und die neue CTL/ATL-Regel mitgeprüft.
 
 ### v2.8.6 — CTL/ATL/TSB kommen jetzt direkt von TP, nicht mehr aus eigener Nachrechnung
 Live-Rückmeldung: „TSB stimmt nicht — TP zeigt −19 (letzte Woche) und −17 (aktuelle Woche), die App −38,8." Gegenprobe direkt gegen die Produktionsdaten: unsere `letzte_einheiten`-Liste zeigte am 23.8. **zwei** Lauf-Einträge mit exakt identischer Dauer (87min) und identischem TSS (96) — „KPL" und „Ludwigsfelde", offenbar derselbe Lauf einmal manuell benannt und einmal per Geräte-Sync automatisch betitelt, in TP nicht miteinander verknüpft. Unsere Summe zählte beide (192 TSS statt 96), was `training_load.compute_pmc()` über die exponentielle ATL-Glättung zu einem deutlich zu niedrigen TSB hochrechnete.
