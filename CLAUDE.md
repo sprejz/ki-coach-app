@@ -1,4 +1,4 @@
-# KI Coach App — v2.8.8
+# KI Coach App — v2.8.9
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -356,6 +356,13 @@ Z1 >6:30/km · Z2 6:00–6:30 · Z3 5:45–6:00 · Z4 5:10–5:30
 ---
 
 ## Changelog (verdichtet)
+
+### v2.8.9 — Ladeanzeige der Checks wieder zentriert mit gedimmtem Hintergrund
+Nutzerbeobachtung: während Abend-/Morgen-Check laufen, erscheint der Lade-Hinweis nur als kleine Zeile unten im Formular (direkt unter dem Submit-Button), ohne den Rest der Seite abzudunkeln — wirkt unauffällig und leicht zu übersehen. Ursache: `.check-status` war seit v2.8.0 bewusst kein globales Overlay mehr, sondern eine inline `display:flex`-Zeile im Formular, damit zwei gleichzeitig laufende Checks (Desktop-Dashboard) sich nicht denselben Spinnertext/dieselbe Position streitig machen.
+
+- **`templates/index.html`** — `.check-status` bleibt weiterhin **pro Check ein eigenes Element** (`check-status-abend`/`-morgen`, keine Rückkehr zum einen globalen `#loading-overlay`), ist jetzt aber wie dieses als `position:fixed; inset:0` mit gedimmtem, geblurrtem Hintergrund (`rgba(15,15,19,.85)`, `backdrop-filter: blur(4px)`) und zentriertem Spinner+Text gestaltet, statt als inline Zeile im Formularfluss. Löst beides: die Anzeige sitzt wieder in der Bildschirmmitte, und die Seite tritt währenddessen optisch in den Hintergrund. Die Unabhängigkeit der beiden Checks (Kern des v2.8.0-Fixes) bleibt erhalten — bei einem seltenen gleichzeitigen Lauf beider Checks überlappen sich zwei Overlays, statt dass sich Text/Zustand vermischt.
+- Der Fehlerbanner (`.check-error`, dauerhaft sichtbar bis Antippen, v2.7.17) ist unverändert inline im Formular — nur die Lade-Anzeige war betroffen.
+- Kein JS geändert: `setCheckLoading`/`setCheckLoadingText` togglen weiterhin nur `display:flex`/`none` auf demselben Element.
 
 ### v1.0 — Schritt 1
 Abend-/Morgen-Check mit Claude-Auswertung, AutoSleep-CSV, Tageswetter, Dark Card.
