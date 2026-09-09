@@ -242,6 +242,66 @@ def call_agent_with_tools(
     return {"text": text, "tool_call": tool_call}
 
 
+def call_agent_with_search(
+    *,
+    prompt: str,
+    user: str,
+    schema: dict,
+    model: str = SONNET,
+    max_tokens: int = 3000,
+    max_uses: int = 5,
+    label: str = "agent",
+) -> dict:
+    """Wie call_agent, aber mit Claudes serverseitigem web_search-Tool (v2.9.0).
+
+    Die Suche läuft komplett serverseitig — Claude sucht, liest Treffer und
+    schreibt danach das schema-konforme JSON, alles in einem Request. Anders
+    als bei call_agent_with_tools gibt es hier keinen Client-Tool-Call zum
+    Auflösen: das Tool-Ergebnis kommt als server_tool_use/web_search_tool_result
+    -Content-Block VOR dem eigentlichen Text zurück. Deshalb zählt hier — anders
+    als bei call_agent — der LETZTE Text-Block, nicht der erste.
+    """
+    client = _client()
+    try:
+        resp = client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            system=prompt,
+            messages=[{"role": "user", "content": user}],
+            tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": max_uses}],
+            output_config={"format": {"type": "json_schema", "schema": schema}},
+        )
+    except anthropic.APIStatusError as e:
+        logger.error("%s: API %s — %s", label, e.status_code, e.message)
+        raise AgentError(f"{label}: API-Fehler {e.status_code}: {e.message}") from e
+    except anthropic.APIConnectionError as e:
+        logger.error("%s: Verbindungsfehler — %s", label, e)
+        raise AgentError(f"{label}: API nicht erreichbar") from e
+
+    if resp.stop_reason == "refusal":
+        logger.error("%s: Anfrage abgelehnt", label)
+        raise AgentError(f"{label}: Anfrage wurde abgelehnt")
+    if resp.stop_reason == "max_tokens":
+        logger.error("%s: max_tokens (%d) erreicht, JSON unvollständig", label, max_tokens)
+        raise AgentError(f"{label}: Antwort zu lang (max_tokens={max_tokens})")
+
+    text_blocks = [b.text for b in resp.content if b.type == "text"]
+    text = text_blocks[-1] if text_blocks else ""
+    if not text:
+        raise AgentError(f"{label}: leere Antwort")
+
+    n_suchen = sum(1 for b in resp.content if b.type == "server_tool_use" and b.name == "web_search")
+    USAGE.append({
+        "label": label, "model": model,
+        "in": resp.usage.input_tokens, "out": resp.usage.output_tokens,
+    })
+    logger.info(
+        "%s ok: model=%s in=%d out=%d suchen=%d",
+        label, model, resp.usage.input_tokens, resp.usage.output_tokens, n_suchen,
+    )
+    return json.loads(text)
+
+
 # Architekt-Schema + Eingabebau leben hier statt in agents/architect, weil sie
 # ab v2.7.12 von vier Modulen genutzt werden (generischer Fallback für
 # Kraft/Sonstiges + je ein Disziplin-Agent für Lauf/Rad/Schwimm) — ohne diese

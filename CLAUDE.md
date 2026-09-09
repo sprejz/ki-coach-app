@@ -1,4 +1,4 @@
-# KI Coach App — v2.8.9
+# KI Coach App — v2.9.0
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -49,7 +49,8 @@ ki-coach-app/
 ├── nutrition.py         ← Ernährungstabelle (deterministisch, von beiden Pfaden genutzt)
 ├── training_load.py     ← CTL/ATL/TSB aus der TSS-Historie (deterministisch)
 ├── strava.py            ← Strava-Auto-Match für die Analyse (OAuth direkt per httpx, kein MCP)
-├── agents/              ← base, medic, allgemeinmedic, weather, periodizer, head_coach, architect, architect_run, architect_bike, architect_swim, fueling, analyst_run, analyst_bike, analyst_swim, chat (je eigener Ordner, seit v2.7.12; Prompt-.md direkt daneben statt zentral, seit v2.7.13; Analyst-Disziplin-Split seit v2.7.28, generischer Analyst-Fallback entfernt seit v2.7.29 — anders als beim Architekten braucht die Analyse keinen)
+├── knowledge.py         ← Wissensdatenbank für Recherche-Funde (deterministisch, kein File-I/O, seit v2.9.0)
+├── agents/              ← base, medic, allgemeinmedic, weather, periodizer, head_coach, architect, architect_run, architect_bike, architect_swim, fueling, analyst_run, analyst_bike, analyst_swim, chat, research (je eigener Ordner, seit v2.7.12; Prompt-.md direkt daneben statt zentral, seit v2.7.13; Analyst-Disziplin-Split seit v2.7.28, generischer Analyst-Fallback entfernt seit v2.7.29 — anders als beim Architekten braucht die Analyse keinen; research seit v2.9.0, einziger Agent mit serverseitigem web_search-Tool)
 ├── tests/               ← fixtures.py, test_offline.py, test_wiring.py, test_live.py
 ├── translations.py      ← UI-Texte + Monolith-Prompts (de/en)
 ├── templates/
@@ -57,6 +58,7 @@ ki-coach-app/
 ├── athlete.json         ← Athletenprofil (über Profil-Tab editierbar)
 ├── baseline.json        ← Schlaf-Baseline (über Profil-Tab berechenbar)
 ├── sleep_history.json   ← letzte 14 AutoSleep-Nächte (serverseitig)
+├── knowledge.json       ← Recherche-Funde: Vorschlag/akzeptiert/abgelehnt (serverseitig, seit v2.9.0)
 ├── Dockerfile
 ├── railway.toml
 └── requirements.txt     ← fastapi, uvicorn, httpx, anthropic>=0.40, jinja2, fitdecode
@@ -296,6 +298,8 @@ JSON wird über `_extract_json()` robust geparst (Markdown-Fences, `raw_decode` 
 | `POST /api/coach/chat` | Coach-Chat |
 | `POST /api/workout/analyze` · `GET /api/workout/analyze/{job_id}` | Analyse + Polling |
 | `GET /api/nutrition` | Ernährung heute + morgen pro Einheit (deterministisch, kein Claude-Call) |
+| `POST /api/research/run` · `GET /api/research/{job_id}` | Recherche-Agent starten + Polling (v2.9.0) |
+| `GET /api/knowledge` · `POST /api/knowledge/{id}/accept\|reject` | Recherche-Funde lesen/entscheiden (v2.9.0) |
 | `POST /api/admin/backfill-weather?days=30` | Wetter-Backfill |
 | `POST /api/debug/fit-parse` · `POST /api/debug/coach-beschreibung` | Debug |
 
@@ -356,6 +360,21 @@ Z1 >6:30/km · Z2 6:00–6:30 · Z3 5:45–6:00 · Z4 5:10–5:30
 ---
 
 ## Changelog (verdichtet)
+
+### v2.9.0 — Recherche-Agent: Chefcoach bekommt Kontext aus frei verfügbarer Literatur
+Nutzerfrage: kann der Chefcoach „automatisch lernen" und frei verfügbare Literatur lesen/auswerten? Klarstellung vorab: echtes Lernen (Gewichte-Update) gibt es über die Claude-API nicht — jeder Call ist zustandslos. Was jetzt geht: ein neuer Agent recherchiert auf Zuruf ein von Hendrik vorgegebenes Thema per Claudes serverseitigem `web_search`-Tool. Erster Entwurf sah „Vorschlag, erst nach Klick wirksam" für jeden Fund vor (analog zum Chat-Vorschlags-Flow, v2.8.1) — Hendrik wollte explizit **ohne seine Zustimmung** lernen. Kompromiss statt Wegfall jeder Absicherung: **Funde mit Konfidenz `hoch` werden automatisch akzeptiert und wirken sofort im nächsten Check, `mittel`/`niedrig` bleiben Vorschlag zur Prüfung im Profil-Tab** — eine deterministische Code-Regel statt Zustimmung pro Fund, im selben Stil wie der harte Pause-Stop beim Allgemeinmediziner (v2.7.7): keine Prompt-Disziplin, sondern eine Schwelle im Code, die eine schwach belegte Einzelstudie nicht ungefiltert an den Chefcoach durchlässt.
+
+- **`agents/base.py`** — neuer Helper `call_agent_with_search()` neben `call_agent`/`call_agent_text`/`call_agent_with_tools`: ruft Claude mit dem serverseitigen `web_search_20260209`-Tool **und** erzwungenem `output_config`-Schema in einem Request. Anders als bei `call_agent` zählt hier der **letzte** Text-Block, nicht der erste — vor dem finalen JSON stehen noch die `server_tool_use`/`web_search_tool_result`-Blöcke der Suche.
+- **`agents/research/`** (neu) — eigener Agent (Dr. Mara Lindqvist, Sportwissenschaftliche Recherche) auf Sonnet, analog zur FIT-Analyse die einzige andere Stelle im Projekt, die „echtes Reasoning" statt Haiku braucht. Bekommt ein Freitext-Thema, liefert `zusammenfassung` + eine Liste `erkenntnisse` (Titel, Aussage, Quelle, Konfidenz hoch/mittel/niedrig, `betrifft`-Stichwort). Der Prompt verlangt ehrliche Konfidenz-Einschätzung und verbietet erfundene Quellen — eine leere Fundliste mit ehrlicher Zusammenfassung ist ausdrücklich ein besseres Ergebnis als erfundener Inhalt.
+- **`knowledge.py`** (neu, Blattmodul ohne File-I/O) — `new_entry()`/`accept()`/`reject()`/`accepted_context()`/`add_findings()`. Jeder Fund startet bei `status: "vorschlag"`; `add_findings()` — die einzige Stelle, die einen kompletten Recherche-Lauf entgegennimmt — akzeptiert Funde mit `konfidenz == AUTO_ACCEPT_KONFIDENZ` ("hoch") sofort automatisch, alles andere bleibt Vorschlag. `entschieden_von` (`"system"`|`"hendrik"`) hält fest, welcher Weg es war, sichtbar im Profil-Tab als Zusatzhinweis. `accepted_context()` rendert nur `status: "akzeptiert"`-Einträge als Markdown-Block, leer wenn nichts akzeptiert ist — unabhängig davon, ob automatisch oder manuell.
+- **`knowledge.json`** (neu, `DATA_DIR`-persistiert wie `athlete.json`/`baseline.json`, in `_STATE_FILES` aufgenommen) — dauerhafter Speicher für Recherche-Funde inkl. Entscheidungsstatus.
+- **`app.py`** — Job-Queue fürs Recherchieren (`_research_jobs`/`_research_job_start()`/`_run_research_job()`), exakt das `_check_jobs`-Muster (Sonnet + Websuche brauchen zu lange für einen offenen Request), aber ein eigener Store. Neue Endpoints: `POST /api/research/run` (Thema → `job_id`), `GET /api/research/{job_id}` (Polling), `GET /api/knowledge` (Liste), `POST /api/knowledge/{id}/accept|reject`. Vor jedem Check lädt `_try_agent_check()` die akzeptierten Funde (`knowledge.accepted_context()`, reines File-Lesen, kein Modell-Call) und reicht sie als `wissen` durch.
+- **`orchestrator.py`/`agents/head_coach/head_coach.py`** — `run_check()`/`head_coach.run()`/`build_input()` bekommen einen neuen optionalen Parameter `wissen`. Ist er gesetzt, hängt `build_input()` eine Sektion „Erkenntnisse aus der Literatur (von Hendrik geprüft, ergänzend)" an — analog zur bestehenden `block`-Sektion (Periodisierer). Kein Schema-Change: `wissen` ist reiner Input-Kontext, kein neues Output-Feld.
+- **`agents/research/research.md`** macht dem Modell die Tragweite von `konfidenz: "hoch"` explizit: anders als bei `mittel`/`niedrig` liest das **niemand mehr gegen**, bevor es wirkt — die Vergaberegel („mehrere unabhängige Studien oder eine Metaanalyse, keine bekannte widersprechende Evidenz") ist entsprechend strenger formuliert als vorher, mit der Anweisung „im Zweifel `mittel`, nicht `hoch`".
+- **Bewusste Scope-Entscheidungen fürs MVP:** (1) kein Cron — „automatisch" heißt hier auf Klick ausgelöst, nicht periodisch (siehe „Offene Punkte"), die Auto-Accept-Regel gilt aber ab dem ersten Lauf ohne weiteres Zutun; (2) das Thema kommt von Hendrik, der Agent sucht sich nicht selbst aus, was er recherchiert; (3) nur der Chefcoach bekommt akzeptierte Funde zu sehen, Periodisierer/Fueling/Mediziner separat anzureichern wäre dieselbe Mechanik, aber nicht in diesem Schritt gebaut; (4) kein neuer Auth-Layer — der neue Endpoint hat dieselbe (fehlende) Absicherung wie `POST /api/admin/backfill-weather`; (5) jeder Recherche-Lauf ist ein zusätzlicher Kostenfaktor (Sonnet + pro Suche abgerechnetes `web_search`-Tool), bewusst nur auf Zuruf, nie Teil des täglichen Checks.
+- **`templates/index.html`** — neuer Abschnitt „🔬 Recherche" im Profil-Tab: Themeneingabe + Button, darunter die Fundliste mit Übernehmen/Verwerfen-Buttons (offene Vorschläge) bzw. Status-Badge inkl. „(automatisch, hohe Konfidenz)"-Hinweis bei `entschieden_von: "system"` (bereits entschiedene). Kein neuer Top-Level-Tab — die Tableiste ist an ihrer Breitengrenze (v2.7.21/22).
+
+Live gegen die echte API getestet (Thema „Carb-Intake pro Stunde bei Ironman-Distanz"): ein Lauf dauert **3–4 Minuten** (mehrere Websuchen + Sonnet-Reasoning in einem einzigen Request) — spürbar länger als die Checks, aber unkritisch, weil er als Hintergrund-Job läuft und niemand darauf wartet, um trainieren zu gehen. **Nebenbefund beim Live-Testen:** `max_tokens=3000` reichte nicht — eine gründliche Antwort mit mehreren Funden lief in „Antwort zu lang" (derselbe abgeschnitten-JSON-Fehler wie bei jedem anderen Agenten mit erzwungenem Schema). Der Job landete dabei korrekt als `status: error` statt hängen zu bleiben — das Job-Queue-Fehlerhandling hat sich bewährt. Behoben durch `max_tokens=6000` plus eine explizite Obergrenze „maximal 5 Erkenntnisse" im Prompt (`research.md`) — bei mehr Funden würde ohnehin niemand jeden einzeln prüfen wollen. Der zweite Lauf mit dem exakt gleichen Thema lieferte danach 5 Funde mit echten, dereferenzierbaren PubMed-/Coaching-Quellen und ehrlich unterschiedlicher Konfidenz (u.a. eine Einzelfallstudie korrekt als „niedrig" markiert).
 
 ### v2.8.9 — Ladeanzeige der Checks wieder zentriert mit gedimmtem Hintergrund
 Nutzerbeobachtung: während Abend-/Morgen-Check laufen, erscheint der Lade-Hinweis nur als kleine Zeile unten im Formular (direkt unter dem Submit-Button), ohne den Rest der Seite abzudunkeln — wirkt unauffällig und leicht zu übersehen. Ursache: `.check-status` war seit v2.8.0 bewusst kein globales Overlay mehr, sondern eine inline `display:flex`-Zeile im Formular, damit zwei gleichzeitig laufende Checks (Desktop-Dashboard) sich nicht denselben Spinnertext/dieselbe Position streitig machen.
@@ -862,6 +881,9 @@ CLAUDE.md aus Code + Commit-History neu aufgebaut (stand noch auf v2.1.0). Korri
 
 ### MyFitnessPal MCP — explizit auf „später"
 MFP MCP auf Railway (`MFP_USERNAME`/`MFP_PASSWORD`), Kalorienbilanz im Abend-Check gegen Trainingsverbrauch.
+
+### Periodische Recherche — aktuell nur manuell auslösbar
+Der Recherche-Agent (v2.9.0, siehe Changelog) läuft nur auf Klick im Profil-Tab (oder `curl` gegen `POST /api/research/run`) — es gibt in diesem Repo keinerlei Scheduling-Infrastruktur (kein APScheduler, kein Railway-Cron, nur der einmalige Startup-Prefetch für TP). Für echte Periodizität ("einmal pro Woche automatisch ein Thema recherchieren") bräuchte es einen externen Trigger (separater Railway-Cron-Service, GitHub-Actions-Schedule o.ä.), der den bestehenden Endpoint anstößt — der Agent selbst müsste sich dafür nicht ändern.
 
 ### Sicherheit — der MCP-Token schützt nicht die App
 Der MCP-Service hat seit v2.7.6 einen Bearer-Token. **Die App selbst hat weiterhin keinen.** Wer die App-URL kennt, kann `POST /api/coach/chat` direkt aufrufen und damit denselben Anthropic-Key verbrennen und dieselben Daten lesen — der MCP-Token ist also nicht die schwächste Stelle, sondern die App. Das bleibt der Google-OAuth-Punkt unten. Der Token liegt außerdem im Klartext in `~/.claude.json` bzw. der Claude-Desktop-Config.

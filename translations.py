@@ -68,6 +68,7 @@ TRANSLATIONS = {
             "architect_bike": {"name": "Coach Nils Brandt", "rolle": "Radcoach"},
             "architect_swim": {"name": "Coach Pia König",   "rolle": "Schwimmcoach"},
             "fueling":        {"name": "Anna Feld",         "rolle": "Ernährungsberatung"},
+            "research":       {"name": "Dr. Mara Lindqvist", "rolle": "Sportwissenschaftliche Recherche"},
         },
         # Bei GO schreibt kein Modell — die Beschreibung ist der Originaltext
         # aus TrainingPeaks. Statt einer leeren Zeile die Herkunft nennen.
@@ -75,6 +76,19 @@ TRANSLATIONS = {
         # Ernährung ohne Anna Feld heißt: reine Tabellenrechnung, kein Modell.
         "nutrition_basis":   "Mengen aus der Ernährungstabelle im Profil",
         "lbl_max":           "10 — max",
+        # Recherche-Agent (v2.9.0) — Profil-Tab, Vorschlag/Review-Flow
+        "research_title":    "🔬 Recherche",
+        "research_sub":      "Dr. Mara Lindqvist recherchiert zu einem Thema. Funde mit hoher Konfidenz fließen automatisch in den Chefcoach ein — alles andere ist ein Vorschlag, den du hier prüfst.",
+        "research_thema_placeholder": "z.B. Carb-Intake pro Stunde bei Ironman-Distanz",
+        "research_start":    "Recherchieren",
+        "research_running":  "Recherchiert …",
+        "research_empty":    "Noch keine Recherche gestartet.",
+        "research_status_vorschlag":  "Vorschlag",
+        "research_status_akzeptiert": "Akzeptiert",
+        "research_status_abgelehnt":  "Abgelehnt",
+        "research_accept":   "Übernehmen",
+        "research_reject":   "Verwerfen",
+        "research_auto_note": "automatisch, hohe Konfidenz",
         # CSV upload
         "lbl_csv":           "AutoSleep CSV",
         "lbl_csv_btn":       "CSV hochladen",
@@ -365,6 +379,10 @@ TRANSLATIONS = {
         "err_weather_na":       "Wetterdaten nicht verfügbar",
         "err_csv_empty":        "CSV ist leer",
         "err_check_job_gone":   "Check nicht mehr verfügbar — der Server wurde vermutlich neu gestartet. Bitte nochmal starten.",
+        "err_agents_unavailable": "Agent-Pipeline nicht verfügbar — Recherche braucht COACH_AGENTS",
+        "err_research_thema_missing": "Bitte ein Thema für die Recherche eingeben",
+        "err_research_job_gone": "Recherche nicht mehr verfügbar — der Server wurde vermutlich neu gestartet. Bitte nochmal starten.",
+        "err_knowledge_not_found": "Eintrag nicht gefunden",
     },
 
     "en": {
@@ -432,9 +450,23 @@ TRANSLATIONS = {
             "architect_bike": {"name": "Coach Nils Brandt", "rolle": "Cycling Coach"},
             "architect_swim": {"name": "Coach Pia König",   "rolle": "Swimming Coach"},
             "fueling":        {"name": "Anna Feld",         "rolle": "Nutrition Coaching"},
+            "research":       {"name": "Dr. Mara Lindqvist", "rolle": "Sports Science Research"},
         },
         "plan_original":     "Original plan taken from TrainingPeaks",
         "nutrition_basis":   "Amounts from the nutrition table in your profile",
+        # Research agent (v2.9.0) — Profile tab, proposal/review flow
+        "research_title":    "🔬 Research",
+        "research_sub":      "Dr. Mara Lindqvist researches a topic. High-confidence findings feed into the head coach automatically — everything else is a proposal for you to review here.",
+        "research_thema_placeholder": "e.g. carb intake per hour at Ironman distance",
+        "research_start":    "Research",
+        "research_running":  "Researching …",
+        "research_empty":    "No research started yet.",
+        "research_status_vorschlag":  "Proposed",
+        "research_status_akzeptiert": "Accepted",
+        "research_status_abgelehnt":  "Rejected",
+        "research_accept":   "Accept",
+        "research_reject":   "Reject",
+        "research_auto_note": "automatic, high confidence",
         # CSV upload
         "lbl_csv":           "AutoSleep CSV",
         "lbl_csv_btn":       "Upload CSV",
@@ -721,5 +753,9 @@ TRANSLATIONS = {
         "err_weather_na":       "Weather data unavailable",
         "err_csv_empty":        "CSV is empty",
         "err_check_job_gone":   "Check no longer available — the server was probably restarted. Please start again.",
+        "err_agents_unavailable": "Agent pipeline unavailable — research needs COACH_AGENTS",
+        "err_research_thema_missing": "Please enter a topic for the research",
+        "err_research_job_gone": "Research no longer available — the server was probably restarted. Please start again.",
+        "err_knowledge_not_found": "Entry not found",
     },
 }

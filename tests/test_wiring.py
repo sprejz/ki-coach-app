@@ -30,7 +30,9 @@ import agents.fueling as fueling  # noqa: E402
 import agents.head_coach as head_coach  # noqa: E402
 import agents.medic as medic  # noqa: E402
 import agents.periodizer as periodizer  # noqa: E402
+import agents.research as research_agent  # noqa: E402
 import agents.weather as weather  # noqa: E402
+import knowledge  # noqa: E402
 import app  # noqa: E402
 import orchestrator  # noqa: E402
 from translations import TRANSLATIONS  # noqa: E402
@@ -103,6 +105,17 @@ FAKE_BLOCK = {
     "belastungsurteil": "grenzwertig", "spielraum": "zuruecknehmen",
     "hinweis": "Ramp Rate 9.4, TSB -34.6", "warnung": "Ramp Rate über 7",
 }
+FAKE_RESEARCH = {
+    "zusammenfassung": "Multiple-transportable-carbohydrate-Mischungen verbessern die Verträglichkeit.",
+    "erkenntnisse": [
+        {"titel": "Glukose+Fruktose bei Ultradistanz", "aussage": "Über 90g/h profitieren Mischungen "
+         "aus Glukose und Fruktose von besserer Verträglichkeit als reine Glukose.",
+         "quelle": "https://example.org/study", "konfidenz": "hoch", "betrifft": "Ernährung"},
+        {"titel": "Einzelstudie zu Koffein-Timing", "aussage": "Eine kleine Studie deutet auf einen "
+         "Vorteil von Koffein 60min vor dem Start hin, Evidenz ist aber dünn.",
+         "quelle": "https://example.org/study2", "konfidenz": "mittel", "betrifft": "Ernährung"},
+    ],
+}
 
 
 def attrappe(name, antwort):
@@ -132,6 +145,7 @@ architect_bike.run = attrappe("architect_bike", FAKE_ARCHITEKT_BIKE)
 architect_swim.run = attrappe("architect_swim", FAKE_ARCHITEKT_SWIM)
 periodizer.run = attrappe("periodizer", FAKE_BLOCK)
 fueling.run = attrappe("fueling", FAKE_FUELING_HITZE)
+research_agent.run = attrappe("research", FAKE_RESEARCH)
 # Der Orchestrator hat die Module beim Import gebunden — Attrappen nachziehen.
 orchestrator.medic, orchestrator.weather = medic, weather
 orchestrator.allgemeinmedic = allgemeinmedic
@@ -925,6 +939,133 @@ async def main():
     for s in orchestrator.STUFEN:
         pruefe(f'"stage_{s}"' in _TRANS, f"Stufe '{s}' hat einen UI-Text")
 
+    # v2.9.0: Recherche-Agent — läuft nie automatisch mit einem Check, nur auf
+    # Klick. Gleiches Job-Queue-Muster wie die Checks, aber ein eigener Store.
+    print("\n=== Recherche-Agent (v2.9.0) ===")
+    # Der Fallback-Test weiter oben hat medic.run absichtlich zerschossen (siehe
+    # Kommentar bei der Rückstellung weiter unten) — für den _try_agent_check-
+    # Aufruf in diesem Block muss die Pipeline aber tatsächlich durchlaufen.
+    medic.run = attrappe("medic", FAKE_MEDIC)
+    # knowledge.json liegt lokal (ohne DATA_DIR-Override) im Repo — für den Test
+    # auf eine Tempdir umbiegen, sonst würde der Testlauf die echte Datei im
+    # Arbeitsverzeichnis verändern (wie beim DATA_DIR-Volume-Test weiter unten).
+    import shutil as _shutil_research
+    import tempfile as _tempfile_research
+    _orig_knowledge_file = app.KNOWLEDGE_FILE
+    _tmp_knowledge_dir = Path(_tempfile_research.mkdtemp(prefix="knowledgetest-"))
+    app.KNOWLEDGE_FILE = _tmp_knowledge_dir / "knowledge.json"
+
+    app._research_jobs.clear()
+    r_job_id = app._research_job_start()
+    pruefe(app._research_jobs[r_job_id]["status"] == "pending", "neuer Recherche-Job startet als pending")
+
+    app.KNOWLEDGE_FILE.write_text('{"eintraege": []}', encoding="utf-8")
+    await app._run_research_job(r_job_id, "Carb-Intake Ultradistanz")
+    fertig_research = app._research_jobs[r_job_id]
+    pruefe(fertig_research["status"] == "done" and fertig_research["result"] == FAKE_RESEARCH,
+           "Ergebnis liegt nach dem Lauf im Job")
+    gespeichert = app.load_knowledge()["eintraege"]
+    pruefe(len(gespeichert) == 2, "beide Funde landen in knowledge.json")
+    hoch_gespeichert = next(e for e in gespeichert if e["konfidenz"] == "hoch")
+    mittel_gespeichert = next(e for e in gespeichert if e["konfidenz"] == "mittel")
+    pruefe(hoch_gespeichert["status"] == "akzeptiert" and hoch_gespeichert["entschieden_von"] == "system",
+           "v2.9.0: Konfidenz 'hoch' wird automatisch akzeptiert, ohne Zustimmung (Herkunft 'system')")
+    pruefe(mittel_gespeichert["status"] == "vorschlag",
+           "Konfidenz 'mittel' bleibt Vorschlag zur Prüfung")
+    pruefe(hoch_gespeichert["titel"] == FAKE_RESEARCH["erkenntnisse"][0]["titel"],
+           "der gespeicherte Fund entspricht dem Agent-Ergebnis")
+
+    def research_kaputt(**kwargs):
+        raise RuntimeError("simulierter Recherche-Ausfall")
+    _orig_research_run = research_agent.run
+    research_agent.run = research_kaputt
+    try:
+        r_job2 = app._research_job_start()
+        await app._run_research_job(r_job2, "kaputtes Thema")
+        pruefe(app._research_jobs[r_job2]["status"] == "error",
+               "ein Fehler wird zum Job-Status, nicht zum ewigen Spinner — kein unbehandelter Absturz")
+    finally:
+        research_agent.run = _orig_research_run
+
+    app._research_jobs["uralt"] = {"status": "done", "ts": 0}
+    app._research_job_start()
+    pruefe("uralt" not in app._research_jobs, "abgelaufene Recherche-Jobs werden aufgeräumt")
+
+    # Der Erfolgspfad spawnt einen echten Hintergrund-Task (asyncio.create_task,
+    # fire-and-forget) — wie bei check_abend/check_morgen wird das hier bewusst
+    # NICHT über den echten Endpoint-Call geprüft (Race mit dem Testende),
+    # sondern per Quellcode-Prüfung, exakt das Muster von quelle_ab weiter oben.
+    quelle_research_run = inspect.getsource(app.research_run)
+    pruefe("job_id" in quelle_research_run,
+           "POST /api/research/run antwortet sofort mit einer job_id")
+    pruefe("_research_task_spawn" in quelle_research_run,
+           "der Recherche-Lauf wird über den Store gestartet, nicht referenzlos")
+
+    leer_thema_400 = False
+    try:
+        await app.research_run(_FakeRequest({"thema": "  "}))
+    except HTTPException as e:
+        leer_thema_400 = (e.status_code == 400)
+    pruefe(leer_thema_400, "ein leeres Thema wird mit 400 abgelehnt")
+
+    research_404 = False
+    try:
+        await app.research_status("gibt-es-nicht")
+    except HTTPException as e:
+        research_404 = (e.status_code == 404)
+    pruefe(research_404, "ein unbekannter/abgelaufener Recherche-Job liefert 404")
+
+    # knowledge.py — Vorschlag/Review über die Endpoints, nicht nur die reinen
+    # Funktionen (die sind schon in test_offline.py geprüft).
+    app.KNOWLEDGE_FILE.write_text(json.dumps({"eintraege": [
+        {"id": "abc1234567", "thema": "t", "titel": "T", "aussage": "A", "quelle": "q",
+         "konfidenz": "hoch", "betrifft": "Ernährung", "status": "vorschlag",
+         "erstellt_am": "2026-01-01T00:00:00+00:00", "entschieden_am": None},
+    ]}), encoding="utf-8")
+    accept_result = await app.knowledge_accept("abc1234567")
+    pruefe(accept_result == {"ok": True}, "Übernehmen eines bekannten Fundes klappt")
+    pruefe(app.load_knowledge()["eintraege"][0]["status"] == "akzeptiert",
+           "der Status steht danach persistiert auf akzeptiert")
+
+    accept_404 = False
+    try:
+        await app.knowledge_accept("gibt-es-nicht")
+    except HTTPException as e:
+        accept_404 = (e.status_code == 404)
+    pruefe(accept_404, "Übernehmen einer unbekannten id liefert 404")
+
+    knowledge_list_resp = await app.knowledge_list()
+    knowledge_list_data = json.loads(knowledge_list_resp.body)
+    pruefe(knowledge_list_data["eintraege"][0]["status"] == "akzeptiert",
+           "GET /api/knowledge zeigt den aktuellen Stand")
+
+    # Der Check muss akzeptierte Funde tatsächlich an den Chefcoach durchreichen.
+    await app._try_agent_check(
+        athlete={"name": "Hendrik", "nutrition": {"rules": []}, "races": []},
+        baseline=None, weather={"description": "Sonnig", "temp_max": 20},
+        koerper={"symptome": "keine", "geplante_einheiten": ["Run"]},
+        tp_workouts=[{"id": "1", "sport": "Run", "title": "Lauf",
+                      "duration_min": 60, "description": "Z2"}],
+        sleep=None, wasser_temp=None, tag="morgen",
+    )
+    pruefe(bool(mitschrieb["head_coach_last"].get("wissen"))
+           and "Quelle: q" in mitschrieb["head_coach_last"]["wissen"],
+           "akzeptierte Recherche-Funde erreichen den Chefcoach als 'wissen'-Kontext")
+
+    for lang_block in ("research_title", "research_accept", "research_reject"):
+        pruefe(f'"{lang_block}"' in _TRANS, f"'{lang_block}' ist in translations.py gepflegt")
+    pruefe("wissen" in inspect.signature(orchestrator.run_check).parameters,
+           "run_check nimmt den wissen-Parameter entgegen")
+    # head_coach.run ist oben mit der Attrappe überschrieben (Signatur **kwargs)
+    # — die echte Signatur liegt weiterhin unverändert am Submodul.
+    pruefe("wissen" in inspect.signature(head_coach.head_coach.run).parameters,
+           "head_coach.run nimmt den wissen-Parameter entgegen")
+
+    # Aufräumen: echten Pfad zurücksetzen, Tempdir entfernen, Job-Store leeren.
+    app.KNOWLEDGE_FILE = _orig_knowledge_file
+    _shutil_research.rmtree(_tmp_knowledge_dir, ignore_errors=True)
+    app._research_jobs.clear()
+
     # Der echte Orchestrator (mit den Agent-Attrappen von oben) muss die
     # Stufen tatsächlich melden — sonst bleibt der Spinner stumm.
     # Der Fallback-Test oben hat den Mediziner absichtlich zerschossen.
@@ -981,8 +1122,8 @@ async def main():
         info = app._init_data_dir()
         pruefe(info["persistent"] is True, "DATA_DIR abweichend vom Repo gilt als persistent")
         pruefe(info["writable"] is True and info["error"] is None, "DATA_DIR ist beschreibbar")
-        pruefe(set(info["seeded"]) == {"athlete.json", "baseline.json", "sleep_history.json"},
-               "leeres Volume wird mit allen Zustandsdateien geseedet")
+        pruefe(set(info["seeded"]) == {"athlete.json", "baseline.json", "sleep_history.json", "knowledge.json"},
+               "leeres Volume wird mit allen Zustandsdateien geseedet (inkl. knowledge.json seit v2.9.0)")
         pruefe((app.DATA_DIR / "athlete.json").exists(),
                "athlete.json liegt im Volume — sonst hätte die App kein Profil")
         zweiter = app._init_data_dir()

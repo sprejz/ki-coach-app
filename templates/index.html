@@ -1334,6 +1334,17 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
       <button type="button" class="btn-submit" onclick="recalcBaseline()">{{ T.btn_baseline }}</button>
     </div>
 
+    <!-- Recherche-Agent (v2.9.0) — Vorschlag/Review, nie automatisch wirksam -->
+    <div class="form-card" style="margin-top:0">
+      <p class="section-title">{{ T.research_title }}</p>
+      <p style="font-size:13px;color:var(--muted);margin:0 0 14px">{{ T.research_sub }}</p>
+      <div class="form-section">
+        <input type="text" id="research-thema" class="text-input" placeholder="{{ T.research_thema_placeholder }}">
+      </div>
+      <button type="button" class="btn-submit" id="research-start-btn" onclick="startResearch()">{{ T.research_start }}</button>
+      <div id="knowledge-list" style="margin-top:16px"></div>
+    </div>
+
   <div><!-- Info (seit v2.7.21 im Profil) -->
     <div class="form-card" style="text-align:center;padding:32px 20px">
       <div style="font-size:48px;margin-bottom:12px">🏊🚴🏃</div>
@@ -1416,6 +1427,7 @@ let weatherTomorrow = null;
 let sleepHistory = [];
 let sleepBaseline = null;
 let erholungLoaded = false;
+let researchLoaded = false;
 
 // ── Sleep-History localStorage (überlebt Railway-Redeploys) ──────────────────
 function getSleepHistoryLocal() {
@@ -1576,6 +1588,7 @@ function initTabs() {
       if (tab === 'erholung' && !erholungLoaded) loadErholung();
       if (tab === 'analyse') renderAnalyseSection();
       if (tab === 'ernaehrung') loadErnaehrung();
+      if (tab === 'einstellungen' && !researchLoaded) loadKnowledge();
     });
   });
   document.getElementById('form-section').classList.add('dashboard-mode');
@@ -3427,6 +3440,116 @@ const CHECK_MAX_FEHLER   = 5;          // Funkloch kippt den laufenden Job nicht
 // und die Deadline unten wird nur ZWISCHEN zwei Runden geprüft, half also
 // nicht. Ergebnis war ein endlos drehender Spinner ohne jede Meldung
 // (v2.7.17).
+// ── Recherche-Agent (v2.9.0) ──────────────────────────────────────────────────
+// Läuft nur auf Klick, nie mit einem Check. Funde sind Vorschläge — erst nach
+// "Übernehmen" fließen sie in den Chefcoach ein (siehe knowledge.py/app.py).
+async function startResearch() {
+  const input = document.getElementById('research-thema');
+  const thema = (input?.value || '').trim();
+  if (!thema) return;
+  const btn = document.getElementById('research-start-btn');
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = `<span style="display:inline-flex;align-items:center;gap:8px;justify-content:center">` +
+    `<div class="spinner" style="width:14px;height:14px;border-width:2px"></div>${esc(T.research_running)}</span>`;
+  try {
+    const r = await fetchMitFrist('/api/research/run', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ thema }),
+    }, CHECK_POST_MS);
+    if (!r.ok) throw new Error(await r.text());
+    const { job_id } = await r.json();
+    if (!job_id) throw new Error('Keine job_id vom Server');
+    await pollResearch(job_id);
+    input.value = '';
+    await loadKnowledge();
+  } catch (e) {
+    showError(String(e.message || e));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
+}
+
+async function pollResearch(jobId) {
+  const deadline = Date.now() + CHECK_TIMEOUT_MS;
+  let fehlerInFolge = 0;
+  while (Date.now() < deadline) {
+    await new Promise(res => setTimeout(res, CHECK_POLL_MS));
+    let sr;
+    try {
+      sr = await fetchMitFrist(`/api/research/${jobId}`, { cache: 'no-store' }, CHECK_STATUS_MS);
+    } catch (e) {
+      if (++fehlerInFolge >= CHECK_MAX_FEHLER) throw new Error('Keine Verbindung zum Server — Recherche läuft evtl. weiter, bitte neu laden.');
+      continue;
+    }
+    if (sr.status === 404) {
+      const d = await sr.json().catch(() => ({}));
+      throw new Error(d.detail || 'Recherche nicht mehr verfügbar (Server neu gestartet)');
+    }
+    if (!sr.ok) {
+      if (++fehlerInFolge >= CHECK_MAX_FEHLER) throw new Error(await sr.text());
+      continue;
+    }
+    fehlerInFolge = 0;
+    const job = await sr.json();
+    if (job.status === 'done') return job.result;
+    if (job.status === 'error') throw new Error(job.error || 'Recherche fehlgeschlagen');
+  }
+  throw new Error('Recherche dauert ungewöhnlich lange — bitte nochmal versuchen');
+}
+
+async function loadKnowledge() {
+  const el = document.getElementById('knowledge-list');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/knowledge', { cache: 'no-store' });
+    if (!r.ok) return;
+    const data = await r.json();
+    renderKnowledgeList(data.eintraege || []);
+    researchLoaded = true;
+  } catch {}
+}
+
+function renderKnowledgeList(eintraege) {
+  const el = document.getElementById('knowledge-list');
+  if (!el) return;
+  if (!eintraege.length) {
+    el.innerHTML = `<p style="color:var(--muted);font-size:13px">${esc(T.research_empty)}</p>`;
+    return;
+  }
+  const statusFarbe = { vorschlag: 'var(--orange)', akzeptiert: 'var(--green)', abgelehnt: 'var(--red)' };
+  el.innerHTML = eintraege.map(e => {
+    const aktionen = e.status === 'vorschlag'
+      ? `<div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn-tp" data-role="accept" data-id="${esc(e.id)}">${esc(T.research_accept)}</button>
+          <button data-role="reject" data-id="${esc(e.id)}" style="background:transparent;border:1px solid rgba(255,255,255,.15);color:var(--muted);border-radius:8px;padding:8px 12px;font-size:13px;cursor:pointer">${esc(T.research_reject)}</button>
+        </div>`
+      : '';
+    const autoNote = e.entschieden_von === 'system' ? ` (${esc(T.research_auto_note)})` : '';
+    return `<div class="form-card" style="margin-top:10px;padding:14px" data-entry-id="${esc(e.id)}">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">
+        <b style="font-size:14px">${esc(e.titel)}</b>
+        <span style="font-size:11px;color:${statusFarbe[e.status] || 'var(--muted)'}">${esc(T['research_status_' + e.status] || e.status)}${autoNote}</span>
+      </div>
+      <div style="font-size:13px;color:var(--text);margin-top:4px">${esc(e.aussage)}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px">${esc(e.betrifft || '')} · ${esc(e.konfidenz || '')} · ${esc(e.quelle || '')}</div>
+      ${aktionen}
+    </div>`;
+  }).join('');
+  el.querySelectorAll('[data-role="accept"]').forEach(b => b.onclick = () => decideKnowledge(b.dataset.id, 'accept'));
+  el.querySelectorAll('[data-role="reject"]').forEach(b => b.onclick = () => decideKnowledge(b.dataset.id, 'reject'));
+}
+
+async function decideKnowledge(id, action) {
+  try {
+    const r = await fetch(`/api/knowledge/${id}/${action}`, { method: 'POST' });
+    if (!r.ok) throw new Error(await r.text());
+    await loadKnowledge();
+  } catch (e) {
+    showError(String(e.message || e));
+  }
+}
+
 async function fetchMitFrist(url, init, ms) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);

@@ -91,7 +91,8 @@ def _athlete_block(athlete: dict, a_race: Optional[dict]) -> str:
 
 
 def build_input(*, athlete: dict, a_race, medic: dict, wetter: dict, allgemein: dict,
-                tp_workouts: list, tag: str, block: Optional[dict] = None) -> str:
+                tp_workouts: list, tag: str, block: Optional[dict] = None,
+                wissen: Optional[str] = None) -> str:
     lines = [f"# Entscheidung für {tag}", "", _athlete_block(athlete, a_race)]
 
     lines.append("\n## Urteil des Allgemeinmediziners (bindend, stärker als der Sportmediziner)")
@@ -150,6 +151,10 @@ def build_input(*, athlete: dict, a_race, medic: dict, wetter: dict, allgemein: 
     else:
         lines.append("Keine TrainingPeaks-Einheiten bekannt. Entscheide anhand der Sportarten allein.")
 
+    if wissen:
+        lines.append("\n## Erkenntnisse aus der Literatur (von Hendrik geprüft, ergänzend)")
+        lines.append(wissen)
+
     lines.append(
         "\nEntscheide pro Einheit GO, MOD oder SKIP. Gib die Einheiten in derselben "
         "Reihenfolge zurück, in der sie oben stehen."
@@ -158,12 +163,14 @@ def build_input(*, athlete: dict, a_race, medic: dict, wetter: dict, allgemein: 
 
 
 def run(*, athlete: dict, a_race, medic: dict, wetter: dict, allgemein: dict, tp_workouts: list,
-        tag: str, block: Optional[dict] = None, model: str = HAIKU) -> dict:
+        tag: str, block: Optional[dict] = None, wissen: Optional[str] = None,
+        model: str = HAIKU) -> dict:
     return call_agent(
         prompt=load_prompt("head_coach", path=_PROMPT_PATH),
         schema=SCHEMA,
         user=build_input(athlete=athlete, a_race=a_race, medic=medic, wetter=wetter,
-                         allgemein=allgemein, tp_workouts=tp_workouts, tag=tag, block=block),
+                         allgemein=allgemein, tp_workouts=tp_workouts, tag=tag, block=block,
+                         wissen=wissen),
         model=model,
         max_tokens=8000,
         label="head_coach",

@@ -19,6 +19,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import anthropic
 
+import knowledge
 from nutrition import (
     bottle_split, braucht_verpflegung, mix_totals, normalize_sport,
     nutrition_for_duration,
@@ -34,6 +35,7 @@ import strava
 try:
     from agents import analyst_bike, analyst_run, analyst_swim
     from agents import chat as chat_agent
+    from agents import research as research_agent
     from orchestrator import run_check as _run_agent_check
     _AGENTS_IMPORTABLE = True
     _AGENTS_IMPORT_ERROR = ""
@@ -62,7 +64,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "2.8.9"
+APP_VERSION = "2.9.0"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -147,6 +149,14 @@ def _pending_action_start(entry: dict) -> str:
     entry["ts"] = jetzt
     _pending_tp_actions[pending_id] = entry
     return pending_id
+
+# In-memory Job-Store für Recherche-Läufe (v2.9.0) — gleiches Muster wie
+# _check_jobs, aber ein eigener Store: das Ergebnis ist kein Frontend-Vertrag,
+# sondern ein research-Fund, der zusätzlich in knowledge.json landet. Läuft
+# NIE automatisch mit einem Check, nur auf Zuruf aus dem Profil-Tab.
+_research_jobs: dict = {}   # job_id -> {"status","result","error","ts"}
+_RESEARCH_JOB_TTL = 900
+_research_tasks: set = set()  # hält Task-Referenzen, siehe _check_tasks
 
 # ── TP Workout Cache + Background Refresh ────────────────────────────────────
 import time as _time
@@ -515,7 +525,7 @@ def parse_fit_summary(fit_bytes: bytes) -> dict:
 # berechnete Baseline und der Schlafverlauf nach jedem Deploy wieder weg.
 # Default = Repo-Verzeichnis, damit lokal alles unverändert läuft.
 DATA_DIR = Path(os.environ.get("DATA_DIR", "").strip() or BASE_DIR)
-_STATE_FILES = ("athlete.json", "baseline.json", "sleep_history.json")
+_STATE_FILES = ("athlete.json", "baseline.json", "sleep_history.json", "knowledge.json")
 
 
 def _init_data_dir() -> dict:
@@ -552,6 +562,7 @@ _STORAGE = _init_data_dir()
 ATHLETE_FILE = DATA_DIR / "athlete.json"
 BASELINE_FILE = DATA_DIR / "baseline.json"
 SLEEP_HISTORY_FILE = DATA_DIR / "sleep_history.json"
+KNOWLEDGE_FILE = DATA_DIR / "knowledge.json"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
@@ -584,6 +595,18 @@ def load_sleep_history() -> list:
         with open(SLEEP_HISTORY_FILE, encoding="utf-8") as f:
             return json.load(f)
     return []
+
+
+def load_knowledge() -> dict:
+    if KNOWLEDGE_FILE.exists():
+        with open(KNOWLEDGE_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    return {"eintraege": []}
+
+
+def save_knowledge(data: dict) -> None:
+    with open(KNOWLEDGE_FILE, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2, ensure_ascii=False)
 
 
 def append_sleep_history(entry: dict):
@@ -2192,6 +2215,10 @@ async def _try_agent_check(*, athlete, baseline, weather, koerper, tp_workouts,
     a_race = next_a_race(athlete)
     # Belastungsdaten best-effort — ohne sie läuft der Check ohne Periodisierer.
     load, woche = await _fetch_training_load(athlete)
+    # Akzeptierte Recherche-Funde (v2.9.0) — reines File-Lesen, kein Modell-Call.
+    # Ohne akzeptierte Einträge liefert accepted_context() "" und der Chefcoach
+    # sieht keine zusätzliche Sektion (siehe head_coach.build_input).
+    wissen = knowledge.accepted_context(load_knowledge().get("eintraege", []))
     try:
         result = await _run_agent_check(
             athlete=athlete,
@@ -2206,6 +2233,7 @@ async def _try_agent_check(*, athlete, baseline, weather, koerper, tp_workouts,
             load=load,
             woche=woche,
             tage_bis_a=tage_bis(a_race.get("date")) if a_race else None,
+            wissen=wissen,
             progress=progress,
         )
     except Exception as e:
@@ -2284,6 +2312,95 @@ async def check_status(job_id: str):
         # dann weg und kommt nicht wieder — das Frontend muss aufhören zu pollen.
         raise HTTPException(404, T["err_check_job_gone"])
     return JSONResponse(job, headers=_NO_CACHE)
+
+
+# ── Recherche-Agent (v2.9.0) ──────────────────────────────────────────────────
+# Läuft NIE automatisch mit einem Check — nur auf Zuruf aus dem Profil-Tab.
+# Gleiches Job-Queue-Muster wie die Checks (Sonnet + serverseitige Websuche
+# brauchen zu lange für einen offenen Request), aber ein eigener Store: das
+# Ergebnis ist kein Frontend-Vertrag, sondern research-Funde, die zusätzlich
+# in knowledge.json landen. Konfidenz 'hoch' wird dort automatisch akzeptiert
+# (siehe knowledge.add_findings/AUTO_ACCEPT_KONFIDENZ) — mittel/niedrig
+# bleiben Vorschlag zur Prüfung im Profil-Tab.
+
+def _research_job_start() -> str:
+    jetzt = _time.time()
+    for alt in [k for k, v in _research_jobs.items() if jetzt - v.get("ts", 0) > _RESEARCH_JOB_TTL]:
+        _research_jobs.pop(alt, None)
+    job_id = uuid.uuid4().hex[:10]
+    _research_jobs[job_id] = {"status": "pending", "ts": jetzt}
+    return job_id
+
+
+def _research_task_spawn(job_id: str, thema: str) -> None:
+    task = asyncio.create_task(_run_research_job(job_id, thema))
+    _research_tasks.add(task)
+    task.add_done_callback(_research_tasks.discard)
+
+
+async def _run_research_job(job_id: str, thema: str) -> None:
+    try:
+        result = await asyncio.to_thread(research_agent.run, thema=thema)
+        data = load_knowledge()
+        eintraege = data.setdefault("eintraege", [])
+        # Konfidenz 'hoch' wird von knowledge.add_findings() automatisch
+        # akzeptiert (deterministische Regel, keine Zustimmung pro Fund) —
+        # mittel/niedrig bleiben Vorschlag zur Prüfung im Profil-Tab.
+        knowledge.add_findings(eintraege, thema=thema, funde=result.get("erkenntnisse", []))
+        save_knowledge(data)
+        _research_jobs[job_id] = {"status": "done", "result": result, "ts": _time.time()}
+        logger.info("research job %s fertig: %d Funde zu %r", job_id,
+                    len(result.get("erkenntnisse", [])), thema)
+    except Exception as e:
+        logger.error("research job %s fehlgeschlagen: %s: %s", job_id, type(e).__name__, e)
+        _research_jobs[job_id] = {"status": "error", "error": f"{type(e).__name__}: {e}"[:300],
+                                  "ts": _time.time()}
+
+
+@app.post("/api/research/run")
+async def research_run(request: Request):
+    if not _AGENTS_IMPORTABLE:
+        raise HTTPException(400, T["err_agents_unavailable"])
+    body = await request.json()
+    thema = str(body.get("thema", "")).strip()
+    if not thema:
+        raise HTTPException(400, T["err_research_thema_missing"])
+    job_id = _research_job_start()
+    _research_task_spawn(job_id, thema)
+    return JSONResponse({"job_id": job_id}, headers=_NO_CACHE)
+
+
+@app.get("/api/research/{job_id}")
+async def research_status(job_id: str):
+    job = _research_jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, T["err_research_job_gone"])
+    return JSONResponse(job, headers=_NO_CACHE)
+
+
+@app.get("/api/knowledge")
+async def knowledge_list():
+    data = load_knowledge()
+    eintraege = sorted(data.get("eintraege", []), key=lambda e: e.get("erstellt_am", ""), reverse=True)
+    return JSONResponse({"eintraege": eintraege}, headers=_NO_CACHE)
+
+
+@app.post("/api/knowledge/{entry_id}/accept")
+async def knowledge_accept(entry_id: str):
+    data = load_knowledge()
+    if not knowledge.accept(data.get("eintraege", []), entry_id):
+        raise HTTPException(404, T["err_knowledge_not_found"])
+    save_knowledge(data)
+    return {"ok": True}
+
+
+@app.post("/api/knowledge/{entry_id}/reject")
+async def knowledge_reject(entry_id: str):
+    data = load_knowledge()
+    if not knowledge.reject(data.get("eintraege", []), entry_id):
+        raise HTTPException(404, T["err_knowledge_not_found"])
+    save_knowledge(data)
+    return {"ok": True}
 
 
 @app.post("/api/check-abend")

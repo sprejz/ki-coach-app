@@ -15,7 +15,7 @@ from datetime import date, timedelta  # noqa: E402
 
 from agents import (  # noqa: E402
     allgemeinmedic, analyst_bike, analyst_run, analyst_swim, architect, architect_bike,
-    architect_run, architect_swim, chat, fueling, head_coach, medic, periodizer, weather,
+    architect_run, architect_swim, chat, fueling, head_coach, medic, periodizer, research, weather,
 )
 from agents.base import ANALYST_SCHEMA, analyst_datenlage, build_analyst_input  # noqa: E402
 import orchestrator  # noqa: E402
@@ -162,7 +162,8 @@ streak_roh = [
 streak = trainingsstreak(streak_roh, bis=date(2026, 8, 24))
 pruefe(streak == 6, f"Trainingsstreak zählt korrekt 6 Tage (18.–23.8.), nicht {streak}")
 pruefe(trainingsstreak([], bis=date(2026, 8, 24)) == 0, "Ohne Daten kein Streak, kein Absturz")
-pruefe("trainingsstreak" in Path(periodizer.__file__).read_text(encoding="utf-8"),
+pruefe("trainingsstreak" in (Path(__file__).parent.parent / "agents/periodizer/periodizer.py")
+       .read_text(encoding="utf-8"),
        "Der Periodisierer-Prompt bekommt den fertig gezählten Streak, statt selbst zu zählen")
 
 # Live gemeldet: TSB stimmte nicht (App: -38,8, TP selbst zeigte -19) — Ursache
@@ -194,7 +195,8 @@ print("\n=== Schemas ===")
 for name, schema in [("medic", medic.SCHEMA), ("allgemeinmedic", allgemeinmedic.SCHEMA),
                      ("weather", weather.SCHEMA), ("fueling", fueling.SCHEMA),
                      ("head_coach", head_coach.SCHEMA), ("architect", architect.SCHEMA),
-                     ("periodizer", periodizer.SCHEMA), ("analyst", ANALYST_SCHEMA)]:
+                     ("periodizer", periodizer.SCHEMA), ("analyst", ANALYST_SCHEMA),
+                     ("research", research.SCHEMA)]:
     vorher = len(fehler)
     validiere_schema(schema, name)
     pruefe(len(fehler) == vorher, f"{name}.SCHEMA ist gültig")
@@ -506,6 +508,81 @@ hc_ohne_block = head_coach.build_input(
 )
 pruefe("Periodisierer" not in hc_ohne_block,
        "Ohne Belastungsdaten steht nichts vom Periodisierer im Prompt")
+
+print("\n=== Recherche-Agent / Wissensdatenbank (v2.9.0) ===")
+hc_mit_wissen = head_coach.build_input(
+    athlete={"name": "H"}, a_race=None,
+    medic={"sportarten": []},
+    wetter={"gesamtlage": "unkritisch", "sportarten": []},
+    allgemein={"gesamturteil": "frei", "leitbefund": "", "sportarten": [],
+               "alternativen": [], "hinweis_chronisch": ""},
+    tp_workouts=[], tag="heute", block=None,
+    wissen="- **Carb-Intake Ultradistanz**: 90g/h mit Glukose+Fruktose verträglicher (Quelle: https://example.org)",
+)
+pruefe("Erkenntnisse aus der Literatur" in hc_mit_wissen and "Carb-Intake Ultradistanz" in hc_mit_wissen,
+       "Chefcoach sieht akzeptierte Recherche-Funde als eigene Sektion")
+
+hc_ohne_wissen = head_coach.build_input(
+    athlete={"name": "H"}, a_race=None,
+    medic={"sportarten": []},
+    wetter={"gesamtlage": "unkritisch", "sportarten": []},
+    allgemein={"gesamturteil": "frei", "leitbefund": "", "sportarten": [],
+               "alternativen": [], "hinweis_chronisch": ""},
+    tp_workouts=[], tag="heute", block=None, wissen=None,
+)
+pruefe("Erkenntnisse aus der Literatur" not in hc_ohne_wissen,
+       "Ohne akzeptierte Funde steht nichts von der Recherche im Prompt")
+
+import knowledge  # noqa: E402
+
+eintraege = [knowledge.new_entry(thema="Carb-Intake", titel="T1", aussage="A1",
+                                  quelle="https://a.example", konfidenz="hoch", betrifft="Ernährung")]
+pruefe(eintraege[0]["status"] == "vorschlag", "ein neuer Fund startet als Vorschlag")
+pruefe(knowledge.accepted_context(eintraege) == "",
+       "ein reiner Vorschlag fließt noch nicht in den Kontext ein")
+pruefe(knowledge.accept(eintraege, eintraege[0]["id"]) is True,
+       "ein bekannter Eintrag lässt sich akzeptieren")
+pruefe(eintraege[0]["status"] == "akzeptiert" and eintraege[0]["entschieden_am"] is not None,
+       "Akzeptieren setzt Status und Zeitstempel")
+kontext = knowledge.accepted_context(eintraege)
+pruefe("T1" in kontext and "A1" in kontext and "https://a.example" in kontext,
+       "accepted_context rendert Titel, Aussage und Quelle des akzeptierten Fundes")
+pruefe(knowledge.reject(eintraege, "gibt-es-nicht") is False,
+       "eine unbekannte id liefert False statt eines Absturzes")
+
+eintraege2 = [knowledge.new_entry(thema="X", titel="T2", aussage="A2", quelle="q",
+                                   konfidenz="niedrig", betrifft="Tapering")]
+knowledge.reject(eintraege2, eintraege2[0]["id"])
+pruefe(eintraege2[0]["status"] == "abgelehnt", "reject setzt den Status auf abgelehnt")
+pruefe(knowledge.accepted_context(eintraege2) == "",
+       "ein abgelehnter Fund taucht nie im Chefcoach-Kontext auf")
+
+# v2.9.0: Konfidenz 'hoch' wird automatisch akzeptiert (ohne Zustimmung),
+# mittel/niedrig bleiben Vorschlag — knowledge.add_findings() setzt das um.
+pruefe(knowledge.AUTO_ACCEPT_KONFIDENZ == "hoch",
+       "die Auto-Accept-Schwelle ist 'hoch', nicht heimlich gesenkt")
+gemischte_funde = [
+    {"titel": "Hoch", "aussage": "A", "quelle": "q1", "konfidenz": "hoch", "betrifft": "X"},
+    {"titel": "Mittel", "aussage": "B", "quelle": "q2", "konfidenz": "mittel", "betrifft": "X"},
+    {"titel": "Niedrig", "aussage": "C", "quelle": "q3", "konfidenz": "niedrig", "betrifft": "X"},
+]
+eintraege3 = []
+neue = knowledge.add_findings(eintraege3, thema="Thema", funde=gemischte_funde)
+pruefe(len(neue) == 3 and len(eintraege3) == 3, "alle drei Funde werden angelegt")
+hoch = next(e for e in eintraege3 if e["titel"] == "Hoch")
+mittel = next(e for e in eintraege3 if e["titel"] == "Mittel")
+niedrig = next(e for e in eintraege3 if e["titel"] == "Niedrig")
+pruefe(hoch["status"] == "akzeptiert" and hoch["entschieden_von"] == "system",
+       "Konfidenz 'hoch' wird automatisch akzeptiert, Herkunft 'system'")
+pruefe(mittel["status"] == "vorschlag" and niedrig["status"] == "vorschlag",
+       "mittel/niedrig bleiben Vorschlag, keine automatische Übernahme")
+kontext_gemischt = knowledge.accepted_context(eintraege3)
+pruefe("Hoch" in kontext_gemischt and "Mittel" not in kontext_gemischt and "Niedrig" not in kontext_gemischt,
+       "nur der automatisch akzeptierte Fund erreicht den Chefcoach-Kontext")
+
+manuell = knowledge.accept(eintraege3, mittel["id"])
+pruefe(manuell is True and mittel["entschieden_von"] == "hendrik",
+       "eine manuelle Übernahme trägt 'hendrik' als Herkunft, nicht 'system'")
 
 print("\n=== Performance-Analyst ===")
 FIT = {"dauer_min": 62, "distanz_km": 11.4, "avg_hr": 158, "max_hr": 172,

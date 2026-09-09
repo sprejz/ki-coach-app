@@ -28,6 +28,11 @@ Ernährung der reine Tabellenstring, ohne Modell-Call. Er ergänzt einen
 Kontextsatz, erfindet aber nie eigene Mengen. Ein Fehler dort wird lokal
 abgefangen, nicht an den Monolith-Fallback durchgereicht — ein fehlender
 Zusatzsatz darf nicht den ganzen Check kosten.
+
+`wissen` (v2.9.0, optional) ist von Hendrik akzeptierter Kontext aus dem
+Recherche-Agent (`agents/research/research.py`, `knowledge.py`) — app.py lädt
+und rendert ihn (kein Modell-Call, reines File-Lesen) und reicht ihn hier nur
+durch an den Chefcoach. Der Orchestrator selbst kennt `knowledge.py` nicht.
 """
 import asyncio
 import logging
@@ -193,6 +198,7 @@ async def run_check(
     load: Optional[dict] = None,
     woche: Optional[list] = None,
     tage_bis_a: Optional[int] = None,
+    wissen: Optional[str] = None,
     model: str = HAIKU,
     progress: Optional[Callable[[str], None]] = None,
 ) -> dict:
@@ -308,7 +314,8 @@ async def run_check(
     entscheidung = await asyncio.to_thread(
         head_coach.run,
         athlete=athlete, a_race=a_race, medic=medic_result, wetter=weather_result,
-        allgemein=allgemein_result, tp_workouts=tp_workouts, tag=tag, block=block_result, model=model,
+        allgemein=allgemein_result, tp_workouts=tp_workouts, tag=tag, block=block_result,
+        wissen=wissen, model=model,
     )
 
     # Stufe 3: der Architekt formuliert die MOD-Einheiten aus — parallel.
