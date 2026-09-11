@@ -94,14 +94,22 @@ body {
 .race-chip.a-race { border-color: rgba(239,159,39,.4); color: var(--orange); }
 
 /* ── tabs ─────────────────────────────────────────────────────────────────── */
+/* v2.9.3: horizontal scrollbar statt flex:1-Quetschen — ein 8. Tab ("Recherche")
+   hätte mit gleichmäßig verteilter Breite bei 11px wieder Labels abgeschnitten
+   (dasselbe Problem wie in v2.7.21/22 dokumentiert). Scrollen statt schrumpfen
+   heißt: jeder künftige Tab passt, ohne bestehende Labels zu gefährden. */
 .tabs {
   display: flex;
   padding: 12px 16px 0;
   gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;         /* Firefox */
+  -webkit-overflow-scrolling: touch;
 }
+.tabs::-webkit-scrollbar { display: none; }  /* Safari/Chrome */
 .tab-btn {
-  flex: 1;
-  padding: 10px 2px;
+  flex: 0 0 auto;
+  padding: 10px 14px;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius) var(--radius) 0 0;
@@ -111,8 +119,6 @@ body {
   cursor: pointer;
   transition: background .15s, color .15s;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .tab-btn.active { background: var(--card2); border-bottom-color: var(--card2); color: var(--text); }
 
@@ -329,6 +335,54 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 .loading-text { color: var(--muted); font-size: 14px; }
+
+/* ── Recherche-Fortschritt (v2.9.3) ──────────────────────────────────────────
+   Läuft 1-4 Minuten — der kleine Button-Spinner war dafür zu unauffällig.
+   Wiederverwendet die Splash-Screen-Radar-Ringe (splashPulse) statt einer
+   neuen Animation, damit es sich wie derselbe visuelle Stil anfühlt. */
+.research-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 28px 16px;
+  margin-top: 16px;
+  background: var(--card2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.research-progress-visual {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.research-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--green);
+  animation: splashPulse 2s ease-out infinite;
+}
+.research-ring2 { animation-delay: .7s; }
+.research-progress-icon { font-size: 26px; position: relative; z-index: 1; }
+.research-progress-text {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  min-height: 20px;
+  opacity: 1;
+  transition: opacity .25s ease;
+}
+.research-progress-text.fading { opacity: 0; }
+.research-progress-time {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
 
 /* ── error banner ─────────────────────────────────────────────────────────── */
 .error-banner {
@@ -859,7 +913,8 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
   #form-section.dashboard-mode .tab-panel[data-panel="analyse"],
   #form-section.dashboard-mode .tab-panel[data-panel="erholung"],
   #form-section.dashboard-mode .tab-panel[data-panel="chat"],
-  #form-section.dashboard-mode .tab-panel[data-panel="einstellungen"] { display: none; }
+  #form-section.dashboard-mode .tab-panel[data-panel="einstellungen"],
+  #form-section.dashboard-mode .tab-panel[data-panel="recherche"] { display: none; }
 }
 </style>
 </head>
@@ -905,6 +960,7 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
   <button class="tab-btn" data-tab="analyse">{{ T.tab_analyse }}</button>
   <button class="tab-btn" data-tab="erholung">{{ T.tab_erholung }}</button>
   <button class="tab-btn" data-tab="chat">Chat</button>
+  <button class="tab-btn" data-tab="recherche">{{ T.tab_recherche }}</button>
   <button class="tab-btn" data-tab="einstellungen">{{ T.tab_profil }}</button>
 </div>
 
@@ -1334,24 +1390,6 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
       <button type="button" class="btn-submit" onclick="recalcBaseline()">{{ T.btn_baseline }}</button>
     </div>
 
-    <!-- Recherche-Agent (v2.9.0) — Vorschlag/Review, nie automatisch wirksam -->
-    <div class="form-card" style="margin-top:0">
-      <p class="section-title">{{ T.research_title }}</p>
-      <p style="font-size:13px;color:var(--muted);margin:0 0 14px">{{ T.research_sub }}</p>
-      <div class="form-section">
-        <input type="text" id="research-thema" class="text-input" placeholder="{{ T.research_thema_placeholder }}">
-      </div>
-      <button type="button" class="btn-submit" id="research-start-btn" onclick="startResearch()">{{ T.research_start }}</button>
-
-      <div class="form-section" style="margin-top:16px;padding-top:16px;border-top:1px dashed var(--border)">
-        <div class="field-label" style="margin-bottom:8px"><span>{{ T.research_video_label }}</span></div>
-        <input type="text" id="research-video-url" class="text-input" placeholder="{{ T.research_video_placeholder }}">
-      </div>
-      <button type="button" class="btn-submit" id="research-video-btn" onclick="startVideoResearch()">{{ T.research_video_start }}</button>
-
-      <div id="knowledge-list" style="margin-top:16px"></div>
-    </div>
-
   <div><!-- Info (seit v2.7.21 im Profil) -->
     <div class="form-card" style="text-align:center;padding:32px 20px">
       <div style="font-size:48px;margin-bottom:12px">🏊🚴🏃</div>
@@ -1385,6 +1423,37 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
     </div>
   </div><!-- /Info -->
   </div><!-- Einstellungen panel -->
+
+  <div class="tab-panel" data-panel="recherche">
+    <!-- Recherche-Agent (eigener Tab seit v2.9.3, vorher Teil des Profil-Tabs) —
+         Vorschlag/Review, nie automatisch wirksam außer bei Konfidenz "hoch". -->
+    <div class="form-card" style="margin-top:0">
+      <p class="section-title">{{ T.research_title }}</p>
+      <p style="font-size:13px;color:var(--muted);margin:0 0 14px">{{ T.research_sub }}</p>
+      <div class="form-section">
+        <input type="text" id="research-thema" class="text-input" placeholder="{{ T.research_thema_placeholder }}">
+      </div>
+      <button type="button" class="btn-submit" id="research-start-btn" onclick="startResearch()">{{ T.research_start }}</button>
+
+      <div class="form-section" style="margin-top:16px;padding-top:16px;border-top:1px dashed var(--border)">
+        <div class="field-label" style="margin-bottom:8px"><span>{{ T.research_video_label }}</span></div>
+        <input type="text" id="research-video-url" class="text-input" placeholder="{{ T.research_video_placeholder }}">
+      </div>
+      <button type="button" class="btn-submit" id="research-video-btn" onclick="startVideoResearch()">{{ T.research_video_start }}</button>
+
+      <div id="research-progress" class="research-progress" style="display:none">
+        <div class="research-progress-visual">
+          <span class="research-ring"></span>
+          <span class="research-ring research-ring2"></span>
+          <span class="research-progress-icon">🔬</span>
+        </div>
+        <div class="research-progress-text" id="research-progress-text"></div>
+        <div class="research-progress-time" id="research-progress-time"></div>
+      </div>
+
+      <div id="knowledge-list" style="margin-top:16px"></div>
+    </div>
+  </div><!-- Recherche panel -->
 
   <div class="tab-panel" data-panel="ernaehrung">
     <div id="ernaehrung-content"></div>
@@ -1592,10 +1661,13 @@ function initTabs() {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.dataset.panel === tab));
       document.getElementById('form-section').classList.toggle('dashboard-mode', DASHBOARD_TABS.includes(tab));
+      // v2.9.3: die Tab-Leiste scrollt jetzt horizontal statt Labels zu quetschen —
+      // ein Tap am Rand soll den Button trotzdem vollständig ins Bild holen.
+      btn.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
       if (tab === 'erholung' && !erholungLoaded) loadErholung();
       if (tab === 'analyse') renderAnalyseSection();
       if (tab === 'ernaehrung') loadErnaehrung();
-      if (tab === 'einstellungen' && !researchLoaded) loadKnowledge();
+      if (tab === 'recherche' && !researchLoaded) loadKnowledge();
     });
   });
   document.getElementById('form-section').classList.add('dashboard-mode');
@@ -3461,15 +3533,63 @@ const CHECK_MAX_FEHLER   = 5;          // Funkloch kippt den laufenden Job nicht
 // ── Recherche-Agent (v2.9.0) ──────────────────────────────────────────────────
 // Läuft nur auf Klick, nie mit einem Check. Funde sind Vorschläge — erst nach
 // "Übernehmen" fließen sie in den Chefcoach ein (siehe knowledge.py/app.py).
+
+// v2.9.3: eigene Fortschritts-Anzeige statt des kleinen Button-Spinners — ein
+// Lauf dauert 1-4 Minuten, dafür war der Spinner zu unauffällig ("langweilige
+// Animation"). Rotiert Statustexte (research_phasen) und zeigt die verstrichene
+// Zeit; beide Buttons werden gesperrt, damit nicht zwei Läufe gleichzeitig
+// starten (derselbe Job-Store könnte sonst zwei parallele Ergebnisse verwechseln).
+let _researchProgressTimer = null;
+let _researchElapsedTimer = null;
+
+function _researchButtons() {
+  return [document.getElementById('research-start-btn'), document.getElementById('research-video-btn')]
+    .filter(Boolean);
+}
+
+function startResearchProgress() {
+  _researchButtons().forEach(b => { b.disabled = true; });
+  const box = document.getElementById('research-progress');
+  const textEl = document.getElementById('research-progress-text');
+  const timeEl = document.getElementById('research-progress-time');
+  if (!box || !textEl || !timeEl) return;
+  box.style.display = 'flex';
+
+  const phasen = T.research_phasen || [T.research_running];
+  let phaseIdx = 0;
+  textEl.textContent = phasen[0];
+  _researchProgressTimer = setInterval(() => {
+    textEl.classList.add('fading');
+    setTimeout(() => {
+      phaseIdx = (phaseIdx + 1) % phasen.length;
+      textEl.textContent = phasen[phaseIdx];
+      textEl.classList.remove('fading');
+    }, 250);
+  }, 4500);
+
+  const start = Date.now();
+  const tick = () => {
+    const sek = Math.floor((Date.now() - start) / 1000);
+    timeEl.textContent = `${Math.floor(sek / 60)}:${String(sek % 60).padStart(2, '0')}`;
+  };
+  tick();
+  _researchElapsedTimer = setInterval(tick, 1000);
+}
+
+function stopResearchProgress() {
+  _researchButtons().forEach(b => { b.disabled = false; });
+  const box = document.getElementById('research-progress');
+  if (box) box.style.display = 'none';
+  clearInterval(_researchProgressTimer);
+  clearInterval(_researchElapsedTimer);
+  _researchProgressTimer = _researchElapsedTimer = null;
+}
+
 async function startResearch() {
   const input = document.getElementById('research-thema');
   const thema = (input?.value || '').trim();
   if (!thema) return;
-  const btn = document.getElementById('research-start-btn');
-  const orig = btn.textContent;
-  btn.disabled = true;
-  btn.innerHTML = `<span style="display:inline-flex;align-items:center;gap:8px;justify-content:center">` +
-    `<div class="spinner" style="width:14px;height:14px;border-width:2px"></div>${esc(T.research_running)}</span>`;
+  startResearchProgress();
   try {
     const r = await fetchMitFrist('/api/research/run', {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ thema }),
@@ -3483,8 +3603,7 @@ async function startResearch() {
   } catch (e) {
     showError(String(e.message || e));
   } finally {
-    btn.disabled = false;
-    btn.textContent = orig;
+    stopResearchProgress();
   }
 }
 
@@ -3494,11 +3613,7 @@ async function startVideoResearch() {
   const input = document.getElementById('research-video-url');
   const url = (input?.value || '').trim();
   if (!url) return;
-  const btn = document.getElementById('research-video-btn');
-  const orig = btn.textContent;
-  btn.disabled = true;
-  btn.innerHTML = `<span style="display:inline-flex;align-items:center;gap:8px;justify-content:center">` +
-    `<div class="spinner" style="width:14px;height:14px;border-width:2px"></div>${esc(T.research_running)}</span>`;
+  startResearchProgress();
   try {
     const r = await fetchMitFrist('/api/research/video', {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ url }),
@@ -3512,8 +3627,7 @@ async function startVideoResearch() {
   } catch (e) {
     showError(String(e.message || e));
   } finally {
-    btn.disabled = false;
-    btn.textContent = orig;
+    stopResearchProgress();
   }
 }
 

@@ -1,4 +1,4 @@
-# KI Coach App — v2.9.2
+# KI Coach App — v2.9.3
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -75,7 +75,10 @@ ki-coach-app/
 4. **Analyse** — abgeschlossene Einheiten der letzten 5 Tage bewerten lassen
 5. **Erholung** — Erholungs-Index, HRV-Verlauf, Marker-Status
 6. **Chat** — freier Coach-Chat mit TP- und Wetterkontext
-7. **Profil** — Athletendaten, Rennen, Baseline-Manager, Info (Version, Pipeline-Status)
+7. **Recherche** — Themen-/Video-Recherche, Fundliste zur Prüfung (eigener Tab seit v2.9.3, vorher Teil von Profil)
+8. **Profil** — Athletendaten, Rennen, Baseline-Manager, Info (Version, Pipeline-Status)
+
+**Tab-Leiste scrollt horizontal (v2.9.3).** Acht Tabs bei 11px Schrift auf 320-390px Breite hätten mit der alten `flex:1`-Gleichverteilung wieder Labels abgeschnitten (dasselbe Problem, das v2.7.21/22 durch Tab-Entfernen gelöst hatte). Jetzt: `.tabs { overflow-x: auto }`, Buttons behalten ihre natürliche Breite (`flex: 0 0 auto`) — ein Tap scrollt den Button per `scrollIntoView` vollständig ins Bild. Löst das Problem strukturell, ein künftiger neunter Tab gefährdet keine bestehenden Labels mehr.
 
 **Checks laufen asynchron** (v2.7.4): `POST /api/check-abend` bzw. `check-morgen` liefern sofort eine `job_id`, das Frontend pollt `GET /api/check/{job_id}` und zeigt dabei die aktuelle Orchestrator-Stufe.
 
@@ -365,6 +368,15 @@ Z1 >6:30/km · Z2 6:00–6:30 · Z3 5:45–6:00 · Z4 5:10–5:30
 ---
 
 ## Changelog (verdichtet)
+
+### v2.9.3 — Recherche als eigener Tab, Fortschritts-Animation statt Button-Spinner
+Nutzerwunsch nach v2.9.2: die Recherche sollte einen eigenen Menüpunkt statt im Profil-Tab zu stecken, und der Lade-Zustand während des 1-4-minütigen Laufs sollte auffälliger sein als der kleine Button-Spinner ("langweilige Animation").
+
+- **Neuer Tab „Recherche"** (`data-tab="recherche"`/`data-panel="recherche"`) — das komplette Formular (Themen-Eingabe, YouTube-Link, Fundliste) ist unverändert aus dem Profil-Tab herausgelöst in ein eigenes Panel gewandert, zwischen Chat und Profil. `initTabs()`s Lazy-Load-Bedingung (`loadKnowledge()`) ist entsprechend von `einstellungen` auf `recherche` umgezogen.
+- **Die Sieben-Tabs-Grenze aus v2.7.21/22 ist strukturell aufgehoben, nicht nur verschoben.** Ein achter Tab hätte mit der alten `flex:1`-Gleichverteilung bei 11px wieder Labels abgeschnitten — statt wie damals einen Tab zu opfern (Info → Profil), scrollt `.tabs` jetzt horizontal (`overflow-x:auto`, Buttons behalten ihre natürliche Breite über `flex:0 0 auto`) und `initTabs()`s Klick-Handler holt den angetippten Button per `scrollIntoView({inline:'nearest'})` vollständig ins Bild. Ein künftiger neunter Tab gefährdet damit keine bestehenden Labels mehr. Desktop (v2.8.0-Sidebar) war nie betroffen — dort ist `.tabs` ohnehin eine vertikale Spalte; `recherche` musste dort nur in die `display:none`-Liste der Nicht-Dashboard-Panels aufgenommen werden (`#form-section.dashboard-mode .tab-panel[data-panel="recherche"]`).
+- **Neue Fortschritts-Anzeige** (`.research-progress`, `#research-progress`) ersetzt den kleinen Button-Spinner: rotierende Statustexte (`T.research_phasen`, neue Übersetzungsliste de/en, 5 Phrasen à ~4,5s Anzeigedauer) plus ein hochzählender `mm:ss`-Timer seit Laufbeginn. Visuell die **Splash-Screen-Radar-Ringe wiederverwendet** (`@keyframes splashPulse`, schon für den Ladebildschirm gebaut) statt eine neue Animation zu erfinden — bleibt im selben visuellen Stil der App. Bewusst **kein** vorgetäuschter Fortschrittsbalken oder Stufen-Zähler ("Schritt 2 von 5") — der Backend-Job ist ein einzelner opaker Claude-Call ohne echte Zwischenstufen, ein exakter Fortschritt wäre erfunden; die rotierenden Phrasen behaupten keine bestimmte Reihenfolge oder einen Prozentsatz.
+- **Beide Buttons (Thema + Video) werden während eines Laufs gemeinsam gesperrt** (`_researchButtons()`), nicht mehr nur der jeweils geklickte — verhindert zwei gleichzeitige Läufe, die sich denselben Job-Store streitig machen könnten.
+- Test `test_wiring.py` „es bleiben sieben Tabs" (v2.7.21) ist auf „acht Tabs, Leiste scrollt horizontal" umgeschrieben — die alte Prüfung wäre mit diesem Commit zurecht fehlgeschlagen.
 
 ### v2.9.2 — Recherche-Agent wertet YouTube-Podcasts/-Vlogs aus
 Nutzerfrage: könnte der Coach auch aus Podcasts/Vlogs zu Sportthemen lernen? Klarstellung vorab: Claude hat keine native Audio-/Video-Eingabe — der einzig funktionierende Weg ist ein **Transkript** (Text) zu analysieren. Auf Nachfrage wollte Hendrik den bequemsten Einstieg: nur den YouTube-Link einfügen, das Transkript automatisch abrufen lassen.

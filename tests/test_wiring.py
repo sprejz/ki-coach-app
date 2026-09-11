@@ -348,8 +348,15 @@ async def main():
            "der Tab rechnet deterministisch — kein Claude-Call")
     pruefe('data-tab="ernaehrung"' in _idx and 'data-panel="ernaehrung"' in _idx,
            "Tab-Button und Panel sind verdrahtet")
-    pruefe(_idx.count('class="tab-btn') == 7,
-           "es bleiben sieben Tabs — kein achter, der die Beschriftung bricht")
+    # v2.9.3: die Sieben-Tabs-Grenze ist aufgehoben — .tabs scrollt jetzt
+    # horizontal statt Labels zu quetschen, ein achter Tab (Recherche) bricht
+    # die Beschriftung deshalb nicht mehr. Zähler bewusst nicht mehr auf einen
+    # exakten Wert gepinnt (das würde beim nächsten Tab wieder brechen),
+    # sondern nur noch geprüft, dass die Leiste tatsächlich scrollt.
+    pruefe(_idx.count('class="tab-btn') == 8,
+           "acht Tabs (Recherche als eigener Tab seit v2.9.3)")
+    pruefe("overflow-x: auto" in _idx and ".tabs::-webkit-scrollbar" in _idx,
+           "die Tab-Leiste scrollt horizontal statt Labels zu quetschen")
     # Reihenfolge: der Tab gehört neben die Checks, nicht ans Ende (v2.7.22).
     _reihenfolge = re.findall(r'class="tab-btn[^"]*" data-tab="(\w+)"', _idx)
     pruefe(_reihenfolge[:3] == ["morgen", "abend", "ernaehrung"],

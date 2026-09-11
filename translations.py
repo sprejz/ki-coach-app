@@ -21,6 +21,7 @@ TRANSLATIONS = {
         "tab_profil":        "Profil",
         "tab_about":         "Info",
         "tab_ernaehrung":    "Fueling",
+        "tab_recherche":     "Recherche",
         "sec_ernaehrung":    "Ernährung",
         "ernaehrung_quelle": "Stand: TrainingPeaks — nach einem Check erst nach \u201eIn TP anwenden\u201c aktuell",
         "ernaehrung_flaschen": "Flaschen",
@@ -93,6 +94,16 @@ TRANSLATIONS = {
         "research_video_label":       "oder: YouTube-Link (Podcast/Vlog)",
         "research_video_placeholder": "z.B. https://youtube.com/watch?v=…",
         "research_video_start":       "Video analysieren",
+        # Rotierende Statustexte während des Recherche-Laufs (v2.9.3) — der Lauf
+        # dauert 1-4 Minuten, ein einzelner statischer Satz wirkt dann wie hängen
+        # geblieben. Bewusst generisch formuliert, gilt für Thema- und Video-Lauf.
+        "research_phasen": [
+            "Durchsucht wissenschaftliche Quellen …",
+            "Prüft die Studienlage …",
+            "Vergleicht Befunde …",
+            "Bewertet die Konfidenz je Fund …",
+            "Formuliert die Erkenntnisse …",
+        ],
         # CSV upload
         "lbl_csv":           "AutoSleep CSV",
         "lbl_csv_btn":       "CSV hochladen",
@@ -413,6 +424,7 @@ TRANSLATIONS = {
         "tab_profil":        "Profile",
         "tab_about":         "Info",
         "tab_ernaehrung":    "Fueling",
+        "tab_recherche":     "Research",
         "sec_ernaehrung":    "Nutrition",
         "ernaehrung_quelle": "Source: TrainingPeaks — after a check, only current once applied to TP",
         "ernaehrung_flaschen": "Bottles",
@@ -480,6 +492,13 @@ TRANSLATIONS = {
         "research_video_label":       "or: YouTube link (podcast/vlog)",
         "research_video_placeholder": "e.g. https://youtube.com/watch?v=…",
         "research_video_start":       "Analyze video",
+        "research_phasen": [
+            "Searching scientific sources …",
+            "Checking the evidence …",
+            "Comparing findings …",
+            "Rating confidence per finding …",
+            "Writing up the findings …",
+        ],
         # CSV upload
         "lbl_csv":           "AutoSleep CSV",
         "lbl_csv_btn":       "Upload CSV",
