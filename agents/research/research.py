@@ -12,6 +12,7 @@ from pathlib import Path
 from ..base import SONNET, call_agent_with_search, load_prompt
 
 _PROMPT_PATH = Path(__file__).parent / "research.md"
+_VIDEO_PROMPT_PATH = Path(__file__).parent / "research_video.md"
 
 SCHEMA = {
     "type": "object",
@@ -57,4 +58,24 @@ def run(*, thema: str, model: str = SONNET) -> dict:
         max_tokens=6000,
         max_uses=5,
         label="research",
+    )
+
+
+def run_video(*, titel: str, url: str, transcript: str, gekuerzt: bool = False,
+              model: str = SONNET) -> dict:
+    """Wertet ein Video-/Podcast-Transkript aus (v2.9.2) — Transkript kommt fertig
+    von youtube.py, hier passiert nur noch die Bewertung. Nutzt dasselbe SCHEMA
+    wie run(): knowledge.add_findings() muss nicht wissen, ob ein Fund aus einer
+    Websuche oder einem Transkript stammt."""
+    hinweis = ("\n\n[Hinweis: Transkript wurde gekürzt, du siehst nicht das "
+               "ganze Video.]" if gekuerzt else "")
+    user = f"Video-Titel: {titel}\nURL: {url}\n\nTranskript:\n{transcript}{hinweis}"
+    return call_agent_with_search(
+        prompt=load_prompt("research_video", path=_VIDEO_PROMPT_PATH),
+        user=user,
+        schema=SCHEMA,
+        model=model,
+        max_tokens=6000,
+        max_uses=5,
+        label="research_video",
     )

@@ -35,6 +35,7 @@ import agents.periodizer as periodizer  # noqa: E402
 import agents.research as research_agent  # noqa: E402
 import agents.weather as weather  # noqa: E402
 import knowledge  # noqa: E402
+import youtube  # noqa: E402
 import app  # noqa: E402
 import orchestrator  # noqa: E402
 from translations import TRANSLATIONS  # noqa: E402
@@ -118,6 +119,14 @@ FAKE_RESEARCH = {
          "quelle": "https://example.org/study2", "konfidenz": "mittel", "betrifft": "Ernährung"},
     ],
 }
+FAKE_VIDEO_RESEARCH = {
+    "zusammenfassung": "Der Podcast nennt eine Zahl zum Tapering, die sich per Suche bestätigen ließ.",
+    "erkenntnisse": [
+        {"titel": "Tapering-Dauer laut Podcast", "aussage": "Der Gast empfiehlt 10-14 Tage Tapering vor "
+         "einer Langdistanz, was sich mit einer gefundenen Übersichtsarbeit deckt.",
+         "quelle": "https://example.org/tapering-review", "konfidenz": "mittel", "betrifft": "Tapering"},
+    ],
+}
 
 
 def attrappe(name, antwort):
@@ -148,6 +157,7 @@ architect_swim.run = attrappe("architect_swim", FAKE_ARCHITEKT_SWIM)
 periodizer.run = attrappe("periodizer", FAKE_BLOCK)
 fueling.run = attrappe("fueling", FAKE_FUELING_HITZE)
 research_agent.run = attrappe("research", FAKE_RESEARCH)
+research_agent.run_video = attrappe("research_video", FAKE_VIDEO_RESEARCH)
 # Der Orchestrator hat die Module beim Import gebunden — Attrappen nachziehen.
 orchestrator.medic, orchestrator.weather = medic, weather
 orchestrator.allgemeinmedic = allgemeinmedic
@@ -1292,6 +1302,86 @@ async def main():
     # — die echte Signatur liegt weiterhin unverändert am Submodul.
     pruefe("wissen" in inspect.signature(head_coach.head_coach.run).parameters,
            "head_coach.run nimmt den wissen-Parameter entgegen")
+
+    # v2.9.2: Video-Transkript-Analyse — derselbe Job-Store, anderer Trigger.
+    # youtube.fetch_transcript_and_title gemockt, kein echter Netzwerk-/Proxy-Call.
+    _orig_fetch_transcript_and_title = app.youtube.fetch_transcript_and_title
+
+    video_leer_400 = False
+    try:
+        await app.research_video(_FakeRequest({"url": "  "}))
+    except HTTPException as e:
+        video_leer_400 = (e.status_code == 400)
+    pruefe(video_leer_400, "eine leere Video-URL wird mit 400 abgelehnt")
+
+    video_ungueltig_400 = False
+    try:
+        await app.research_video(_FakeRequest({"url": "https://example.com/nicht-youtube"}))
+    except HTTPException as e:
+        video_ungueltig_400 = (e.status_code == 400)
+    pruefe(video_ungueltig_400, "eine Nicht-YouTube-URL wird mit 400 abgelehnt")
+
+    def _fetch_kaputt(video_id):
+        raise youtube.YoutubeNotConfigured("kein Proxy konfiguriert")
+    app.youtube.fetch_transcript_and_title = _fetch_kaputt
+    video_not_configured_400 = False
+    try:
+        await app.research_video(_FakeRequest({"url": "https://youtu.be/dQw4w9WgXcQ"}))
+    except HTTPException as e:
+        video_not_configured_400 = (e.status_code == 400
+                                     and e.detail == app.T["err_video_not_configured"])
+    pruefe(video_not_configured_400,
+           "fehlende Webshare-Konfiguration liefert 400 mit klarer Meldung, kein Absturz")
+
+    def _fetch_ok(video_id):
+        return ("Transkript-Text über Tapering.", "Test-Video-Titel", False)
+    app.youtube.fetch_transcript_and_title = _fetch_ok
+    video_run_resp = await app.research_video(_FakeRequest({"url": "https://youtu.be/dQw4w9WgXcQ"}))
+    video_run_data = json.loads(video_run_resp.body)
+    pruefe("job_id" in video_run_data and video_run_data["titel"] == "Test-Video-Titel",
+           "POST /api/research/video liefert sofort job_id + Titel")
+
+    # Der Erfolgspfad spawnt (wie bei research_run) einen echten Hintergrund-Task
+    # — deshalb hier nur Quellcode-Prüfung, kein Warten auf den echten Task.
+    quelle_research_video = inspect.getsource(app.research_video)
+    pruefe("_video_task_spawn" in quelle_research_video,
+           "der Video-Lauf wird über den Store gestartet, nicht referenzlos")
+
+    app.youtube.fetch_transcript_and_title = _orig_fetch_transcript_and_title
+
+    # _run_video_job direkt geprüft (ohne den Hintergrund-Task-Race).
+    v_job_id = app._research_job_start()
+    await app._run_video_job(v_job_id, url="https://youtu.be/dQw4w9WgXcQ", titel="Test-Video-Titel",
+                             transcript="Transkript-Text", gekuerzt=False)
+    fertig_video = app._research_jobs[v_job_id]
+    pruefe(fertig_video["status"] == "done" and fertig_video["result"] == FAKE_VIDEO_RESEARCH,
+           "_run_video_job liefert das Agent-Ergebnis in den Job")
+    gespeichert_video = app.load_knowledge()["eintraege"]
+    video_fund = next((e for e in gespeichert_video if e["thema"] == "Video: Test-Video-Titel"), None)
+    pruefe(video_fund is not None and video_fund["konfidenz"] == "mittel" and video_fund["status"] == "vorschlag",
+           "Video-Funde landen in knowledge.json mit thema='Video: <Titel>' und derselben Konfidenz-Regel")
+
+    def video_kaputt(**kwargs):
+        raise RuntimeError("simulierter Video-Ausfall")
+    _orig_run_video = research_agent.run_video
+    research_agent.run_video = video_kaputt
+    try:
+        v_job2 = app._research_job_start()
+        await app._run_video_job(v_job2, url="https://youtu.be/x", titel="Kaputt",
+                                 transcript="…", gekuerzt=False)
+        pruefe(app._research_jobs[v_job2]["status"] == "error",
+               "ein Fehler im Video-Job wird zum Job-Status, nicht zum ewigen Spinner")
+    finally:
+        research_agent.run_video = _orig_run_video
+
+    for lang_block_video in ("research_video_label", "research_video_start", "err_video_url_missing"):
+        pruefe(f'"{lang_block_video}"' in _TRANS, f"'{lang_block_video}' ist in translations.py gepflegt")
+    # research_agent.run_video ist oben mit der Attrappe überschrieben (Signatur
+    # **kwargs) — die echte Signatur liegt weiterhin unverändert am Submodul,
+    # exakt dasselbe Muster wie beim head_coach.head_coach.run-Check oben.
+    pruefe({"titel", "url", "transcript", "gekuerzt", "model"}
+           <= set(inspect.signature(research_agent.research.run_video).parameters),
+           "research.run_video nimmt titel/url/transcript/gekuerzt/model entgegen")
 
     # Aufräumen: echten Pfad zurücksetzen, Tempdir entfernen, Job-Store leeren.
     app.KNOWLEDGE_FILE = _orig_knowledge_file

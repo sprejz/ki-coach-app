@@ -1342,6 +1342,13 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
         <input type="text" id="research-thema" class="text-input" placeholder="{{ T.research_thema_placeholder }}">
       </div>
       <button type="button" class="btn-submit" id="research-start-btn" onclick="startResearch()">{{ T.research_start }}</button>
+
+      <div class="form-section" style="margin-top:16px;padding-top:16px;border-top:1px dashed var(--border)">
+        <div class="field-label" style="margin-bottom:8px"><span>{{ T.research_video_label }}</span></div>
+        <input type="text" id="research-video-url" class="text-input" placeholder="{{ T.research_video_placeholder }}">
+      </div>
+      <button type="button" class="btn-submit" id="research-video-btn" onclick="startVideoResearch()">{{ T.research_video_start }}</button>
+
       <div id="knowledge-list" style="margin-top:16px"></div>
     </div>
 
@@ -3466,6 +3473,35 @@ async function startResearch() {
   try {
     const r = await fetchMitFrist('/api/research/run', {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ thema }),
+    }, CHECK_POST_MS);
+    if (!r.ok) throw new Error(await r.text());
+    const { job_id } = await r.json();
+    if (!job_id) throw new Error('Keine job_id vom Server');
+    await pollResearch(job_id);
+    input.value = '';
+    await loadKnowledge();
+  } catch (e) {
+    showError(String(e.message || e));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
+}
+
+// v2.9.2: Video-/Podcast-Transkript statt eines Themas — derselbe Job, dasselbe
+// Polling (pollResearch), nur ein anderer Trigger-Endpoint.
+async function startVideoResearch() {
+  const input = document.getElementById('research-video-url');
+  const url = (input?.value || '').trim();
+  if (!url) return;
+  const btn = document.getElementById('research-video-btn');
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = `<span style="display:inline-flex;align-items:center;gap:8px;justify-content:center">` +
+    `<div class="spinner" style="width:14px;height:14px;border-width:2px"></div>${esc(T.research_running)}</span>`;
+  try {
+    const r = await fetchMitFrist('/api/research/video', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ url }),
     }, CHECK_POST_MS);
     if (!r.ok) throw new Error(await r.text());
     const { job_id } = await r.json();

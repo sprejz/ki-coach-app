@@ -29,6 +29,7 @@ from training_load import (
 )
 from translations import TRANSLATIONS
 import strava
+import youtube
 
 # Agent-Pipeline (Sportmediziner + Wetter-Taktiker → Chefcoach). Import bewusst
 # defensiv: fehlt etwas, läuft die App weiter über den alten Monolith-Prompt.
@@ -68,7 +69,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "2.9.1"
+APP_VERSION = "2.9.2"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -2579,6 +2580,60 @@ async def research_run(request: Request):
     job_id = _research_job_start()
     _research_task_spawn(job_id, thema)
     return JSONResponse({"job_id": job_id}, headers=_NO_CACHE)
+
+
+# v2.9.2: Video-Transkripte (Podcast/Vlog) auswerten — derselbe Job-Store und
+# dieselbe Erkenntnisse-Pipeline wie die Themen-Recherche, nur ein anderer
+# Eingabeweg. Der Transkript-Abruf ist schnelle, deterministische I/O (kein
+# Claude-Call) und läuft deshalb SYNCHRON vor dem Job-Spawn — schlägt er fehl
+# (keine Untertitel, YouTube blockt, Proxy nicht konfiguriert), entsteht gar
+# kein Job. Nur der langsame Claude-Teil läuft im Hintergrund.
+def _video_task_spawn(job_id: str, *, url: str, titel: str, transcript: str, gekuerzt: bool) -> None:
+    task = asyncio.create_task(_run_video_job(job_id, url=url, titel=titel,
+                                              transcript=transcript, gekuerzt=gekuerzt))
+    _research_tasks.add(task)
+    task.add_done_callback(_research_tasks.discard)
+
+
+async def _run_video_job(job_id: str, *, url: str, titel: str, transcript: str, gekuerzt: bool) -> None:
+    thema = f"Video: {titel}"
+    try:
+        result = await asyncio.to_thread(
+            research_agent.run_video, titel=titel, url=url, transcript=transcript, gekuerzt=gekuerzt,
+        )
+        data = load_knowledge()
+        eintraege = data.setdefault("eintraege", [])
+        knowledge.add_findings(eintraege, thema=thema, funde=result.get("erkenntnisse", []))
+        save_knowledge(data)
+        _research_jobs[job_id] = {"status": "done", "result": result, "ts": _time.time()}
+        logger.info("video job %s fertig: %d Funde zu %r", job_id,
+                    len(result.get("erkenntnisse", [])), titel)
+    except Exception as e:
+        logger.error("video job %s fehlgeschlagen: %s: %s", job_id, type(e).__name__, e)
+        _research_jobs[job_id] = {"status": "error", "error": f"{type(e).__name__}: {e}"[:300],
+                                  "ts": _time.time()}
+
+
+@app.post("/api/research/video")
+async def research_video(request: Request):
+    if not _AGENTS_IMPORTABLE:
+        raise HTTPException(400, T["err_agents_unavailable"])
+    body = await request.json()
+    url = str(body.get("url", "")).strip()
+    if not url:
+        raise HTTPException(400, T["err_video_url_missing"])
+    video_id = youtube.extract_video_id(url)
+    if not video_id:
+        raise HTTPException(400, T["err_video_url_invalid"])
+    try:
+        transcript, titel, gekuerzt = await asyncio.to_thread(youtube.fetch_transcript_and_title, video_id)
+    except youtube.YoutubeNotConfigured:
+        raise HTTPException(400, T["err_video_not_configured"])
+    except youtube.YoutubeError as e:
+        raise HTTPException(400, str(e))
+    job_id = _research_job_start()
+    _video_task_spawn(job_id, url=url, titel=titel or url, transcript=transcript, gekuerzt=gekuerzt)
+    return JSONResponse({"job_id": job_id, "titel": titel, "gekuerzt": gekuerzt}, headers=_NO_CACHE)
 
 
 @app.get("/api/research/{job_id}")

@@ -1,4 +1,4 @@
-# KI Coach App — v2.9.1
+# KI Coach App — v2.9.2
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
@@ -25,6 +25,7 @@ iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coachi
 - `DATA_DIR` — Verzeichnis für schreibbaren Zustand (`athlete.json`, `baseline.json`, `sleep_history.json`, `strava_token.json`). **Auf Railway `/data` mit gemountetem Volume**, sonst ist nach jedem Deploy alles weg. Ohne die Variable = Repo-Verzeichnis (lokal)
 - `STRAVA_CLIENT_ID` / `STRAVA_CLIENT_SECRET` — Strava-API-App (optional; ohne → Analyse-Tab bleibt beim manuellen FIT-Upload wie bisher)
 - `STRAVA_REFRESH_TOKEN` — einmaliger Seed aus der manuellen OAuth-Autorisierung (siehe „Workout-Analyse"). Die App verwaltet danach ihren eigenen, aktuellen Stand in `DATA_DIR/strava_token.json` — Strava tauscht das Refresh-Token bei jedem Refresh potenziell aus
+- `WEBSHARE_PROXY_USERNAME` / `WEBSHARE_PROXY_PASSWORD` — Webshare-Proxy-Zugangsdaten (optional; ohne → `POST /api/research/video` liefert `err_video_not_configured`, alles andere bleibt unberührt). Nötig, weil YouTube Transkript-Abrufe von Cloud-Server-IPs (Railway, AWS, GCP, …) grundsätzlich anhand der ASN blockieren kann. **Live getestet (v2.9.2): das kostenlose Webshare-Kontingent (10 IPs) hat gereicht** — kein bezahlter „Residential"-Plan zwingend nötig, entgegen der ursprünglichen Annahme beim Bau dieses Features. Reicht das Gratis-Kontingent künftig nicht mehr (IPs erschöpft/gesperrt), ist ein bezahlter Plan die Rückfalloption — dann ausdrücklich „Residential", nicht „Proxy Server"/Datacenter oder „Static Residential", da beide dieselbe Cloud-IP-Blockade träfe.
 - `PORT` — Railway setzt automatisch
 
 **MCP-Service (zweiter Railway-Service, `Dockerfile.mcp`):**
@@ -50,7 +51,8 @@ ki-coach-app/
 ├── training_load.py     ← CTL/ATL/TSB aus der TSS-Historie (deterministisch)
 ├── strava.py            ← Strava-Auto-Match für die Analyse (OAuth direkt per httpx, kein MCP)
 ├── knowledge.py         ← Wissensdatenbank für Recherche-Funde (deterministisch, kein File-I/O, seit v2.9.0)
-├── agents/              ← base, medic, allgemeinmedic, weather, periodizer, head_coach, architect, architect_run, architect_bike, architect_swim, fueling, analyst_run, analyst_bike, analyst_swim, chat, research (je eigener Ordner, seit v2.7.12; Prompt-.md direkt daneben statt zentral, seit v2.7.13; Analyst-Disziplin-Split seit v2.7.28, generischer Analyst-Fallback entfernt seit v2.7.29 — anders als beim Architekten braucht die Analyse keinen; research seit v2.9.0, einziger Agent mit serverseitigem web_search-Tool)
+├── youtube.py           ← YouTube-Transkript-Abruf für Video-Recherche (Webshare-Residential-Proxy, seit v2.9.2)
+├── agents/              ← base, medic, allgemeinmedic, weather, periodizer, head_coach, architect, architect_run, architect_bike, architect_swim, fueling, analyst_run, analyst_bike, analyst_swim, chat, research (je eigener Ordner, seit v2.7.12; Prompt-.md direkt daneben statt zentral, seit v2.7.13; Analyst-Disziplin-Split seit v2.7.28, generischer Analyst-Fallback entfernt seit v2.7.29 — anders als beim Architekten braucht die Analyse keinen; research seit v2.9.0, einziger Agent mit serverseitigem web_search-Tool, seit v2.9.2 auch `run_video()` für Podcast-/Vlog-Transkripte)
 ├── tests/               ← fixtures.py, test_offline.py, test_wiring.py, test_live.py
 ├── translations.py      ← UI-Texte + Monolith-Prompts (de/en)
 ├── templates/
@@ -61,7 +63,7 @@ ki-coach-app/
 ├── knowledge.json       ← Recherche-Funde: Vorschlag/akzeptiert/abgelehnt (serverseitig, seit v2.9.0)
 ├── Dockerfile
 ├── railway.toml
-└── requirements.txt     ← fastapi, uvicorn, httpx, anthropic>=0.40, jinja2, fitdecode
+└── requirements.txt     ← fastapi, uvicorn, httpx, anthropic>=0.120, jinja2, fitdecode, youtube-transcript-api
 ```
 
 ---
@@ -301,6 +303,7 @@ JSON wird über `_extract_json()` robust geparst (Markdown-Fences, `raw_decode` 
 | `POST /api/workout/analyze` · `GET /api/workout/analyze/{job_id}` | Analyse + Polling |
 | `GET /api/nutrition` | Ernährung heute + morgen pro Einheit (deterministisch, kein Claude-Call) |
 | `POST /api/research/run` · `GET /api/research/{job_id}` | Recherche-Agent starten + Polling (v2.9.0) |
+| `POST /api/research/video` | Video-/Podcast-Transkript auswerten (Webshare-Proxy nötig), liefert dieselbe `job_id` wie `research/run` (v2.9.2) |
 | `GET /api/knowledge` · `POST /api/knowledge/{id}/accept\|reject` | Recherche-Funde lesen/entscheiden (v2.9.0) |
 | `POST /api/admin/backfill-weather?days=30` | Wetter-Backfill |
 | `POST /api/debug/fit-parse` · `POST /api/debug/coach-beschreibung` | Debug |
@@ -362,6 +365,20 @@ Z1 >6:30/km · Z2 6:00–6:30 · Z3 5:45–6:00 · Z4 5:10–5:30
 ---
 
 ## Changelog (verdichtet)
+
+### v2.9.2 — Recherche-Agent wertet YouTube-Podcasts/-Vlogs aus
+Nutzerfrage: könnte der Coach auch aus Podcasts/Vlogs zu Sportthemen lernen? Klarstellung vorab: Claude hat keine native Audio-/Video-Eingabe — der einzig funktionierende Weg ist ein **Transkript** (Text) zu analysieren. Auf Nachfrage wollte Hendrik den bequemsten Einstieg: nur den YouTube-Link einfügen, das Transkript automatisch abrufen lassen.
+
+**Wichtiger Fund während der Umsetzung:** YouTube blockiert Transkript-Abrufe von Cloud-Server-IPs (Railway, AWS, GCP, …) zuverlässig anhand der ASN — nicht nach mehreren Versuchen, sondern beim allerersten Aufruf. Ein Datacenter-Proxy hätte dieselbe Blockade, hilft also nicht. Auf Nachfrage hat sich Hendrik trotzdem für den automatischen Abruf entschieden, mit einem **residentiellen Rotating-Proxy** (Webshare) als Voraussetzung — bewusst kein Zurückweichen auf „Transkript von Hand einfügen", obwohl das ohne jede Zusatzinfrastruktur funktioniert hätte.
+
+- **`youtube.py`** (neu, Blattmodul nach dem Vorbild von `strava.py`) — `extract_video_id()` (watch/`youtu.be`/`shorts`/`embed`/`live`-URLs), `fetch_transcript_and_title()` über `youtube-transcript-api` mit `WebshareProxyConfig` aus `WEBSHARE_PROXY_USERNAME`/`PASSWORD`. Fehlen die ENV-Vars: `YoutubeNotConfigured` — derselbe „klarer Fehler statt kryptischer Absturz"-Reflex wie bei fehlendem `TP_MCP_URL`/`STRAVA_CLIENT_ID`. Titel kommt best-effort über YouTubes öffentlichen oEmbed-Endpoint (kein Scraping-Ziel, kein Proxy nötig, ein Fehler dort ist nie fatal — der Titel ist nur ein Anzeigedetail). Transkript wird bei 60.000 Zeichen gekappt (`_MAX_TRANSCRIPT_CHARS`, reine Funktion `_kuerzen()`) — Kostendeckel analog zu „maximal 5 Erkenntnisse" in `research.md`, ein 3h-Podcast-Transkript wäre sonst weder bezahlbar noch sinnvoll auswertbar.
+- **`agents/research/research.py`** — neue Funktion `run_video()` neben `run()`, **dasselbe `SCHEMA`** (keine Änderung an `knowledge.py` nötig) und derselbe `call_agent_with_search()`-Helper — der Agent darf beim Verifizieren einer Video-Behauptung weiterhin die Websuche nutzen.
+- **`agents/research/research_video.md`** (neuer Prompt, eigene Datei statt Wiederverwendung von `research.md`): ein Podcast-Host, der überzeugend klingt, hat damit nichts belegt — der Prompt verlangt, Behauptungen aus dem Transkript aktiv per Websuche zu verifizieren, und macht `konfidenz: hoch` **strenger** als bei der offenen Themenrecherche: nur bei unabhängig bestätigten Aussagen, nie allein weil der Sprecher selbstsicher auftritt. `quelle` ist die tatsächliche Evidenzquelle — bei unverifizierten Aussagen ausdrücklich die Video-URL selbst, damit sichtbar bleibt, dass es nur eine mündliche Behauptung ohne externe Bestätigung ist.
+- **`app.py`** — neuer Endpoint `POST /api/research/video` **ohne neuen Job-Store**: nutzt `_research_jobs`/`_research_job_start()` weiter, das Ergebnis hat dieselbe Form wie bei der Themen-Recherche, also bleibt das Frontend-Polling (`pollResearch()`) unverändert. Der Transkript-Abruf läuft **synchron vor dem Job-Spawn** (schnelle, deterministische I/O, kein Claude-Call) — schlägt er fehl (keine Untertitel, Proxy nicht konfiguriert, YouTube blockt trotzdem), entsteht gar kein Job, sondern sofort ein 400 mit klarer Fehlermeldung. Nur der langsame Claude-Teil (`_run_video_job()`, analog `_run_research_job()`) läuft im Hintergrund.
+- **`templates/index.html`** — zweites Eingabefeld (YouTube-Link + Button) in derselben Recherche-Karte im Profil-Tab, per gestrichelter Linie vom Themen-Feld abgesetzt. Neue JS-Funktion `startVideoResearch()` neben `startResearch()` — nutzt **dasselbe** `pollResearch()` unverändert.
+- **`requirements.txt`** — `youtube-transcript-api==1.2.4` (neue Abhängigkeit).
+
+**Live gegen echtes YouTube + Webshare getestet, noch am selben Tag:** Hendriks kostenloses Webshare-Kontingent (10 IPs) hat direkt funktioniert — drei aufeinanderfolgende Transkript-Abrufe erfolgreich (~5–6s je Abruf), Titel per oEmbed korrekt erkannt, und ein kompletter Lauf über `POST /api/research/video` gegen die echte Anthropic-API. Als Testvideo bewusst ein sportfremdes Musikvideo gewählt (Rick Astley) — die Ehrlichkeitsregel aus `research_video.md` griff korrekt: leere `erkenntnisse`-Liste mit der zutreffenden Begründung „kein sport-/trainingswissenschaftlicher Inhalt", statt eine Sport-Verbindung zu erzwingen. Ein **bezahlter** Webshare-Plan ist damit vorerst nicht nötig — nur falls das Gratis-Kontingent künftig erschöpft/gesperrt wird, ist der „Residential"-Plan (siehe Umgebungsvariablen oben) die Rückfalloption.
 
 ### v2.9.1 — Coach-Chat: Fachkollegen konsultieren + neue Trainingseinheiten/Serien anlegen
 Nutzerwunsch, zwei Lücken im Chat: (1) der Chat sollte bei entsprechenden Themen auch die anderen spezialisierten Agenten (Mediziner, Wetter-Taktiker, Periodisierer, Ernährungsberater) befragen können, nicht nur aus dem allgemeinen Kontext heraus antworten; (2) es sollte möglich sein, in TrainingPeaks neue Trainingseinheiten bzw. ganze Serien davon anzulegen — nicht nur bestehende umbenennen/streichen wie bisher. Explizit **nicht** im Scope: bestehende Einheiten verschieben/umplanen — dafür bleibt der Abend-/Morgen-Check zuständig.

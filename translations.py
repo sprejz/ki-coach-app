@@ -89,6 +89,10 @@ TRANSLATIONS = {
         "research_accept":   "Übernehmen",
         "research_reject":   "Verwerfen",
         "research_auto_note": "automatisch, hohe Konfidenz",
+        # Video-Transkript-Analyse (v2.9.2) — Podcast/Vlog per YouTube-Link
+        "research_video_label":       "oder: YouTube-Link (Podcast/Vlog)",
+        "research_video_placeholder": "z.B. https://youtube.com/watch?v=…",
+        "research_video_start":       "Video analysieren",
         # CSV upload
         "lbl_csv":           "AutoSleep CSV",
         "lbl_csv_btn":       "CSV hochladen",
@@ -385,6 +389,9 @@ TRANSLATIONS = {
         "err_research_thema_missing": "Bitte ein Thema für die Recherche eingeben",
         "err_research_job_gone": "Recherche nicht mehr verfügbar — der Server wurde vermutlich neu gestartet. Bitte nochmal starten.",
         "err_knowledge_not_found": "Eintrag nicht gefunden",
+        "err_video_url_missing": "Bitte einen YouTube-Link eingeben",
+        "err_video_url_invalid": "Das ist kein gültiger YouTube-Link",
+        "err_video_not_configured": "Video-Transkript nicht konfiguriert — Webshare-Residential-Proxy fehlt (siehe CLAUDE.md)",
     },
 
     "en": {
@@ -469,6 +476,10 @@ TRANSLATIONS = {
         "research_accept":   "Accept",
         "research_reject":   "Reject",
         "research_auto_note": "automatic, high confidence",
+        # Video transcript analysis (v2.9.2) — podcast/vlog via YouTube link
+        "research_video_label":       "or: YouTube link (podcast/vlog)",
+        "research_video_placeholder": "e.g. https://youtube.com/watch?v=…",
+        "research_video_start":       "Analyze video",
         # CSV upload
         "lbl_csv":           "AutoSleep CSV",
         "lbl_csv_btn":       "Upload CSV",
@@ -761,5 +772,8 @@ TRANSLATIONS = {
         "err_research_thema_missing": "Please enter a topic for the research",
         "err_research_job_gone": "Research no longer available — the server was probably restarted. Please start again.",
         "err_knowledge_not_found": "Entry not found",
+        "err_video_url_missing": "Please enter a YouTube link",
+        "err_video_url_invalid": "That's not a valid YouTube link",
+        "err_video_not_configured": "Video transcript not configured — Webshare residential proxy missing (see CLAUDE.md)",
     },
 }

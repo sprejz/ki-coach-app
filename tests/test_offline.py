@@ -584,6 +584,39 @@ manuell = knowledge.accept(eintraege3, mittel["id"])
 pruefe(manuell is True and mittel["entschieden_von"] == "hendrik",
        "eine manuelle Übernahme trägt 'hendrik' als Herkunft, nicht 'system'")
 
+print("\n=== YouTube-Transkript-Abruf (v2.9.2) ===")
+import youtube  # noqa: E402
+
+for url, soll in [
+    ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+    ("https://youtu.be/dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+    ("https://youtu.be/dQw4w9WgXcQ?t=10", "dQw4w9WgXcQ"),
+    ("https://www.youtube.com/shorts/abc123XYZ", "abc123XYZ"),
+    ("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL123", "dQw4w9WgXcQ"),
+    ("https://m.youtube.com/watch?v=dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+]:
+    pruefe(youtube.extract_video_id(url) == soll, f"{url!r} → {soll}")
+for kaputt in ("nicht eine url", "https://example.com/watch?v=xyz", "", None):
+    pruefe(youtube.extract_video_id(kaputt) is None,
+           f"{kaputt!r} liefert None statt eines Absturzes")
+
+kurz, gekuerzt_kurz = youtube._kuerzen("x" * 100)
+pruefe(gekuerzt_kurz is False and len(kurz) == 100,
+       "ein kurzes Transkript wird nicht gekürzt")
+lang, gekuerzt_lang = youtube._kuerzen("x" * (youtube._MAX_TRANSCRIPT_CHARS + 5000))
+pruefe(gekuerzt_lang is True and len(lang) == youtube._MAX_TRANSCRIPT_CHARS,
+       "ein zu langes Transkript wird exakt auf den Kostendeckel gekürzt")
+
+import os as _os  # noqa: E402
+
+for _var in ("WEBSHARE_PROXY_USERNAME", "WEBSHARE_PROXY_PASSWORD"):
+    _os.environ.pop(_var, None)
+try:
+    youtube._client()
+    pruefe(False, "ohne Webshare-ENV-Vars hätte _client() YoutubeNotConfigured werfen müssen")
+except youtube.YoutubeNotConfigured:
+    pruefe(True, "fehlende Webshare-Zugangsdaten liefern YoutubeNotConfigured statt eines Absturzes")
+
 print("\n=== Performance-Analyst ===")
 FIT = {"dauer_min": 62, "distanz_km": 11.4, "avg_hr": 158, "max_hr": 172,
        "avg_pace_min_km": "5:26", "tss": 78,
