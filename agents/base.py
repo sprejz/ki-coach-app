@@ -8,7 +8,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import anthropic
 
@@ -32,6 +32,10 @@ PREISE = {
     SONNET: (3.0, 15.0),
     OPUS: (5.0, 25.0),
 }
+
+# Deckel für call_agent_with_consult: maximal so viele Fachkollegen-Konsultationen
+# pro Chat-Antwort — Kostendisziplin, kein offener Tool-Result-Loop.
+MAX_CONSULTS_PER_TURN = 2
 
 
 def kosten(eintraege: Optional[list] = None) -> float:
@@ -240,6 +244,154 @@ def call_agent_with_tools(
                 resp.usage.input_tokens, resp.usage.output_tokens,
                 tool_call["name"] if tool_call else "—")
     return {"text": text, "tool_call": tool_call}
+
+
+def _extract_reply(resp, label: str, model: str, skip_names: Optional[set] = None) -> dict:
+    """Baut {"text","tool_call"} aus einer Anthropic-Antwort — Text plus dem
+    ersten Tool-Use, dessen Name nicht in skip_names steht (genutzt von
+    call_agent_with_consult, um nach einer Consult-Runde keinen consult_*-Namen
+    mehr durchzulassen). Trägt auch die USAGE-Zeile ein — gemeinsame Stelle für
+    call_agent_with_consult, damit dort nichts dupliziert werden muss."""
+    skip_names = skip_names or set()
+    text = "".join(b.text for b in resp.content if b.type == "text").strip()
+    tool_call = None
+    for b in resp.content:
+        if b.type == "tool_use" and b.name not in skip_names:
+            tool_call = {"name": b.name, "input": b.input}
+            break
+
+    if resp.stop_reason == "max_tokens" and tool_call is not None:
+        logger.warning("%s: Tool-Call bei max_tokens abgeschnitten, verworfen", label)
+        tool_call = None
+
+    if not text and not tool_call:
+        raise AgentError(f"{label}: leere Antwort")
+
+    USAGE.append({
+        "label": label, "model": model,
+        "in": resp.usage.input_tokens, "out": resp.usage.output_tokens,
+    })
+    logger.info("%s ok: model=%s in=%d out=%d tool=%s", label, model,
+                resp.usage.input_tokens, resp.usage.output_tokens,
+                tool_call["name"] if tool_call else "—")
+    return {"text": text, "tool_call": tool_call}
+
+
+def call_agent_with_consult(
+    *,
+    prompt: str,
+    messages: list,
+    tools: list,
+    consult_tool_names: set,
+    executor: Callable[[str, dict], dict],
+    model: str = HAIKU,
+    max_tokens: int = 1500,
+    label: str = "agent",
+) -> dict:
+    """Wie call_agent_with_tools, aber Tools mit Namen aus consult_tool_names
+    werden serverseitig sofort ausgeführt (executor) und ihr Ergebnis als
+    tool_result zurückgespielt — Claude bekommt eine ECHTE fachliche
+    Einschätzung eines Spezialisten zu sehen, bevor es antwortet, statt nur
+    Name+Input wie beim propose-before-write-Muster.
+
+    call_agent_with_tools() bleibt davon unangetastet (eigene Funktion statt
+    Umbau) — dessen Ein-Call-Garantie ist für die drei bestehenden
+    propose_*-Tools bereits durch Verhalten/Tests abgesichert.
+
+    Ruft die Antwort KEIN consult_*-Tool, ist das Verhalten identisch zu
+    call_agent_with_tools (ein Call, Text + höchstens ein propose_*-tool_call)
+    — der Normalfall bei den meisten Chat-Nachrichten, keine Mehrkosten.
+
+    Ruft sie mindestens eines: bis zu MAX_CONSULTS_PER_TURN werden ausgeführt,
+    alles darüber hinaus (weitere Consults) und jeder GLEICHZEITIG aufgerufene
+    propose_*-Tool bekommen nur einen synthetischen tool_result und werden
+    NICHT ausgeführt/aufgelöst — die pending-action-Logik für propose_* lebt
+    bewusst exklusiv in app.py, nicht hier (chat.md instruiert das Modell
+    entsprechend, pro Antwort nur ein Tool zu nutzen). Danach EIN zweiter Call
+    mit denselben tools, damit Claude z.B. nach einer Medic-Konsultation noch
+    ein propose_*-Tool rufen darf. Ruft die zweite Antwort erneut einen
+    consult_*-Namen, wird der verworfen — harte Grenze bei genau zwei Calls.
+
+    Gibt {"text": str, "tool_call": {"name","input"}|None} zurück — tool_call
+    ist danach NIE ein consult_*-Name.
+    """
+    client = _client()
+
+    def _call(msgs):
+        try:
+            return client.messages.create(
+                model=model, max_tokens=max_tokens, system=prompt,
+                messages=msgs, tools=tools,
+            )
+        except anthropic.APIStatusError as e:
+            logger.error("%s: API %s — %s", label, e.status_code, e.message)
+            raise AgentError(f"{label}: API-Fehler {e.status_code}: {e.message}") from e
+        except anthropic.APIConnectionError as e:
+            logger.error("%s: Verbindungsfehler — %s", label, e)
+            raise AgentError(f"{label}: API nicht erreichbar") from e
+
+    resp = _call(messages)
+    if resp.stop_reason == "refusal":
+        raise AgentError(f"{label}: Anfrage wurde abgelehnt")
+    if resp.stop_reason == "max_tokens":
+        # Ein bei max_tokens abgeschnittener Tool-Call ist nicht vertrauens-
+        # würdig — keinen Consult-Loop aus unvollständigem Input bauen.
+        return _extract_reply(resp, label, model)
+
+    tool_uses = [b for b in resp.content if b.type == "tool_use"]
+    consult_uses = [b for b in tool_uses if b.name in consult_tool_names]
+
+    if not consult_uses:
+        return _extract_reply(resp, label, model)
+
+    result_blocks = []
+    ausgefuehrt = 0
+    for b in tool_uses:
+        if b.name in consult_tool_names:
+            if ausgefuehrt < MAX_CONSULTS_PER_TURN:
+                try:
+                    ergebnis = executor(b.name, b.input)
+                except Exception as e:
+                    logger.warning("%s: Consult %s fehlgeschlagen: %s: %s",
+                                   label, b.name, type(e).__name__, e)
+                    ergebnis = {"error": str(e)}
+                ausgefuehrt += 1
+            else:
+                ergebnis = {"error": "Konsultationslimit erreicht"}
+            result_blocks.append({
+                "type": "tool_result", "tool_use_id": b.id,
+                "content": json.dumps(ergebnis, ensure_ascii=False),
+            })
+        else:
+            # propose_*-Call gleichzeitig mit einem Consult — nicht auflösen,
+            # das übernimmt app.py erst in einer Antwort ohne Consult.
+            result_blocks.append({
+                "type": "tool_result", "tool_use_id": b.id,
+                "content": json.dumps(
+                    {"note": "Bitte bei weiterem Bedarf im Antworttext erneut vorschlagen."},
+                    ensure_ascii=False,
+                ),
+            })
+
+    USAGE.append({
+        "label": label, "model": model,
+        "in": resp.usage.input_tokens, "out": resp.usage.output_tokens,
+    })
+    logger.info("%s consult-runde: model=%s in=%d out=%d consults=%d",
+                label, model, resp.usage.input_tokens, resp.usage.output_tokens,
+                len(consult_uses))
+
+    messages_2 = messages + [
+        {"role": "assistant", "content": resp.content},
+        {"role": "user", "content": result_blocks},
+    ]
+    resp2 = _call(messages_2)
+    if resp2.stop_reason == "refusal":
+        raise AgentError(f"{label}: Anfrage wurde abgelehnt")
+
+    # Ein consult_*-Tool-Call in der zweiten Antwort wäre eine dritte Runde —
+    # die gibt es nicht, skip_names verwirft ihn (geloggt über tool="—").
+    return _extract_reply(resp2, label, model, skip_names=consult_tool_names)
 
 
 def call_agent_with_search(

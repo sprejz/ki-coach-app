@@ -2843,6 +2843,17 @@ function appendProposalCard(proposal) {
     bodyHtml = `<div style="color:var(--muted);font-size:12px;margin-bottom:6px">` +
       `${esc(proposal.date)} · ${esc(proposal.matched_sport || '')} · ${esc(proposal.matched_title || '')}</div>` +
       `<div>→ ${esc(T.chat_proposal_skip_label)} <b>${esc(proposal.new_title)}</b></div>`;
+  } else if (proposal.type === 'workout_series') {
+    const workouts = proposal.workouts || [];
+    const header = workouts.length > 1
+      ? `<div style="color:var(--muted);font-size:12px;margin-bottom:6px">` +
+        `${esc(T.chat_proposal_series_count.replace('{n}', workouts.length))}</div>`
+      : '';
+    bodyHtml = header + `<div>${esc(T.chat_proposal_series_label)}</div>` +
+      workouts.map(w =>
+        `<div style="margin-top:4px">→ ${esc(w.date)} · ${esc(w.sport)} · ` +
+        `<b>${esc(w.title)}</b> (${esc(String(w.duration_minutes))}min)</div>`
+      ).join('');
   } else {
     bodyHtml = `<div style="color:var(--muted);font-size:12px;margin-bottom:6px">${esc(proposal.date)}</div>` +
       `<div><b>${esc(proposal.title)}</b></div>` +

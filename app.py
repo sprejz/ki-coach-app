@@ -11,7 +11,7 @@ import uuid
 import threading
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Optional, List
+from typing import Callable, Optional, List
 
 import httpx
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
@@ -36,6 +36,10 @@ try:
     from agents import analyst_bike, analyst_run, analyst_swim
     from agents import chat as chat_agent
     from agents import research as research_agent
+    # Für die Chat-Konsultation (v2.9.1) direkt importiert — der Chat ruft diese
+    # Spezialisten selbst auf (_build_consult_executor), nicht nur der
+    # Orchestrator, der sie ohnehin schon für die Checks importiert.
+    from agents import allgemeinmedic, fueling, medic, periodizer, weather
     from orchestrator import run_check as _run_agent_check
     _AGENTS_IMPORTABLE = True
     _AGENTS_IMPORT_ERROR = ""
@@ -64,7 +68,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "2.9.0"
+APP_VERSION = "2.9.1"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1387,6 +1391,52 @@ def _resolve_workout_skip_proposal(args: dict):
     return summary, proposal
 
 
+def _resolve_workout_series_proposal(args: dict):
+    """Wie _resolve_calendar_note_proposal (keine bestehende Einheit zu matchen
+    — es entstehen neue), aber für 1..N neue Einheiten auf einmal. Ein einziger
+    ungültiger Eintrag verwirft die GANZE Anfrage vor der Bestätigung — kein
+    Teil-Erfolg, den der Athlet erst beim Draufklicken bemerkt."""
+    workouts = args.get("workouts") or []
+    if not workouts:
+        return T["chat_proposal_invalid"], None
+
+    geprueft = []
+    for w in workouts:
+        date_str = str(w.get("date", "")).strip()
+        sport = str(w.get("sport", "")).strip()
+        title = str(w.get("title", "")).strip()
+        try:
+            date.fromisoformat(date_str)
+        except ValueError:
+            return T["chat_proposal_invalid"], None
+        try:
+            duration = int(w.get("duration_minutes"))
+        except (TypeError, ValueError):
+            return T["chat_proposal_invalid"], None
+        if not sport or not title or duration < 20:
+            return T["chat_proposal_invalid"], None
+        entry = {"date": date_str, "sport": sport, "title": title, "duration_minutes": duration}
+        if w.get("description"):
+            entry["description"] = str(w["description"]).strip()
+        if w.get("tss") is not None:
+            try:
+                entry["tss"] = int(w["tss"])
+            except (TypeError, ValueError):
+                pass
+        if sport == "Schwimmen" and w.get("distance_km") is not None:
+            try:
+                entry["distance_km"] = float(w["distance_km"])
+            except (TypeError, ValueError):
+                pass
+        geprueft.append(entry)
+
+    pending_id = _pending_action_start({"type": "workout_series", "workouts": geprueft})
+    summary = str(args.get("summary") or "").strip() or T["chat_proposal_fallback_summary"]
+    proposal = {"pending_id": pending_id, "type": "workout_series",
+                "workouts": geprueft, "summary": summary}
+    return summary, proposal
+
+
 def _resolve_chat_tool_call(tool_call: dict):
     name, args = tool_call.get("name"), tool_call.get("input") or {}
     if name == "propose_workout_update":
@@ -1395,6 +1445,8 @@ def _resolve_chat_tool_call(tool_call: dict):
         return _resolve_calendar_note_proposal(args)
     if name == "propose_workout_skip":
         return _resolve_workout_skip_proposal(args)
+    if name == "propose_workout_series":
+        return _resolve_workout_series_proposal(args)
     logger.warning("coach_chat: unbekannter Tool-Call %r", name)
     return T["chat_proposal_invalid"], None
 
@@ -1435,6 +1487,31 @@ async def chat_tp_action_confirm(pending_id: str):
         except Exception as e:
             logger.error("chat tp-action confirm: tp_create_note failed for %s: %s", pending_id, e)
             actions.append({"badge": "NOTE", "status": "error", "detail": str(e)})
+    elif entry["type"] == "workout_series":
+        # Kein Alles-oder-nichts: ein fehlgeschlagenes Workout in der Serie
+        # blockiert die übrigen nicht, jede Zeile bekommt ihren eigenen Status
+        # (dieselbe Philosophie wie bei mehreren Operationen in tp_apply).
+        for w in entry["workouts"]:
+            create_args = {
+                "title": w["title"], "sport": w["sport"],
+                "date": w["date"], "duration_minutes": w["duration_minutes"],
+            }
+            if w.get("description"):
+                create_args["description"] = w["description"]
+            if w.get("tss") is not None:
+                create_args["tss"] = w["tss"]
+            if w.get("distance_km") is not None:
+                create_args["distance_km"] = w["distance_km"]
+            try:
+                result = await call_tp_mcp("tp_create_workout", create_args)
+                actions.append({"badge": "CHAT", "status": "ok",
+                                "detail": f"{w['title']} ({w['date']}, {w['duration_minutes']}min)",
+                                "mcp_response": result})
+            except Exception as e:
+                logger.error("chat tp-action confirm: tp_create_workout failed for %s (%s): %s",
+                             pending_id, w.get("title"), e)
+                actions.append({"badge": "CHAT", "status": "error",
+                                "detail": f"{w.get('title')} ({w.get('date')}): {e}"})
 
     logger.info("chat tp-action %s confirmed: %s", pending_id, entry["type"])
     return {"ok": True, "actions": actions}
@@ -1444,6 +1521,130 @@ async def chat_tp_action_confirm(pending_id: str):
 async def chat_tp_action_cancel(pending_id: str):
     existed = _pending_tp_actions.pop(pending_id, None) is not None
     return {"ok": True, "cancelled": existed}
+
+
+def _consult_sleep(baseline: Optional[dict]) -> Optional[dict]:
+    """Letzter gespeicherte Schlafeintrag, ins Format gebracht, das
+    medic/allgemeinmedic build_input erwartet (dieselben Kürzel wie beim
+    CSV-Import, sleep_history.json speichert andere Feldnamen) — best effort
+    für die Chat-Konsultation, kann Tage alt sein. chat.md macht dem Modell
+    diese Unschärfe explizit transparent."""
+    history = load_sleep_history()
+    if not history:
+        return None
+    last = history[-1]
+    sd = {
+        "hrv": last.get("schlafHRV"),
+        "wach_bpm": last.get("wachBPM"),
+        "schlaf_bpm": last.get("schlafBPM"),
+        "atmung": last.get("atmung"),
+        "effizienz": last.get("effizienz"),
+    }
+    return {**sd, "flags": flag_sleep(sd, baseline).get("flags", [])}
+
+
+def _build_consult_executor(*, athlete: dict, baseline: Optional[dict],
+                            load: Optional[dict], woche: Optional[list],
+                            a_race: Optional[dict], tage_bis_a: Optional[int],
+                            wx_today: Optional[dict], wx_tomorrow: Optional[dict],
+                            workouts_by_date: dict) -> Callable[[str, dict], dict]:
+    """Baut den Executor, den call_agent_with_consult für jeden consult_*-Tool-
+    Call aufruft. Führt den ECHTEN Spezialisten aus (lesend — kein Zweig ruft
+    call_tp_mcp oder sonst etwas Schreibendes auf) und gibt sein Ergebnis-Dict
+    zurück, das Claude als tool_result sieht und in eigenen Worten einbaut."""
+    sleep = _consult_sleep(baseline)
+    heute = date.today().isoformat()
+    morgen = (date.today() + timedelta(days=1)).isoformat()
+
+    def _wetter_fuer(date_str: str) -> Optional[dict]:
+        return wx_today if date_str == heute else wx_tomorrow if date_str == morgen else None
+
+    def _sportarten_plan() -> list:
+        # Ohne Datumsbezug (medic/allgemeinmedic fragen nicht nach einem
+        # bestimmten Tag): heute+morgen zusammen, damit der Spezialist pro
+        # tatsächlich geplanter Sportart urteilen kann. Fallback auf die drei
+        # Ausdauersportarten, falls TP-Daten noch laden/fehlen — sonst bekäme
+        # das Modell nur "keine bekannt" statt eines Urteils.
+        ws = (workouts_by_date.get(heute) or []) + (workouts_by_date.get(morgen) or [])
+        sportarten = [normalize_sport(w.get("sport", "")) for w in ws if w.get("sport")]
+        sportarten = [s for s in dict.fromkeys(sportarten) if s]
+        return sportarten or ["Laufen", "Rad", "Schwimmen"]
+
+    def executor(name: str, args: dict) -> dict:
+        args = args or {}
+        try:
+            if name == "consult_medic":
+                koerper = {
+                    "waden": args.get("waden", 0), "knie": args.get("knie", 0),
+                    "achilles_l": args.get("achilles_l", 0), "achilles_r": args.get("achilles_r", 0),
+                    "muedigkeit": args.get("muedigkeit", 1),
+                    "muskelkater": args.get("muskelkater") or "keine",
+                }
+                return medic.run(koerper=koerper, sportarten=_sportarten_plan(),
+                                 sleep=sleep, baseline=baseline)
+
+            if name == "consult_allgemeinmedic":
+                koerper = {
+                    "symptome": args.get("symptome") or "keine",
+                    "fieber": args.get("fieber"),
+                    "blutdruck_sys": args.get("blutdruck_sys"),
+                    "blutdruck_dia": args.get("blutdruck_dia"),
+                    "medikamente": args.get("medikamente") or "",
+                }
+                return allgemeinmedic.run(
+                    koerper=koerper, sportarten=_sportarten_plan(),
+                    chronische_befunde=athlete.get("chronische_befunde"),
+                    sleep=sleep, baseline=baseline,
+                )
+
+            if name == "consult_weather":
+                date_str = str(args.get("date") or heute)
+                w = _wetter_fuer(date_str)
+                if not w:
+                    return {"error": "Keine Wetterdaten für dieses Datum verfügbar."}
+                ws = workouts_by_date.get(date_str) or []
+                sportarten = [normalize_sport(x.get("sport", "")) for x in ws if x.get("sport")]
+                titel = [x.get("title", "") for x in ws if x.get("title")]
+                return weather.run(
+                    weather=w, sportarten=sportarten, titel=titel,
+                    swim_min_c=athlete.get("swim_outdoor_min_celsius", 15),
+                    tag=("heute" if date_str == heute else "morgen"),
+                )
+
+            if name == "consult_periodizer":
+                if not load:
+                    return {"error": "Keine Belastungsdaten verfügbar (TrainingPeaks nicht erreichbar)."}
+                return periodizer.run(load=load, woche=woche or [], a_race=a_race,
+                                      naechste_rennen=athlete.get("races"), tage_bis_a=tage_bis_a)
+
+            if name == "consult_fueling":
+                date_str = str(args.get("date", "")).strip()
+                hint = str(args.get("workout_hint", "")).strip()
+                matches = _match_tp_workouts(date_str, hint)
+                if len(matches) != 1:
+                    return {"error": "Einheit nicht eindeutig gefunden — bitte Datum/Sportart genauer nennen."}
+                w = matches[0]
+                sport = normalize_sport(w.get("sport", ""))
+                dauer = w.get("duration_min")
+                wx = _wetter_fuer(date_str) or {}
+                basis = nutrition_for_duration(dauer, athlete.get("nutrition", {}),
+                                               sport=sport, is_hot=bool(wx.get("is_hot")))
+                ist_renntag = bool(a_race and a_race.get("date") == date_str)
+                return fueling.run(
+                    basis=basis, sport=sport, dauer_min=dauer, badge="GO",
+                    is_hot=bool(wx.get("is_hot")), is_cold=bool(wx.get("is_cold")),
+                    temp_max=wx.get("temp_max"),
+                    chronische_befunde=athlete.get("chronische_befunde"),
+                    ist_renntag=ist_renntag,
+                    rennname=a_race.get("name") if (ist_renntag and a_race) else None,
+                )
+
+            return {"error": f"Unbekanntes Consult-Tool: {name}"}
+        except Exception as e:
+            logger.warning("consult executor: %s fehlgeschlagen: %s: %s", name, type(e).__name__, e)
+            return {"error": str(e)}
+
+    return executor
 
 
 @app.post("/api/coach/chat")
@@ -1492,9 +1693,11 @@ async def coach_chat(request: Request):
 
     tp_lines = []
     tp_loading_labels = []
+    workouts_by_date: dict = {}  # date_str -> [workout, ...] — für die Consult-Tools
     for label, ds, off in dates_to_check:
         cached = _tp_cache_get(ds)
         if cached and cached.get("workouts"):
+            workouts_by_date[ds] = cached["workouts"]
             for w in cached["workouts"]:
                 parts = [w.get("sport", "?"), w.get("title", "")]
                 if w.get("duration_min"): parts.append(f"{w['duration_min']} min")
@@ -1515,18 +1718,26 @@ async def coach_chat(request: Request):
 
     if agents_enabled():
         try:
-            load, _ = await _fetch_training_load(athlete)
+            load, woche = await _fetch_training_load(athlete)
             a_race = next_a_race(athlete)
+            tage_bis_a = tage_bis(a_race.get("date")) if a_race else None
             kontext = chat_agent.build_context(
                 athlete=athlete, a_race=a_race,
-                tage_bis_a=tage_bis(a_race.get("date")) if a_race else None,
+                tage_bis_a=tage_bis_a,
                 tp_tage=[ln.strip("  -") for ln in tp_lines],
                 wetter_heute=wx_today, wetter_morgen=wx_tomorrow,
                 load=load, ladend=tp_loading_labels,
                 heute_str=today_d.strftime("%A, %d.%m.%Y"),
             )
+            consult_executor = _build_consult_executor(
+                athlete=athlete, baseline=baseline, load=load, woche=woche,
+                a_race=a_race, tage_bis_a=tage_bis_a,
+                wx_today=wx_today, wx_tomorrow=wx_tomorrow,
+                workouts_by_date=workouts_by_date,
+            )
             result = await asyncio.to_thread(
                 chat_agent.run, nachricht=message, historie=history, kontext=kontext,
+                consult_executor=consult_executor,
             )
             proposal = None
             reply = result["text"]

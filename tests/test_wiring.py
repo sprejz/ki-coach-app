@@ -12,6 +12,7 @@ import json
 import os
 import re
 import sys
+from datetime import date
 from pathlib import Path
 
 from fastapi import HTTPException  # noqa: E402
@@ -21,6 +22,7 @@ os.environ["COACH_AGENTS"] = "1"
 os.environ.setdefault("ANTHROPIC_API_KEY", "dummy-fuer-test")
 
 import agents.allgemeinmedic as allgemeinmedic  # noqa: E402
+import agents.base as base_agent  # noqa: E402
 import agents.chat.chat as chat_agent  # noqa: E402
 import agents.architect as architect  # noqa: E402
 import agents.architect_bike as architect_bike  # noqa: E402
@@ -745,17 +747,26 @@ async def main():
            "tp_apply nutzt die vorgerechnete Ernährung statt eines zweiten Claude-Calls")
 
     print("\n=== Chat schlägt TP-Änderungen vor, führt nie direkt aus (v2.8) ===")
-    pruefe(len(chat_agent.CHAT_TOOLS) == 3,
-           "genau drei Tools: Einheit anpassen, Notiz anlegen, Einheit streichen")
+    pruefe(len(chat_agent.CHAT_TOOLS) == 4,
+           "genau vier Tools: Einheit anpassen, Notiz anlegen, Einheit streichen, Serie anlegen")
     pruefe({t["name"] for t in chat_agent.CHAT_TOOLS}
-           == {"propose_workout_update", "propose_calendar_note", "propose_workout_skip"},
+           == {"propose_workout_update", "propose_calendar_note",
+               "propose_workout_skip", "propose_workout_series"},
            "die Tool-Namen sind die erwarteten")
-    for t in chat_agent.CHAT_TOOLS:
+    for t in chat_agent.CHAT_TOOLS + chat_agent.CONSULT_TOOLS:
         pruefe("workout_id" not in t["input_schema"]["properties"],
                f"{t['name']}: Claude bekommt nie eine workout_id zum Raten angeboten")
         pruefe("anyOf" not in t["input_schema"] and "oneOf" not in t["input_schema"]
                and "allOf" not in t["input_schema"],
                f"{t['name']}: kein oneOf/allOf/anyOf auf oberster Ebene (von Anthropic abgelehnt, v2.8.2)")
+
+    print("\n=== Consult-Tools: fünf Namen, lesend, Root-Schema sauber (v2.9.1) ===")
+    pruefe(len(chat_agent.CONSULT_TOOLS) == 5,
+           "fünf Consult-Tools: medic, allgemeinmedic, weather, periodizer, fueling")
+    pruefe(chat_agent.CONSULT_TOOL_NAMES == {
+        "consult_medic", "consult_allgemeinmedic", "consult_weather",
+        "consult_periodizer", "consult_fueling",
+    }, "die Consult-Tool-Namen sind die erwarteten")
 
     # _tp_cache direkt befüllen — dieselbe Form wie _map_tp_workout sie liefert.
     app._tp_cache.clear()
@@ -876,6 +887,227 @@ async def main():
                "coach_chat gibt bei einem Tool-Call ein proposal-Feld zurück")
     finally:
         app.chat_agent.run = _orig_chat_run
+
+    print("\n=== propose_workout_series: neue Einheit(en) anlegen (v2.9.1) ===")
+    app._pending_tp_actions.clear()
+    _, series_ok = app._resolve_workout_series_proposal({
+        "workouts": [
+            {"date": "2026-02-02", "sport": "Rad", "title": "Grundlage locker", "duration_minutes": 45},
+            {"date": "2026-02-04", "sport": "Rad", "title": "Grundlage locker", "duration_minutes": 45},
+            {"date": "2026-02-06", "sport": "Rad", "title": "Grundlage locker", "duration_minutes": 45},
+        ],
+        "summary": "Ich lege drei Rad-Einheiten an.",
+    })
+    pruefe(series_ok is not None and series_ok["type"] == "workout_series"
+           and len(series_ok["workouts"]) == 3,
+           "drei gültige Einträge → eine pending action mit drei Workouts")
+    pruefe(series_ok["pending_id"] in app._pending_tp_actions,
+           "die Serie landet als EIN pending-action-Eintrag")
+
+    app._pending_tp_actions.clear()
+    _, series_ungueltig = app._resolve_workout_series_proposal({
+        "workouts": [
+            {"date": "2026-02-02", "sport": "Rad", "title": "Grundlage locker", "duration_minutes": 45},
+            {"date": "2026-02-04", "sport": "Rad", "title": "Zu kurz", "duration_minutes": 10},
+        ],
+        "summary": "…",
+    })
+    pruefe(series_ungueltig is None and not app._pending_tp_actions,
+           "EIN ungültiger Eintrag (Dauer < 20min) verwirft die GANZE Anfrage, kein Teil-Erfolg")
+
+    _, series_leer = app._resolve_workout_series_proposal({"workouts": [], "summary": "…"})
+    pruefe(series_leer is None, "leere workouts-Liste ist ungültig")
+
+    async def _fake_call_tp_mcp_series(tool_name, arguments):
+        mitschrieb.setdefault("call_tp_mcp_series", []).append((tool_name, arguments))
+        if arguments.get("title") == "Grundlage locker" and arguments.get("date") == "2026-02-04":
+            raise RuntimeError("TP down")
+        return {"id": "neu"}
+    app.call_tp_mcp = _fake_call_tp_mcp_series
+    os.environ["TP_MCP_URL"] = "https://example.invalid/mcp"
+    try:
+        app._pending_tp_actions.clear()
+        _, series_proposal = app._resolve_workout_series_proposal({
+            "workouts": [
+                {"date": "2026-02-02", "sport": "Rad", "title": "Grundlage locker", "duration_minutes": 45},
+                {"date": "2026-02-04", "sport": "Rad", "title": "Grundlage locker", "duration_minutes": 45},
+                {"date": "2026-02-06", "sport": "Rad", "title": "Grundlage locker", "duration_minutes": 45},
+            ],
+            "summary": "…",
+        })
+        result = await app.chat_tp_action_confirm(series_proposal["pending_id"])
+        pruefe(len(mitschrieb["call_tp_mcp_series"]) == 3,
+               "drei tp_create_workout-Aufrufe, einer pro Einheit")
+        pruefe(all(c[0] == "tp_create_workout" for c in mitschrieb["call_tp_mcp_series"]),
+               "jeder Aufruf nutzt tp_create_workout")
+        stati = [a["status"] for a in result["actions"]]
+        pruefe(stati.count("ok") == 2 and stati.count("error") == 1,
+               "ein fehlgeschlagenes Workout blockiert die übrigen zwei nicht — kein Alles-oder-nichts")
+    finally:
+        app.call_tp_mcp = _orig_call_tp_mcp
+
+    print("\n=== Consult-Executor: liest echte Spezialisten, schreibt nie in TP (v2.9.1) ===")
+    app._tp_cache.clear()
+    app._tp_cache_set(date.today().isoformat(), {"workouts": [
+        {"id": "444", "sport": "Laufen", "title": "Longrun locker", "duration_min": 90},
+    ]})
+    _orig_medic_run, _orig_weather_run = medic.run, weather.run
+    _orig_periodizer_run, _orig_fueling_run = periodizer.run, fueling.run
+    _orig_allgemein_run = allgemeinmedic.run
+    consult_calls = {}
+    medic.run = lambda **kw: (consult_calls.setdefault("medic", kw), FAKE_MEDIC)[1]
+    allgemeinmedic.run = lambda **kw: (consult_calls.setdefault("allgemein", kw), FAKE_ALLGEMEIN_FREI)[1]
+    weather.run = lambda **kw: (consult_calls.setdefault("weather", kw), {"gesamtlage": "unkritisch"})[1]
+    periodizer.run = lambda **kw: (consult_calls.setdefault("periodizer", kw), {"phase": "grundlage"})[1]
+    fueling.run = lambda **kw: (consult_calls.setdefault("fueling", kw), {"ergaenzung": "…"})[1]
+
+    async def _call_tp_mcp_verboten(tool_name, arguments):
+        raise AssertionError(f"Consult darf niemals call_tp_mcp aufrufen (versucht: {tool_name})")
+    app.call_tp_mcp = _call_tp_mcp_verboten
+    try:
+        executor = app._build_consult_executor(
+            athlete={"name": "Hendrik", "races": [], "nutrition": {"rules": []},
+                    "chronische_befunde": "keine", "swim_outdoor_min_celsius": 15},
+            baseline=None, load={"ctl": 80, "atl": 75, "tsb": 5},
+            woche=[], a_race=None, tage_bis_a=None,
+            wx_today={"description": "sonnig", "is_hot": False},
+            wx_tomorrow={"description": "regnerisch"},
+            workouts_by_date={date.today().isoformat(): [
+                {"sport": "Laufen", "title": "Longrun locker", "duration_min": 90},
+            ]},
+        )
+        r_medic = executor("consult_medic", {"knie": 6})
+        pruefe(r_medic == FAKE_MEDIC and "medic" in consult_calls,
+               "consult_medic ruft den echten medic.run auf und gibt sein Ergebnis zurück")
+        pruefe(consult_calls["medic"]["koerper"]["knie"] == 6,
+               "Tool-Input wird ins koerper-Dict übernommen")
+        pruefe("Laufen" in consult_calls["medic"]["sportarten"],
+               "sportarten werden aus den gecachten TP-Workouts abgeleitet")
+
+        r_weather = executor("consult_weather", {"date": date.today().isoformat()})
+        pruefe(r_weather.get("gesamtlage") == "unkritisch", "consult_weather ruft weather.run auf")
+
+        r_period = executor("consult_periodizer", {})
+        pruefe(r_period.get("phase") == "grundlage", "consult_periodizer ruft periodizer.run auf")
+
+        r_fuel = executor("consult_fueling", {"date": date.today().isoformat(), "workout_hint": "Longrun"})
+        pruefe(r_fuel.get("ergaenzung") == "…", "consult_fueling matcht die Einheit und ruft fueling.run auf")
+
+        r_unbekannt = executor("consult_irgendwas", {})
+        pruefe("error" in r_unbekannt, "unbekannter Consult-Name liefert einen Fehler, keinen Absturz")
+        # Keiner der obigen Aufrufe hat die auf AssertionError gestellte
+        # call_tp_mcp-Attrappe ausgelöst — sonst wäre dieser try-Block bereits
+        # mit dieser AssertionError abgebrochen: Consults sind rein lesend.
+    finally:
+        medic.run, weather.run = _orig_medic_run, _orig_weather_run
+        periodizer.run, fueling.run = _orig_periodizer_run, _orig_fueling_run
+        allgemeinmedic.run = _orig_allgemein_run
+        app.call_tp_mcp = _orig_call_tp_mcp
+
+    print("\n=== call_agent_with_consult: Tool-Result-Loop (v2.9.1) ===")
+
+    class _FakeBlock:
+        def __init__(self, type_, text=None, name=None, input=None, id=None):
+            self.type, self.text, self.name, self.input, self.id = type_, text, name, input, id
+
+    class _FakeUsage:
+        def __init__(self, i=10, o=10):
+            self.input_tokens, self.output_tokens = i, o
+
+    class _FakeResp:
+        def __init__(self, content, stop_reason="end_turn"):
+            self.content, self.stop_reason, self.usage = content, stop_reason, _FakeUsage()
+
+    class _FakeMessages:
+        def __init__(self, responses):
+            self._responses, self.calls = list(responses), []
+
+        def create(self, **kwargs):
+            self.calls.append(kwargs)
+            return self._responses.pop(0)
+
+    class _FakeClient:
+        def __init__(self, responses):
+            self.messages = _FakeMessages(responses)
+
+    _orig_client = base_agent._client
+    _fake_tools = [{"name": "propose_workout_update", "input_schema": {"type": "object", "properties": {}}}]
+
+    # Fall A: ein consult_medic-Aufruf, danach ein propose_*-Tool in Runde 2.
+    fake_client = _FakeClient([
+        _FakeResp([_FakeBlock("text", text="Ich frag kurz nach."),
+                  _FakeBlock("tool_use", name="consult_medic", input={"knie": 6}, id="tu1")],
+                 stop_reason="tool_use"),
+        _FakeResp([_FakeBlock("text", text="Dein Knie braucht heute Vorsicht."),
+                  _FakeBlock("tool_use", name="propose_workout_update",
+                             input={"date": "2026-01-15", "workout_hint": "Lauf",
+                                    "new_title": "X", "summary": "…"}, id="tu2")],
+                 stop_reason="tool_use"),
+    ])
+    base_agent._client = lambda: fake_client
+    executor_calls = []
+    try:
+        ergebnis = base_agent.call_agent_with_consult(
+            prompt="sys", messages=[{"role": "user", "content": "Mein Knie tut weh"}],
+            tools=_fake_tools, consult_tool_names={"consult_medic"},
+            executor=lambda name, inp: executor_calls.append((name, inp)) or {"urteil": "reduziert"},
+            label="test-consult",
+        )
+        pruefe(len(fake_client.messages.calls) == 2, "genau zwei Anthropic-Calls bei einer Konsultation")
+        pruefe(len(executor_calls) == 1 and executor_calls[0][0] == "consult_medic",
+               "der Executor wird genau einmal mit dem richtigen Namen aufgerufen")
+        pruefe(ergebnis["tool_call"] is not None and ergebnis["tool_call"]["name"] == "propose_workout_update",
+               "nach der Konsultation darf Claude noch ein propose_*-Tool aufrufen")
+        pruefe(ergebnis["text"] == "Dein Knie braucht heute Vorsicht.",
+               "der finale Text kommt aus der zweiten Antwort")
+    finally:
+        base_agent._client = _orig_client
+
+    # Fall B: kein Consult-Tool im Spiel → identisches Verhalten zu call_agent_with_tools.
+    fake_client_b = _FakeClient([
+        _FakeResp([_FakeBlock("text", text="Alles im Rahmen.")], stop_reason="end_turn"),
+    ])
+    base_agent._client = lambda: fake_client_b
+    try:
+        ergebnis_b = base_agent.call_agent_with_consult(
+            prompt="sys", messages=[{"role": "user", "content": "Wie ist das Wetter?"}],
+            tools=_fake_tools, consult_tool_names={"consult_medic"},
+            executor=lambda name, inp: (_ for _ in ()).throw(AssertionError("darf nicht aufgerufen werden")),
+            label="test-consult",
+        )
+        pruefe(len(fake_client_b.messages.calls) == 1,
+               "ohne Consult-Tool-Call nur EIN Anthropic-Call — keine Mehrkosten im Normalfall")
+        pruefe(ergebnis_b == {"text": "Alles im Rahmen.", "tool_call": None},
+               "Verhalten identisch zu call_agent_with_tools")
+    finally:
+        base_agent._client = _orig_client
+
+    # Fall C: drei Consult-Aufrufe in Runde 1 → nur MAX_CONSULTS_PER_TURN (=2) ausgeführt.
+    fake_client_c = _FakeClient([
+        _FakeResp([
+            _FakeBlock("tool_use", name="consult_medic", input={}, id="tu1"),
+            _FakeBlock("tool_use", name="consult_medic", input={}, id="tu2"),
+            _FakeBlock("tool_use", name="consult_medic", input={}, id="tu3"),
+        ], stop_reason="tool_use"),
+        _FakeResp([_FakeBlock("text", text="Fertig.")], stop_reason="end_turn"),
+    ])
+    base_agent._client = lambda: fake_client_c
+    ausgefuehrt_c = []
+    try:
+        base_agent.call_agent_with_consult(
+            prompt="sys", messages=[{"role": "user", "content": "…"}],
+            tools=_fake_tools, consult_tool_names={"consult_medic"},
+            executor=lambda name, inp: ausgefuehrt_c.append(1) or {"ok": True},
+            label="test-consult",
+        )
+        pruefe(len(ausgefuehrt_c) == base_agent.MAX_CONSULTS_PER_TURN == 2,
+               "Kostendeckel: nur MAX_CONSULTS_PER_TURN Consults werden wirklich ausgeführt")
+        letzte_tool_results = fake_client_c.messages.calls[1]["messages"][-1]["content"]
+        pruefe(len(letzte_tool_results) == 3, "trotzdem bekommt jeder tool_use-Block einen tool_result")
+        pruefe("Konsultationslimit" in letzte_tool_results[2]["content"],
+               "der dritte Aufruf bekommt einen synthetischen Limit-Fehler statt ausgeführt zu werden")
+    finally:
+        base_agent._client = _orig_client
 
     pruefe("Du änderst hier nichts in TrainingPeaks" not in
            (Path(__file__).parent.parent / "agents" / "chat" / "chat.md").read_text(encoding="utf-8"),
