@@ -3806,11 +3806,11 @@ async function addSourceYoutube() {
 
   try {
     setLoading(true, 'Quelle wird verarbeitet…');
-    const res = await fetch('/api/wissen/quelle', {
+    const res = await fetchMitFrist('/api/wissen/quelle', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({quelle_type: 'youtube', youtube_url: url})
-    });
+    }, 120000);  // 120s timeout (fastembed-Modell braucht länger beim ersten Mal)
     if (!res.ok) throw new Error((await res.json()).detail || 'Fehler beim Hinzufügen');
     const data = await res.json();
     document.getElementById('wissen-youtube-url').value = '';
@@ -3832,11 +3832,11 @@ async function addSourceText() {
 
   try {
     setLoading(true, 'Text wird verarbeitet…');
-    const res = await fetch('/api/wissen/quelle', {
+    const res = await fetchMitFrist('/api/wissen/quelle', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({quelle_type: 'text', text, titel})
-    });
+    }, 120000);  // 120s timeout (fastembed-Modell braucht länger beim ersten Mal)
     if (!res.ok) throw new Error((await res.json()).detail || 'Fehler beim Hinzufügen');
     const data = await res.json();
     document.getElementById('wissen-text').value = '';
