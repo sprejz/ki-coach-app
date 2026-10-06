@@ -3548,6 +3548,7 @@ const CHECK_TIMEOUT_MS   = 5 * 60 * 1000;
 const CHECK_POST_MS      = 30 * 1000;  // Abschicken darf nicht ewig offen bleiben
 const CHECK_STATUS_MS    = 15 * 1000;  // ein einzelner Status-Abruf ebenso wenig
 const CHECK_MAX_FEHLER   = 5;          // Funkloch kippt den laufenden Job nicht
+const WISSEN_UPLOAD_MS   = 120 * 1000; // Wissensbasis-Upload braucht länger (fastembed-Modell-Init)
 
 // fetch() kennt von sich aus keinen Timeout. Ein Request, der beim
 // Netzwechsel oder einem Container-Neustart hängenbleibt, kehrt nie zurück —
@@ -3810,7 +3811,7 @@ async function addSourceYoutube() {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({quelle_type: 'youtube', youtube_url: url})
-    }, 120000);  // 120s timeout (fastembed-Modell braucht länger beim ersten Mal)
+    }, WISSEN_UPLOAD_MS);
     if (!res.ok) throw new Error((await res.json()).detail || 'Fehler beim Hinzufügen');
     const data = await res.json();
     document.getElementById('wissen-youtube-url').value = '';
@@ -3836,7 +3837,7 @@ async function addSourceText() {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({quelle_type: 'text', text, titel})
-    }, 120000);  // 120s timeout (fastembed-Modell braucht länger beim ersten Mal)
+    }, WISSEN_UPLOAD_MS);
     if (!res.ok) throw new Error((await res.json()).detail || 'Fehler beim Hinzufügen');
     const data = await res.json();
     document.getElementById('wissen-text').value = '';
