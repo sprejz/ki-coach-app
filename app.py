@@ -2763,6 +2763,10 @@ async def wissen_quelle_hinzufuegen(request: Request):
     if source_type not in ("youtube", "text"):
         raise HTTPException(400, "quelle_type muss 'youtube' oder 'text' sein")
 
+    youtube_url = None
+    text = None
+    titel = None
+
     if source_type == "youtube":
         youtube_url = data.get("youtube_url", "").strip()
         if not youtube_url:
@@ -2783,9 +2787,9 @@ async def wissen_quelle_hinzufuegen(request: Request):
     asyncio.create_task(
         _run_wissen_job_embed(
             job_id, source_type,
-            youtube_url if source_type == "youtube" else None,
-            text if source_type == "text" else None,
-            titel if source_type == "text" else None
+            youtube_url,
+            text,
+            titel
         )
     )
 
