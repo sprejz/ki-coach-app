@@ -3807,11 +3807,15 @@ async function addSourceYoutube() {
 
   try {
     setLoading(true, 'Quelle wird verarbeitet…');
-    const res = await fetchMitFrist('/api/wissen/quelle', {
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), WISSEN_UPLOAD_MS);
+    const res = await fetch('/api/wissen/quelle', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({quelle_type: 'youtube', youtube_url: url})
-    }, WISSEN_UPLOAD_MS);
+      body: JSON.stringify({quelle_type: 'youtube', youtube_url: url}),
+      signal: ctrl.signal
+    });
+    clearTimeout(timeout);
     if (!res.ok) throw new Error((await res.json()).detail || 'Fehler beim Hinzufügen');
     const data = await res.json();
     document.getElementById('wissen-youtube-url').value = '';
@@ -3833,11 +3837,15 @@ async function addSourceText() {
 
   try {
     setLoading(true, 'Text wird verarbeitet…');
-    const res = await fetchMitFrist('/api/wissen/quelle', {
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), WISSEN_UPLOAD_MS);
+    const res = await fetch('/api/wissen/quelle', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({quelle_type: 'text', text, titel})
-    }, WISSEN_UPLOAD_MS);
+      body: JSON.stringify({quelle_type: 'text', text, titel}),
+      signal: ctrl.signal
+    });
+    clearTimeout(timeout);
     if (!res.ok) throw new Error((await res.json()).detail || 'Fehler beim Hinzufügen');
     const data = await res.json();
     document.getElementById('wissen-text').value = '';
