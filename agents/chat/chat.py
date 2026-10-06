@@ -341,9 +341,33 @@ CONSULT_FUELING_TOOL = {
     },
 }
 
+CONSULT_WISSEN_TOOL = {
+    "name": "consult_wissen",
+    "description": (
+        "Befragt die Wissensbasis nach Erkenntnissen zu einem Thema — durchsucht "
+        "alle hochgeladenen Quellen (Videos, Transkripte, Artikel) und liefert die "
+        "relevantesten Textstellen mit Quelle und ggf. Zeitstempel (z.B. "
+        "'https://youtube.com/watch?v=...&t=245s'). Nutze dieses Tool bei "
+        "sportwissenschaftlichen, ernährungs- oder trainingsbezogenen Fragen, bei "
+        "denen Hendrik möglicherweise bereits Material recherchiert und hochgeladen "
+        "hat. Bei allgemeinen Fragen antworte direkt aus deinem Wissen."
+        + _CONSULT_HINWEIS
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "frage": {
+                "type": "string",
+                "description": "Die Frage an die Wissensbasis, z.B. 'Carb-Intake beim Ironman', 'Tapering zwei Wochen vor Rennen'.",
+            },
+        },
+        "required": ["frage"],
+    },
+}
+
 CONSULT_TOOLS = [
     CONSULT_MEDIC_TOOL, CONSULT_ALLGEMEINMEDIC_TOOL, CONSULT_WEATHER_TOOL,
-    CONSULT_PERIODIZER_TOOL, CONSULT_FUELING_TOOL,
+    CONSULT_PERIODIZER_TOOL, CONSULT_FUELING_TOOL, CONSULT_WISSEN_TOOL,
 ]
 CONSULT_TOOL_NAMES = {t["name"] for t in CONSULT_TOOLS}
 

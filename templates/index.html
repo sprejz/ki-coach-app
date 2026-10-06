@@ -1441,6 +1441,30 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
       </div>
       <button type="button" class="btn-submit" id="research-video-btn" onclick="startVideoResearch()">{{ T.research_video_start }}</button>
 
+      <div class="form-section" style="margin-top:16px;padding-top:16px;border-top:1px dashed var(--border)">
+        <p class="section-title" style="margin:0 0 12px">📚 Wissensquellen</p>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:12px">Hochgeladene Videos/Transkripte für die Vektorsuche</div>
+
+        <!-- YouTube hinzufügen -->
+        <div style="margin-bottom:14px">
+          <div class="field-label" style="margin-bottom:6px">YouTube-Link</div>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="wissen-youtube-url" class="text-input" placeholder="https://youtube.com/watch?v=..." style="flex:1">
+            <button type="button" class="btn-submit" onclick="addSourceYoutube()" style="flex:0 0 auto;padding:8px 14px">+</button>
+          </div>
+        </div>
+
+        <!-- Text/Transkript hinzufügen -->
+        <div>
+          <div class="field-label" style="margin-bottom:6px">Text/Transkript</div>
+          <textarea id="wissen-text" class="text-input" rows="3" placeholder="Transkript oder Artikel einfügen…" style="margin-bottom:6px"></textarea>
+          <input type="text" id="wissen-text-titel" class="text-input" placeholder="Titel (optional)" style="margin-bottom:8px">
+          <button type="button" class="btn-submit" onclick="addSourceText()">Text-Quelle hinzufügen</button>
+        </div>
+
+        <div id="wissen-list" style="margin-top:16px"></div>
+      </div>
+
       <div id="research-progress" class="research-progress" style="display:none">
         <div class="research-progress-visual">
           <span class="research-ring"></span>
@@ -3771,6 +3795,144 @@ function showError(msg, bleibt) {
   _fehlerTimer = bleibt ? null : setTimeout(() => el.style.display = 'none', 8000);
   setLoading(false);
 }
+
+// ── Wissensbasis (v2.10.0) ────────────────────────────────────────────────
+async function addSourceYoutube() {
+  const url = document.getElementById('wissen-youtube-url').value.trim();
+  if (!url) {
+    showError('YouTube-URL erforderlich');
+    return;
+  }
+
+  try {
+    setLoading(true, 'Quelle wird verarbeitet…');
+    const res = await fetch('/api/wissen/quelle', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({quelle_type: 'youtube', youtube_url: url})
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || 'Fehler beim Hinzufügen');
+    const data = await res.json();
+    document.getElementById('wissen-youtube-url').value = '';
+    pollWissenJob(data.job_id);
+  } catch (e) {
+    showError('Fehler: ' + (e.message || String(e)));
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function addSourceText() {
+  const text = document.getElementById('wissen-text').value.trim();
+  const titel = document.getElementById('wissen-text-titel').value.trim() || 'Text-Quelle';
+  if (!text) {
+    showError('Text erforderlich');
+    return;
+  }
+
+  try {
+    setLoading(true, 'Text wird verarbeitet…');
+    const res = await fetch('/api/wissen/quelle', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({quelle_type: 'text', text, titel})
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || 'Fehler beim Hinzufügen');
+    const data = await res.json();
+    document.getElementById('wissen-text').value = '';
+    document.getElementById('wissen-text-titel').value = '';
+    pollWissenJob(data.job_id);
+  } catch (e) {
+    showError('Fehler: ' + (e.message || String(e)));
+  } finally {
+    setLoading(false);
+  }
+}
+
+function pollWissenJob(jobId) {
+  const pollInterval = setInterval(async () => {
+    try {
+      const res = await fetch(`/api/wissen/quelle/${jobId}`);
+      const data = await res.json();
+
+      if (data.status === 'done') {
+        clearInterval(pollInterval);
+        setLoading(false);
+        showError('✓ Quelle hinzugefügt: ' + data.titel + ' (' + data.chunks + ' Chunks)');
+        loadWissenQuellen();
+      } else if (data.status === 'error') {
+        clearInterval(pollInterval);
+        setLoading(false);
+        showError('Fehler: ' + data.error);
+      }
+    } catch (e) {
+      clearInterval(pollInterval);
+      showError('Poll-Fehler: ' + String(e));
+    }
+  }, 1000);
+}
+
+async function loadWissenQuellen() {
+  try {
+    const res = await fetch('/api/wissen/quellen');
+    const data = await res.json();
+    const quellen = data.quellen || [];
+    const container = document.getElementById('wissen-list');
+
+    if (quellen.length === 0) {
+      container.innerHTML = '<div style="color:var(--muted);font-size:13px">Noch keine Quellen hochgeladen.</div>';
+      return;
+    }
+
+    container.innerHTML = quellen.map(q => `
+      <div style="background:rgba(29,158,117,.08);border:1px solid rgba(29,158,117,.2);border-radius:8px;padding:10px;margin-bottom:8px;font-size:13px">
+        <div style="display:flex;justify-content:space-between;align-items:start;gap:8px">
+          <div>
+            <strong>${escapeHtml(q.titel)}</strong><br>
+            <span style="color:var(--muted)">${q.chunks} Chunks · ${q.quelle}</span>
+          </div>
+          <button type="button" onclick="deleteWissenQuelle('${q.id}')" style="background:#e24b4a;color:#fff;border:none;border-radius:4px;padding:4px 8px;font-size:11px;cursor:pointer">Löschen</button>
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    const container = document.getElementById('wissen-list');
+    container.innerHTML = '<div style="color:#e24b4a;font-size:13px">Fehler beim Laden: ' + String(e) + '</div>';
+  }
+}
+
+async function deleteWissenQuelle(sourceId) {
+  if (!confirm('Quelle und alle ihre Chunks löschen?')) return;
+
+  try {
+    setLoading(true);
+    const res = await fetch(`/api/wissen/quelle/${sourceId}`, {method: 'DELETE'});
+    if (!res.ok) throw new Error('Fehler beim Löschen');
+    setLoading(false);
+    loadWissenQuellen();
+  } catch (e) {
+    setLoading(false);
+    showError('Löschfehler: ' + String(e));
+  }
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// Quellen beim Laden der Recherche-Tab
+const originalInitTabs = window.initTabs;
+window.initTabs = function() {
+  originalInitTabs.apply(this, arguments);
+  const observer = new MutationObserver(() => {
+    if (document.getElementById('recherche').offsetParent !== null) { // visible
+      loadWissenQuellen();
+    }
+  });
+  observer.observe(document.body, {attributes: true, subtree: true});
+};
 </script>
 </body>
 </html>

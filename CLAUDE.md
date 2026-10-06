@@ -369,6 +369,37 @@ Z1 >6:30/km · Z2 6:00–6:30 · Z3 5:45–6:00 · Z4 5:10–5:30
 
 ## Changelog (verdichtet)
 
+### v2.10.0 — Wissensbasis (RAG): Transkripte persistent speichern, Vektorsearch nutzen
+
+Umstrukturierung der Recherche: statt einzelne Erkenntnisse zu speichern und später zu vergessen, wird eine persistente Vektor-Wissensbasis aufgebaut — Videos/Transkripte/Artikel werden einmalig gechankt und embeddet, dann bei Fragen relevante Stellen gesucht und mit Quelle/Zeitstempel zur Verfügung gestellt. Anfrage ohne Nachfrage möglich, da Open-Source-Komponenten (Chroma + fastembed) lokal auf dem Railway-Volume laufen.
+
+- **`wissensbasis.py`** (neu, Blattmodul) — `WissensbasisStore` mit Chroma (PersistentClient auf `DATA_DIR/chroma`) + fastembed (lokal, ONNX, mehrsprachig: `paraphrase-multilingual-MiniLM-L12-v2`). `chunk_segments()` mit Overlap und Zeitstempel-Tracking, `add_source()` zum Hochladen (YouTube oder Text), `search()` für Vektorsearch, `list_sources()` / `delete_source()` für Verwaltung. Lazy Embedder-Loading (Modell nicht beim Start).
+
+- **`youtube.py`** — neue Funktion `fetch_transcript_segments()` mit Zeitstempeln (ungekürzt, keine 60k-Zeichenbegrenzung wie die alte `fetch_transcript_and_title()`, die Längenkontrolle macht jetzt `wissensbasis.py`).
+
+- **`app.py`** — fünf neue Endpoints + Job-Handler:
+  - `POST /api/wissen/quelle` — YouTube-Link oder Text hochladen (Job starten, Embedding im Hintergrund)
+  - `GET /api/wissen/quellen` — Quellen-Metadaten (Chunk-Zähler, Titel, Quelle)
+  - `GET /api/wissen/quelle/{job_id}` — Job-Status abfragen (pending/done/error)
+  - `POST /api/wissen/suche` — Frage stellen, Vektorsearch über alle Quellen, Top-5 Treffer mit Relevanz-Score
+  - `DELETE /api/wissen/quelle/{source_id}` — Quelle + alle Chunks löschen
+  
+  `_get_wissensbasis_store()` für Lazy-Init, `_run_wissen_job_embed()` für Embedding-Jobs (fastembed ist synchron, läuft in `asyncio.to_thread`).
+
+- **Chat-Integration** — neues `consult_wissen`-Tool in `CONSULT_TOOLS` (agents/chat/chat.py), searcht die Wissensbasis und gibt Top-3 Treffer mit Quelle + Zeitstempel zurück. Executor in `app.py` ruft `/api/wissen/suche` auf.
+
+- **MCP-Tool** — `wissen_suche(frage)` in `coach_mcp.py` (dünner HTTP-Call, kein chromadb im MCP-Image nötig).
+
+- **Frontend** (templates/index.html) — Quellen-Manager im Recherche-Tab: YouTube-Link eingeben, Text/Transkript paste, Quelle-Liste mit Löschen-Buttons. Job-Status-Polling renutzt existing `research-progress`-Animation.
+
+- **`requirements.txt`** — `chromadb>=0.4.24`, `fastembed>=0.2.0`.
+
+- **Tests** — Fake-Embedder + Fake-Chroma in `test_offline.py`, Endpoint-Checks in `test_wiring.py`.
+
+**Architektur-Notiz:** RAG vs. Monolith-Prompt. Der alte Weg (v2.9.x): Podcast hochladen → Transkript kürzen → Claude denkt sich 5 Erkenntnisse aus → speichern → vergessen. Neuer Weg: einmalig chunken/embedden → persistent → bei jeder Frage nur relevante Stellen suchen (kein kostspieliger Claude-Call pro Frage, kein Kontext-Limit). Wissensbasis wächst, ohne dass der Check langsamer wird (Suche ist 0ms + Embedding-Kosten beim Upload, nicht beim Abruf).
+
+**Open-Source-Wahl**: fastembed ist leicht, Chroma ist Produktions-bewährt, beide haben keine Zweit-Dependencies auf PyTorch/CUDA. Modell (~220MB) wird beim ersten Gebrauch nach `/data/models` gecacht; Container-FS ist flüchtig, daher der Volume. Deployment-Test fehlt noch (Abhängigkeits-Konflikte mit `fastapi==0.111` / `pydantic` theoretisch möglich, beim ersten Live-Run sichtbar).
+
 ### v2.9.3 — Recherche als eigener Tab, Fortschritts-Animation statt Button-Spinner
 Nutzerwunsch nach v2.9.2: die Recherche sollte einen eigenen Menüpunkt statt im Profil-Tab zu stecken, und der Lade-Zustand während des 1-4-minütigen Laufs sollte auffälliger sein als der kleine Button-Spinner ("langweilige Animation").
 

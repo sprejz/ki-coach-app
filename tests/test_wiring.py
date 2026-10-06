@@ -1489,6 +1489,52 @@ async def main():
     pruefe("requirements-mcp.txt" in (_WURZEL / "Dockerfile.mcp").read_text(encoding="utf-8"),
            "Dockerfile.mcp installiert NICHT die App-Requirements")
 
+    print("\n=== Wissensbasis (v2.10.0) ===")
+    import wissensbasis
+
+    # Endpoint-Check
+    pruefe(hasattr(app, "_get_wissensbasis_store"),
+           "app._get_wissensbasis_store() für Lazy-Init vorhanden")
+    pruefe(hasattr(app, "_run_wissen_job_embed"),
+           "app._run_wissen_job_embed() für Job-Handler vorhanden")
+
+    # Endpoints in FastAPI registriert (einfache Regex-Prüfung)
+    _APP_CODE = inspect.getsource(app)
+    pruefe('@app.get("/api/wissen/quellen")' in _APP_CODE or 'api/wissen/quellen' in _APP_CODE,
+           "GET /api/wissen/quellen Endpoint registriert")
+    pruefe('@app.post("/api/wissen/suche")' in _APP_CODE or 'api/wissen/suche' in _APP_CODE,
+           "POST /api/wissen/suche Endpoint registriert")
+    pruefe('@app.post("/api/wissen/quelle")' in _APP_CODE or 'api/wissen/quelle' in _APP_CODE,
+           "POST /api/wissen/quelle (Job-Start) Endpoint registriert")
+    pruefe('@app.delete("/api/wissen/quelle' in _APP_CODE or 'api/wissen/quelle' in _APP_CODE,
+           "DELETE /api/wissen/quelle/{id} Endpoint registriert")
+
+    # Chat: consult_wissen Tool
+    pruefe("consult_wissen" in inspect.getsource(chat_agent),
+           "consult_wissen Tool in chat_agent definiert")
+    pruefe("CONSULT_WISSEN_TOOL" in inspect.getsource(chat_agent),
+           "CONSULT_WISSEN_TOOL Schema vorhanden")
+    pruefe("consult_wissen" in chat_agent.CONSULT_TOOL_NAMES,
+           "consult_wissen in CONSULT_TOOL_NAMES registriert")
+
+    # MCP: wissen_suche Tool
+    _MCP_SOURCE = inspect.getsource(__import__("coach_mcp"))
+    pruefe("@mcp.tool()" in _MCP_SOURCE and "wissen_suche" in _MCP_SOURCE,
+           "wissen_suche Tool in coach_mcp.py definiert")
+
+    # wissensbasis.py: API-Konsistenz
+    _WISSEN_SOURCE = inspect.getsource(wissensbasis)
+    pruefe("def chunk_segments" in _WISSEN_SOURCE,
+           "chunk_segments() zur Textaufteilung vorhanden")
+    pruefe("def search" in _WISSEN_SOURCE,
+           "search() für Vektorsuche vorhanden")
+    pruefe("def add_source" in _WISSEN_SOURCE,
+           "add_source() zum Hochladen vorhanden")
+    pruefe("def delete_source" in _WISSEN_SOURCE,
+           "delete_source() zum Löschen vorhanden")
+    pruefe("def list_sources" in _WISSEN_SOURCE,
+           "list_sources() zur Auflistung vorhanden")
+
     print(f"\n{'=' * 44}")
     if fehler:
         print(f"FEHLGESCHLAGEN — {len(fehler)} Problem(e)")

@@ -70,7 +70,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "2.9.3"
+APP_VERSION = "2.10.0"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -1652,6 +1652,26 @@ def _build_consult_executor(*, athlete: dict, baseline: Optional[dict],
                     ist_renntag=ist_renntag,
                     rennname=a_race.get("name") if (ist_renntag and a_race) else None,
                 )
+
+            if name == "consult_wissen":
+                frage = str(args.get("frage", "")).strip()
+                if not frage:
+                    return {"error": "Frage erforderlich"}
+                try:
+                    store = _get_wissensbasis_store()
+                    treffer = store.search(frage, n_results=3, min_confidence=0.2)
+                    if not treffer:
+                        return {"error": "Keine passenden Quellen in der Wissensbasis gefunden."}
+                    # Treffer formatieren: Text + Quelle + Zeitstempel (wenn vorhanden)
+                    resultat = "**Relevante Stellen aus der Wissensbasis:**\n\n"
+                    for t in treffer:
+                        resultat += f"- **{t['titel']}** ({t['quelle']}"
+                        if t.get("start_s"):
+                            resultat += f", ab {t['start_s']}s"
+                        resultat += f")\n  > {t['text']}\n\n"
+                    return {"treffer": resultat}
+                except Exception as e:
+                    return {"error": f"Wissensbasis-Fehler: {str(e)[:100]}"}
 
             return {"error": f"Unbekanntes Consult-Tool: {name}"}
         except Exception as e:

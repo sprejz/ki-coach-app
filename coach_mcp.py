@@ -206,6 +206,38 @@ async def app_status() -> str:
     return json.dumps({"url": COACH_URL, **daten}, ensure_ascii=False, indent=2)
 
 
+@mcp.tool()
+async def wissen_suche(frage: str) -> str:
+    """Die Wissensbasis nach Erkenntnissen durchsuchen.
+
+    Nutze dies bei sportwissenschaftlichen, ernährungs- oder trainingsbezogenen
+    Fragen — durchsucht alle hochgeladenen Quellen (Videos, Transkripte, Artikel)
+    und liefert die relevantesten Textstellen mit Quelle und Zeitstempel.
+
+    Args:
+        frage: Die Frage, z.B. 'Carb-Intake beim Ironman', 'Tapering zwei Wochen vor Rennen'.
+    """
+    if not frage.strip():
+        return "Frage erforderlich."
+    try:
+        daten = await _post("/api/wissen/suche", {"q": frage.strip()})
+        treffer = daten.get("treffer", [])
+        if not treffer:
+            return "Keine passenden Quellen in der Wissensbasis gefunden."
+        resultat = "**Treffer aus der Wissensbasis:**\n\n"
+        for t in treffer:
+            resultat += f"**{t['titel']}** ({t['quelle']}"
+            if t.get("start_s"):
+                resultat += f", ab {t['start_s']}s"
+            resultat += f", Relevanz {t.get('relevance', 0):.1%})\n"
+            resultat += f"> {t['text']}\n\n"
+        return resultat
+    except httpx.HTTPError as e:
+        if "400" in str(e):
+            return "Wissensbasis nicht konfiguriert oder leer."
+        return f"Fehler beim Abrufen der Wissensbasis: {str(e)[:100]}"
+
+
 def _bearer(scope) -> str:
     for key, value in scope.get("headers") or []:
         if key == b"authorization":
