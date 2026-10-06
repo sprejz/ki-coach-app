@@ -27,6 +27,7 @@ from training_load import (  # noqa: E402
 )
 from translations import TRANSLATIONS  # noqa: E402
 import strava  # noqa: E402
+import wissensbasis  # noqa: E402
 
 fehler = []
 
@@ -910,6 +911,118 @@ for _sprache in ("de", "en"):
     # nur Lauf/Rad/Schwimmen), Lauf/Rad/Schwimmen nutzen jetzt architect_*.
     pruefe("analyst" not in _registry,
            f"agenten['analyst'] (Coach Ben Krause) ist entfernt, kein totes Fallback-Gewicht ({_sprache})")
+
+print("\n=== Wissensbasis (RAG) ===")
+# Chunking: Text wird mit Overlap aufgeteilt, Zeitstempel geschätzt
+text_kurz = "Das ist ein Test. Es hat mehrere Sätze. Zum Testen des Chunking."
+chunks_kurz = wissensbasis.WissensbasisStore.chunk_segments(text_kurz, start_s=0, chunk_size_tokens=50, overlap_ratio=0.2)
+pruefe(len(chunks_kurz) > 0, "Kurzer Text wird in mindestens einen Chunk aufgeteilt")
+pruefe(all(len(c) == 3 and isinstance(c[0], int) and isinstance(c[1], int) and isinstance(c[2], str) for c in chunks_kurz),
+       "Jeder Chunk ist (start_s, end_s, text)")
+
+text_leer = ""
+chunks_leer = wissensbasis.WissensbasisStore.chunk_segments(text_leer)
+pruefe(len(chunks_leer) == 0, "Leerer Text liefert keine Chunks")
+
+text_lang = "Satz. " * 500  # ~3000 Zeichen = ~750 Tokens
+chunks_lang = wissensbasis.WissensbasisStore.chunk_segments(text_lang, start_s=3600, chunk_size_tokens=256, overlap_ratio=0.2)
+pruefe(len(chunks_lang) > 1, "Längerer Text wird in mehrere Chunks aufgeteilt")
+pruefe(all(c[0] >= 3600 for c in chunks_lang), "Chunks behalten die Startzeit-Offset")
+
+# Fake-Embedder und Chroma für Tests
+class FakeEmbedder:
+    def __init__(self, model_name="test"):
+        self.model_name = model_name
+
+    def embed(self, texts):
+        """Deterministische Fake-Embeddings: Hash des Texts."""
+        for text in texts:
+            h = hash(text) % 1000
+            # Einfacher Vektor: [h/1000, 0.5, ...] × 384 (MiniLM-Größe)
+            yield [float(h) / 1000.0] * 384
+
+class FakeChromaClient:
+    def __init__(self, path=None):
+        self.data = {}  # {id: {doc, embedding, metadata}}
+
+    def get_or_create_collection(self, name, metadata=None):
+        return FakeChromaCollection(self.data)
+
+class FakeChromaCollection:
+    def __init__(self, data):
+        self.data = data
+
+    def add(self, ids, embeddings, metadatas, documents):
+        for id_, emb, meta, doc in zip(ids, embeddings, metadatas, documents):
+            self.data[id_] = {"embedding": emb, "metadata": meta, "document": doc}
+
+    def query(self, query_embeddings, n_results, include):
+        # Dummy: Zurückgeben der ersten n Chunks (keine echte Suche)
+        results_ids = list(self.data.keys())[:n_results]
+        return {
+            "documents": [[self.data[id_]["document"] for id_ in results_ids]],
+            "metadatas": [[self.data[id_]["metadata"] for id_ in results_ids]],
+            "distances": [[0.1] * len(results_ids)],  # Dummy-Distanzen
+        }
+
+    def get(self, include=None, where=None):
+        if where and where.get("source_id"):
+            source_id = where["source_id"]
+            filtered = {k: v for k, v in self.data.items() if v["metadata"].get("source_id") == source_id}
+        else:
+            filtered = self.data
+        return {
+            "documents": [v["document"] for v in filtered.values()],
+            "metadatas": [v["metadata"] for v in filtered.values()],
+        }
+
+    def delete(self, where):
+        if where.get("source_id"):
+            source_id = where["source_id"]
+            self.data = {k: v for k, v in self.data.items() if v["metadata"].get("source_id") != source_id}
+
+# Test mit Fake-Client
+store = wissensbasis.WissensbasisStore(
+    Path("/tmp/test_wissen"),
+    embedder_class=FakeEmbedder,
+    chroma_client=FakeChromaClient(),
+)
+
+# add_source
+source_id = "test_video_1"
+titre = "Test Video"
+text = "Das ist ein Testtranskript. " * 50
+quelle = "https://youtube.com/watch?v=test"
+try:
+    meta = store.add_source(source_id, titre, text, quelle, start_s=0)
+    pruefe(meta["id"] == source_id and meta["titel"] == titre and meta["chunks"] > 0,
+           "add_source speichert die Quelle und zählt Chunks")
+except Exception as e:
+    pruefe(False, f"add_source wirft Fehler: {e}")
+
+# list_sources
+sources = store.list_sources()
+pruefe(len(sources) == 1 and sources[0]["id"] == source_id,
+       "list_sources zeigt die hinzugefügte Quelle")
+
+# search
+try:
+    treffer = store.search("Test", n_results=3, min_confidence=0.0)
+    pruefe(len(treffer) <= 3, "search gibt maximal n_results Treffer")
+    pruefe(all("text" in t and "titel" in t and "quelle" in t for t in treffer),
+           "search-Treffer haben alle erforderlichen Felder")
+except Exception as e:
+    pruefe(False, f"search wirft Fehler: {e}")
+
+# delete_source
+deleted = store.delete_source(source_id)
+pruefe(deleted is True, "delete_source gibt True zurück")
+sources_nach = store.list_sources()
+pruefe(len(sources_nach) == 0, "Nach Löschen ist die Quelle weg")
+
+# Fehlerfall: nicht existierende Quelle löschen
+deleted_nicht_existent = store.delete_source("nicht_existent")
+pruefe(deleted_nicht_existent is False, "delete_source gibt False für nicht existierende Quelle")
 
 print(f"\n{'=' * 40}")
 if fehler:

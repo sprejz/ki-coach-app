@@ -123,8 +123,51 @@ def fetch_transcript(video_id: str, languages: tuple = ("de", "en")) -> str:
     return text
 
 
+def fetch_transcript_segments(video_id: str, languages: tuple = ("de", "en")) -> tuple[list, str]:
+    """
+    Transkript als Segmente mit Zeitstempeln für RAG.
+
+    Return: ([(start_s, text), ...], titel_oder_"")
+
+    **NICHT gekürzt** — die volle Länge wird zurückgegeben.
+    Chunking und Längenkontrolle macht wissensbasis.py.
+    """
+    api = _client()
+    try:
+        transcript = api.fetch(video_id, languages=list(languages))
+    except Exception:
+        try:
+            verfuegbar = api.list(video_id)
+            erstes = next(iter(verfuegbar))
+            transcript = erstes.fetch()
+        except Exception as e:
+            raise YoutubeError(
+                f"Kein Transkript verfügbar ({type(e).__name__}: {e})"
+            ) from e
+
+    if not transcript:
+        raise YoutubeError("Transkript ist leer")
+
+    # Segmente: start (in Sekunden), Text
+    segments = []
+    for schnipsel in transcript:
+        start_s = int(schnipsel.get("start", 0))
+        text = schnipsel.get("text", "").strip()
+        if text:
+            segments.append((start_s, text))
+
+    if not segments:
+        raise YoutubeError("Transkript hat keine verwertbaren Segmente")
+
+    titel = fetch_title(video_id) or ""
+    return segments, titel
+
+
 def fetch_transcript_and_title(video_id: str) -> tuple[str, Optional[str], bool]:
-    """Rückgabe: (transkript_text, titel_oder_None, wurde_gekuerzt)."""
+    """Rückgabe: (transkript_text, titel_oder_None, wurde_gekuerzt).
+
+    Alte Schnittstelle für Rückwärtskompatibilität (v2.9.2).
+    """
     text = fetch_transcript(video_id)
     text, gekuerzt = _kuerzen(text)
     titel = fetch_title(video_id)

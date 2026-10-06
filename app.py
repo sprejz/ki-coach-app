@@ -30,6 +30,7 @@ from training_load import (
 from translations import TRANSLATIONS
 import strava
 import youtube
+import wissensbasis
 
 # Agent-Pipeline (Sportmediziner + Wetter-Taktiker → Chefcoach). Import bewusst
 # defensiv: fehlt etwas, läuft die App weiter über den alten Monolith-Prompt.
@@ -162,6 +163,18 @@ def _pending_action_start(entry: dict) -> str:
 _research_jobs: dict = {}   # job_id -> {"status","result","error","ts"}
 _RESEARCH_JOB_TTL = 900
 _research_tasks: set = set()  # hält Task-Referenzen, siehe _check_tasks
+
+# Wissensbasis (v2.10.0): Chroma + fastembed, lokal auf DATA_DIR/chroma.
+# Lazy-Embedder (wird beim ersten Gebrauch geladen, nicht beim Start — Modell ~220MB).
+_wissensbasis_store: Optional[wissensbasis.WissensbasisStore] = None
+_WISSENSBASIS_JOB_TTL = 1800
+
+def _get_wissensbasis_store() -> wissensbasis.WissensbasisStore:
+    """Lazy-Init der Wissensbasis."""
+    global _wissensbasis_store
+    if _wissensbasis_store is None:
+        _wissensbasis_store = wissensbasis.WissensbasisStore(DATA_DIR)
+    return _wissensbasis_store
 
 # ── TP Workout Cache + Background Refresh ────────────────────────────────────
 import time as _time
@@ -2667,6 +2680,182 @@ async def knowledge_reject(entry_id: str):
         raise HTTPException(404, T["err_knowledge_not_found"])
     save_knowledge(data)
     return {"ok": True}
+
+
+# ── Wissensbasis (RAG, v2.10.0) ──────────────────────────────────────────────
+
+@app.get("/api/wissen/quellen")
+async def wissen_quellen():
+    """Alle Wissensquellen auflisten (Metadaten)."""
+    try:
+        store = _get_wissensbasis_store()
+        quellen = store.list_sources()
+        return {"quellen": quellen}
+    except Exception as e:
+        logger.exception("wissen_quellen fehlgeschlagen")
+        raise HTTPException(500, f"Wissensbasis-Fehler: {e}")
+
+
+@app.post("/api/wissen/suche")
+async def wissen_suche(request: Request):
+    """Frage stellen: Vektorsearch über alle Quellen.
+
+    JSON: {"q": "..."}
+    Return: [{text, titel, quelle, start_s, relevance}, ...]
+    """
+    try:
+        body = await request.json()
+        query = body.get("q", "").strip()
+    except:
+        raise HTTPException(400, "JSON-Body mit 'q' erforderlich")
+
+    if not query:
+        raise HTTPException(400, "Query erforderlich")
+
+    try:
+        store = _get_wissensbasis_store()
+        treffer = store.search(query, n_results=5, min_confidence=0.25)
+        return {"treffer": treffer, "count": len(treffer)}
+    except Exception as e:
+        logger.exception("wissen_suche fehlgeschlagen")
+        raise HTTPException(500, f"Sucherror: {e}")
+
+
+@app.post("/api/wissen/quelle")
+async def wissen_quelle_hinzufuegen(request: Request):
+    """Neue Quelle hinzufügen (Embedding als Job).
+
+    JSON: {
+        "quelle_type": "youtube" | "text",
+        "youtube_url"?: "https://...",
+        "text"?: "Freitext oder Transkript",
+        "titel"?: "Titel der Quelle"
+    }
+
+    Return: {job_id, titel} — Frontend pollt /api/wissen/quelle/{job_id}
+    """
+    try:
+        data = await request.json()
+    except:
+        raise HTTPException(400, "JSON-Body erforderlich")
+
+    source_type = data.get("quelle_type", "").strip()
+    if source_type not in ("youtube", "text"):
+        raise HTTPException(400, "quelle_type muss 'youtube' oder 'text' sein")
+
+    if source_type == "youtube":
+        youtube_url = data.get("youtube_url", "").strip()
+        if not youtube_url:
+            raise HTTPException(400, "youtube_url erforderlich")
+        video_id = youtube.extract_video_id(youtube_url)
+        if not video_id:
+            raise HTTPException(400, "Ungültige YouTube-URL")
+    else:  # text
+        text = data.get("text", "").strip()
+        titel = data.get("titel", "Quelle ohne Titel").strip()
+        if not text:
+            raise HTTPException(400, "text erforderlich")
+
+    job_id = str(uuid.uuid4())[:10]
+    _research_jobs[job_id] = {"status": "pending", "ts": _time.time()}
+
+    # Hintergrund-Task
+    asyncio.create_task(
+        _run_wissen_job_embed(
+            job_id, source_type,
+            youtube_url if source_type == "youtube" else None,
+            text if source_type == "text" else None,
+            titel if source_type == "text" else None
+        )
+    )
+
+    return {"job_id": job_id, "status": "pending"}
+
+
+@app.get("/api/wissen/quelle/{job_id}")
+async def wissen_quelle_status(job_id: str):
+    """Job-Status abfragen."""
+    entry = _research_jobs.get(job_id)
+    if not entry:
+        raise HTTPException(404, "Job nicht gefunden oder abgelaufen")
+
+    result = {
+        "job_id": job_id,
+        "status": entry.get("status"),
+    }
+    if entry.get("status") == "done":
+        result["titel"] = entry.get("result", {}).get("titel")
+        result["chunks"] = entry.get("result", {}).get("chunks")
+    elif entry.get("status") == "error":
+        result["error"] = entry.get("error")
+
+    return result
+
+
+@app.delete("/api/wissen/quelle/{source_id}")
+async def wissen_quelle_loeschen(source_id: str):
+    """Quelle löschen (alle Chunks entfernen)."""
+    try:
+        store = _get_wissensbasis_store()
+        if store.delete_source(source_id):
+            return {"ok": True}
+        else:
+            raise HTTPException(404, "Quelle nicht gefunden")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("wissen_quelle_loeschen fehlgeschlagen")
+        raise HTTPException(500, f"Fehler beim Löschen: {e}")
+
+
+async def _run_wissen_job_embed(
+    job_id: str,
+    source_type: str,
+    youtube_url: Optional[str],
+    text: Optional[str],
+    titel: Optional[str],
+):
+    """Embedding-Job (asyncio.create_task)."""
+    try:
+        store = _get_wissensbasis_store()
+
+        if source_type == "youtube":
+            video_id = youtube.extract_video_id(youtube_url)
+            try:
+                segments, yt_titel = await asyncio.to_thread(
+                    youtube.fetch_transcript_segments, video_id
+                )
+                # Segmente zusammenfügen (wissensbasis.py macht dann das Chunking)
+                text = " ".join(seg[1] for seg in segments)
+                titel = yt_titel or youtube_url
+                start_s = segments[0][0] if segments else 0
+            except youtube.YoutubeNotConfigured as e:
+                raise HTTPException(400, str(e))
+            except youtube.YoutubeError as e:
+                raise HTTPException(400, f"YouTube-Fehler: {e}")
+        else:  # text
+            start_s = 0
+
+        # Embedding (läuft in einem Thread, fastembed ist synchron)
+        source_id = str(uuid.uuid4())[:10]
+        result = await asyncio.to_thread(
+            store.add_source,
+            source_id, titel, text, youtube_url or "text-input", start_s
+        )
+
+        _research_jobs[job_id]["status"] = "done"
+        _research_jobs[job_id]["result"] = result
+        _research_jobs[job_id]["ts"] = _time.time()
+
+    except HTTPException as e:
+        _research_jobs[job_id]["status"] = "error"
+        _research_jobs[job_id]["error"] = e.detail
+    except Exception as e:
+        logger.exception("_run_wissen_job_embed fehlgeschlagen")
+        _research_jobs[job_id]["status"] = "error"
+        _research_jobs[job_id]["error"] = f"{type(e).__name__}: {str(e)[:300]}"
+    finally:
+        _research_jobs[job_id]["ts"] = _time.time()
 
 
 @app.post("/api/check-abend")
