@@ -2024,9 +2024,9 @@ def clean_title(title: str) -> str:
 
 
 def _is_weather_sport(sport: str) -> bool:
-    """Nur Lauf, Golf und Rad bekommen Wetter-Symbol."""
+    """Lauf, Golf, Rad und Hike/Wandern bekommen Wetter-Symbol."""
     s = (sport or "").lower()
-    return any(x in s for x in ("lauf", "run", "golf", "bike", "rad", "cycl"))
+    return any(x in s for x in ("lauf", "run", "golf", "bike", "rad", "cycl", "hike", "wander"))
 
 
 def _is_indoor(title: str) -> bool:
@@ -3665,7 +3665,9 @@ async def backfill_weather(days: int = 30):
                 continue
             tmax = float((d_data.get("temperature_2m_max") or [0])[i] or 0)
             tmin = float((d_data.get("temperature_2m_min") or [0])[i] or 0)
-            rain = int((d_data.get("precipitation_probability_max") or [0])[i] or 0)
+            # Archive-API liefert keine precipitation_probability_max -> None statt falscher 0 %
+            _probs = d_data.get("precipitation_probability_max")
+            rain = int(_probs[i] or 0) if _probs else None
             code = int((d_data.get("weather_code") or [0])[i] or 0)
             result[d] = {
                 "temp_max": tmax, "temp_min": tmin, "rain_prob": rain,
@@ -3761,8 +3763,8 @@ async def backfill_weather(days: int = 30):
                            f"{h_wx['precip_total']}mm Regen")
             else:
                 wx_note = (f"Wetter: {d_wx['description']}, "
-                           f"{d_wx['temp_min']}–{d_wx['temp_max']}°C, "
-                           f"Regen {d_wx['rain_prob']}%")
+                           f"{d_wx['temp_min']}–{d_wx['temp_max']}°C"
+                           + (f", Regen {d_wx['rain_prob']}%" if d_wx['rain_prob'] is not None else ""))
 
             update_args: dict = {"workout_id": w["id"]}
 
