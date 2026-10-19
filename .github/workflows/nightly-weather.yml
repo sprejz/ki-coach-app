@@ -38,3 +38,11 @@ jobs:
             "https://ki-coach-app-production.up.railway.app/api/admin/backfill-weather?days=3" \
             -o result.json -w "HTTP %{http_code}\n"
           cat result.json; echo
+
+      - name: Energiebilanz des Tages als TP-Notiz
+        if: steps.zeit.outputs.run == 'true'
+        run: |
+          heute=$(TZ=Europe/Berlin date +%F)
+          curl -sS -f -X POST --max-time 120 \
+            "https://ki-coach-app-production.up.railway.app/api/energiebilanz/notiz?day=$heute" \
+            -w "\nHTTP %{http_code}\n"

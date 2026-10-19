@@ -29,6 +29,7 @@ from training_load import (
 )
 from translations import TRANSLATIONS
 import strava
+import energiebilanz
 import youtube
 import wissensbasis
 
@@ -70,7 +71,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "2.10.9"
+APP_VERSION = "2.10.10"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -3673,6 +3674,60 @@ async def debug_fit_parse(fit_file: UploadFile = File(...)):
         return JSONResponse({"parsed_keys": list(result.keys()), "data": result}, headers=_NO_CACHE)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500, headers=_NO_CACHE)
+
+
+async def _energiebilanz_tage(tage: list) -> list:
+    """Bilanz je Tag: Aufnahme und Grundumsatz aus TP, Training aus Strava."""
+    tage = sorted(tage)
+    nutrition = await call_tp_mcp("tp_get_nutrition",
+                                  {"start_date": tage[0], "end_date": tage[-1]})
+    metrics = await call_tp_mcp("tp_get_metrics",
+                                {"start_date": tage[0], "end_date": tage[-1]})
+    aufnahme = energiebilanz.aufnahme_pro_tag(nutrition)
+    rmr      = energiebilanz.rmr_pro_tag(metrics)
+    training = await strava.training_kcal_pro_tag(tage)
+    # Default 500: athlete.json im Railway-Volume wird nur einmal aus dem Repo geseedet
+    ziel     = load_athlete().get("energie_defizit_ziel_kcal", 500)
+    return [energiebilanz.bilanz(t, aufnahme.get(t), rmr.get(t), training.get(t), ziel)
+            for t in tage]
+
+
+@app.get("/api/energiebilanz")
+async def energiebilanz_get(days: int = 7):
+    """Aufnahme gegen Verbrauch je Tag, die letzten `days` Tage (max. 30)."""
+    if not os.environ.get("TP_MCP_URL"):
+        raise HTTPException(400, T["err_tp_url_missing"])
+    days = max(1, min(days, 30))
+    heute = date.today()
+    tage = [(heute - timedelta(days=i)).isoformat() for i in range(days)]
+    try:
+        zeilen = await _energiebilanz_tage(tage)
+    except Exception as e:
+        raise HTTPException(500, f"Energiebilanz fehlgeschlagen: {e}")
+    return {"tage": zeilen}
+
+
+@app.post("/api/energiebilanz/notiz")
+async def energiebilanz_notiz(day: str):
+    """Legt die Energiebilanz des Tages als TP-Notiz an. Einmal je Tag: existiert
+    die Notiz schon, passiert nichts. Gedacht für den Nachtlauf um 23 Uhr."""
+    try:
+        date.fromisoformat(day)
+    except ValueError:
+        raise HTTPException(400, "day als YYYY-MM-DD")
+    if not os.environ.get("TP_MCP_URL"):
+        raise HTTPException(400, T["err_tp_url_missing"])
+    titel = energiebilanz.notiz_titel(day)
+    try:
+        bestehend = await call_tp_mcp("tp_list_notes", {"start_date": day, "end_date": day})
+        if titel in json.dumps(bestehend, ensure_ascii=False):
+            return {"status": "exists", "titel": titel}
+        zeile = (await _energiebilanz_tage([day]))[0]
+        text = energiebilanz.notiz_text(zeile)
+        await call_tp_mcp("tp_create_note", {"date": day, "title": titel, "description": text})
+    except Exception as e:
+        raise HTTPException(500, f"Energiebilanz-Notiz fehlgeschlagen: {e}")
+    return {"status": "created", "titel": titel, "text": text}
 
 
 @app.post("/api/admin/backfill-weather")

@@ -333,3 +333,54 @@ def ort_aus_aktivitaeten(kandidaten: list, ort_gruppe: str,
     if not latlng or len(latlng) != 2:
         return None
     return (float(latlng[0]), float(latlng[1]))
+
+
+async def _aktivitaet_kcal(token: str, activity_id) -> Optional[float]:
+    """Verbrauch einer Aktivität. Die Listenansicht liefert „calories" nicht immer,
+    dann kommt der Wert aus der Detailansicht."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(
+            f"https://www.strava.com/api/v3/activities/{activity_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        resp.raise_for_status()
+        kcal = resp.json().get("calories")
+    return float(kcal) if kcal is not None else None
+
+
+async def training_kcal_pro_tag(tage: list) -> dict:
+    """{datum: kcal} für die Trainingseinheiten je Tag.
+
+    Ohne Strava-Verbindung leer — dann ist der Trainingsverbrauch unbekannt, nicht 0.
+    Ein Tag mit einer Aktivität ohne bekannten Verbrauch fehlt im Ergebnis —
+    lieber „unbekannt" als eine zu niedrige Summe."""
+    try:
+        token = await _get_access_token()
+    except Exception:
+        return {}
+    if not token:
+        return {}
+    out: dict = {}
+    for tag in tage:
+        try:
+            aktivitaeten = await _get_activities(token, tag)
+        except Exception:
+            continue
+        summe = 0.0
+        unvollstaendig = False
+        for a in aktivitaeten:
+            if (a.get("start_date_local") or "")[:10] != tag:
+                continue
+            kcal = a.get("calories")
+            if kcal is None:
+                try:
+                    kcal = await _aktivitaet_kcal(token, a["id"])
+                except Exception:
+                    kcal = None
+            if kcal is None:
+                unvollstaendig = True
+                break
+            summe += float(kcal)
+        if not unvollstaendig:
+            out[tag] = summe
+    return out
