@@ -914,7 +914,8 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
   #form-section.dashboard-mode .tab-panel[data-panel="erholung"],
   #form-section.dashboard-mode .tab-panel[data-panel="chat"],
   #form-section.dashboard-mode .tab-panel[data-panel="einstellungen"],
-  #form-section.dashboard-mode .tab-panel[data-panel="recherche"] { display: none; }
+  #form-section.dashboard-mode .tab-panel[data-panel="recherche"],
+  #form-section.dashboard-mode .tab-panel[data-panel="energie"] { display: none; }
 }
 </style>
 </head>
@@ -957,6 +958,7 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
   <button class="tab-btn active" data-tab="morgen">{{ T.tab_morgen }}</button>
   <button class="tab-btn" data-tab="abend">{{ T.tab_abend }}</button>
   <button class="tab-btn" data-tab="ernaehrung">{{ T.tab_ernaehrung }}</button>
+  <button class="tab-btn" data-tab="energie">{{ T.tab_energie }}</button>
   <button class="tab-btn" data-tab="analyse">{{ T.tab_analyse }}</button>
   <button class="tab-btn" data-tab="erholung">{{ T.tab_erholung }}</button>
   <button class="tab-btn" data-tab="chat">Chat</button>
@@ -1487,6 +1489,10 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
     <div id="ernaehrung-content"></div>
   </div><!-- Ernaehrung panel -->
 
+  <div class="tab-panel" data-panel="energie">
+    <div id="energie-content"></div>
+  </div><!-- Energie panel -->
+
   <div class="tab-panel" data-panel="chat">
     <div class="form-card" style="border-top:none;border-radius:0 0 var(--radius) var(--radius);display:flex;flex-direction:column;gap:0;min-height:60vh">
       <div style="text-align:center;font-size:12px;color:var(--muted);margin-bottom:8px">
@@ -1695,6 +1701,7 @@ function initTabs() {
       if (tab === 'erholung' && !erholungLoaded) loadErholung();
       if (tab === 'analyse') renderAnalyseSection();
       if (tab === 'ernaehrung') loadErnaehrung();
+      if (tab === 'energie') loadEnergie();
       if (tab === 'recherche' && !researchLoaded) loadKnowledge();
     });
   });
@@ -1772,6 +1779,61 @@ async function loadErnaehrung() {
     el.innerHTML = renderErnaehrung(await r.json());
   } catch (err) {
     el.innerHTML = `<div class="form-card"><p class="ern-zeile" style="color:var(--red)">${esc(err.message || String(err))}</p></div>`;
+  }
+}
+
+// ── Energiebilanz ─────────────────────────────────────────────────────────────
+// Aufnahme (TP-Ernährung) gegen Verbrauch (Grundumsatz + Training). Der Server
+// rechnet, hier nur Darstellung. Negativer Saldo = Defizit.
+function renderEnergie(data) {
+  const tage = data.tage || [];
+  if (!tage.length) return `<div class="form-card"><p class="ern-zeile">${esc(T.energie_keine_daten)}</p></div>`;
+  const heute = new Date().toLocaleDateString('sv-SE');  // YYYY-MM-DD, lokal
+  const ziel = tage[0].ziel_defizit;
+  const voll = tage.filter(t => t.saldo != null && t.datum !== heute);
+  const schnitt = voll.length ? Math.round(voll.reduce((s, t) => s + t.saldo, 0) / voll.length) : null;
+  const fmt = v => v == null ? '—' : Math.round(v).toString();
+  const vz = v => (v > 0 ? '+' : '−') + Math.abs(Math.round(v));
+
+  const kopf = `<div class="form-card">
+    <h3 style="margin:0 0 6px">${esc(T.energie_titel)}</h3>
+    <p class="ern-zeile" style="color:var(--muted)">${esc(T.energie_intro)}</p>
+    ${schnitt != null ? `<p class="ern-zeile"><strong>${esc(T.energie_schnitt)}: ${vz(schnitt)} kcal</strong>${ziel ? ` · ${esc(T.energie_ziel)}: −${ziel} kcal` : ''}</p>` : ''}
+  </div>`;
+
+  const zeile = t => {
+    const istHeute = t.datum === heute;
+    const datum = new Date(t.datum + 'T12:00:00').toLocaleDateString('de-DE', {weekday: 'short', day: '2-digit', month: '2-digit'});
+    let saldo = '—', farbe = 'var(--muted)';
+    if (t.saldo != null) {
+      saldo = vz(t.saldo);
+      farbe = istHeute ? 'var(--muted)' : (ziel && t.saldo <= -ziel) ? 'var(--green)' : (t.saldo < 0 ? 'var(--orange)' : 'var(--red)');
+    }
+    const hinweise = (t.hinweise || []).length ? `<div class="ern-zeile" style="color:var(--muted)">${esc(t.hinweise.join(', '))}</div>` : '';
+    return `<div class="form-card" style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
+        <strong>${esc(datum)}${istHeute ? ` <span style="font-size:12px;color:var(--muted)">${esc(T.energie_heute)}</span>` : ''}</strong>
+        <span style="font-size:22px;font-weight:700;color:${farbe}">${saldo}</span>
+      </div>
+      <div class="ern-zeile">${esc(T.energie_aufnahme)}: ${fmt(t.aufnahme)} · ${esc(T.energie_verbrauch)}: ${fmt(t.verbrauch)} kcal</div>
+      <div class="ern-zeile" style="color:var(--muted)">${esc(T.energie_grundumsatz)} ${fmt(t.grundumsatz)} + ${esc(T.energie_training)} ${fmt(t.training)}</div>
+      ${hinweise}
+    </div>`;
+  };
+  return kopf + [...tage].reverse().map(zeile).join('');
+}
+
+async function loadEnergie() {
+  const el = document.getElementById('energie-content');
+  if (!el) return;
+  el.innerHTML = `<div class="form-card"><p class="ern-zeile" style="color:var(--muted)">${esc(T.loading_data)}</p></div>`;
+  try {
+    // Ein Tag braucht pro Strava-Aktivität einen Detailabruf, daher großzügige Frist
+    const r = await fetchMitFrist('/api/energiebilanz?days=14', { cache: 'no-store' }, 90000);
+    if (!r.ok) throw new Error(await r.text());
+    el.innerHTML = renderEnergie(await r.json());
+  } catch (err) {
+    el.innerHTML = `<div class="form-card"><p class="ern-zeile" style="color:var(--red)">${esc(T.energie_fehler)}: ${esc(err.message || String(err))}</p></div>`;
   }
 }
 
