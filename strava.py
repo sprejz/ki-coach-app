@@ -287,3 +287,49 @@ async def fetch_matching_activity_as_fit(*, target_date: str, sport_hint: str = 
         return None
     laps = await _get_laps(token, treffer["id"])
     return _activity_to_fit_shape(treffer, laps)
+
+
+# Ort-Zuordnung: strenger als _SPORT_GRUPPEN. Ohne passende Sportart gibt es
+# keinen Ort (der Aufrufer nimmt dann den Heimatort) — eine Wanderung darf nie
+# den Startort einer Radfahrt bekommen, nur weil am selben Tag sonst nichts da ist.
+_ORT_GRUPPEN = {
+    "Run": {"Run", "TrailRun", "VirtualRun"},
+    "Bike": {"Ride", "GravelRide", "MountainBikeRide", "EBikeRide"},
+    "Walk": {"Hike", "Walk"},
+    "Golf": {"Golf"},
+    "Swim": {"Swim"},
+}
+
+
+async def aktivitaeten_fuer_tag(target_date: str) -> list:
+    """Alle Strava-Aktivitäten des Tages (Zeitzonen-Puffer eingerechnet).
+    Ohne Credentials oder bei Fehler: leere Liste — der Aufrufer fällt auf den
+    Heimatort zurück, die Analyse-Logik hier blockiert nie."""
+    try:
+        token = await _get_access_token()
+        if not token:
+            return []
+        aktivitaeten = await _get_activities(token, target_date)
+    except Exception:
+        return []
+    return [a for a in aktivitaeten if (a.get("start_date_local") or "")[:10] == target_date]
+
+
+def ort_aus_aktivitaeten(kandidaten: list, ort_gruppe: str,
+                         dauer_hint_min: Optional[float] = None) -> Optional[tuple]:
+    """Startkoordinaten (lat, lon) der passenden Aktivität, sonst None.
+
+    Nur Aktivitäten der exakt passenden Sportart-Gruppe; bei mehreren Treffern
+    entscheidet die geplante Dauer (match_activity). Ohne Koordinaten in der
+    Aktivität: None."""
+    gruppe = _ORT_GRUPPEN.get(ort_gruppe)
+    if not gruppe:
+        return None
+    passend = [a for a in kandidaten if a.get("sport_type") in gruppe]
+    if not passend:
+        return None
+    treffer = match_activity(passend, "", "", dauer_hint_min)
+    latlng = (treffer or {}).get("start_latlng")
+    if not latlng or len(latlng) != 2:
+        return None
+    return (float(latlng[0]), float(latlng[1]))

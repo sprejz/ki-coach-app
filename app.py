@@ -70,7 +70,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "2.10.6"
+APP_VERSION = "2.10.7"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -2051,6 +2051,25 @@ def _wetter_sport(sport: str, title: str) -> bool:
     return _is_outdoor_swim(sport, title)
 
 
+def _ort_gruppe(sport: str, title: str) -> Optional[str]:
+    """Ordnet eine TP-Einheit einer Ort-Gruppe aus strava.py zu (oder None).
+
+    TP: Wandern = "Walk", Golf = "Custom" mit "Golf" im Titel."""
+    s = (sport or "").lower()
+    t = (title or "").lower()
+    if "golf" in s or (s == "custom" and "golf" in t):
+        return "Golf"
+    if any(x in s for x in ("hike", "wander", "walk")):
+        return "Walk"
+    if any(x in s for x in ("lauf", "run")):
+        return "Run"
+    if any(x in s for x in ("bike", "rad", "cycl")):
+        return "Bike"
+    if any(x in s for x in ("swim", "schwimm")):
+        return "Swim"
+    return None
+
+
 def _is_indoor(title: str) -> bool:
     """Zwift, Indoor-Trainer, Laufband etc. sind wetterunabhängig."""
     return any(x in (title or "").lower() for x in ("zwift", "indoor", "laufband", "trainer"))
@@ -3696,17 +3715,28 @@ async def backfill_weather(days: int = 30):
         return JSONResponse({"updated": 0, "skipped": 0, "errors": 0,
                              "detail": "Keine completed Workouts gefunden"})
 
-    # 2. Wetterdaten in einem Batch-Call holen (täglich + stündlich)
+    # 2. Startort je Einheit: Strava-Startkoordinaten, sonst Heimatort
     athlete   = load_athlete()
-    all_dates = list(by_date.keys())
-    cutoff    = (today - timedelta(days=7)).isoformat()
-    recent    = [d for d in all_dates if d > cutoff]
-    archive   = [d for d in all_dates if d <= cutoff]
-    lat = athlete.get("location", {}).get("lat", 52.30)
-    lon = athlete.get("location", {}).get("lon", 13.25)
+    home_lat  = athlete.get("location", {}).get("lat", 52.30)
+    home_lon  = athlete.get("location", {}).get("lon", 13.25)
+    aktivitaeten_cache: dict = {}
+    for day_str, workouts in by_date.items():
+        for w in workouts:
+            w["ort"] = None
+            if not (_wetter_sport(w["sport"], w["title"]) and not _is_indoor(w["title"])):
+                continue
+            if day_str not in aktivitaeten_cache:
+                aktivitaeten_cache[day_str] = await strava.aktivitaeten_fuer_tag(day_str)
+            ort_gruppe = _ort_gruppe(w["sport"], w["title"])
+            dauer_min  = (w["duration_s"] / 60) or None
+            ort = (strava.ort_aus_aktivitaeten(aktivitaeten_cache[day_str], ort_gruppe, dauer_min)
+                   if ort_gruppe else None)
+            w["ort"] = ort or (home_lat, home_lon)
+            w["ort_quelle"] = "strava" if ort else "heimat"
 
-    daily_wx: dict = {}
-    hourly_wx: dict = {}  # date -> {hour -> {temp, precip, code}}
+    # 3. Wetter je Startort genau einmal holen (nicht pro Einheit)
+    def _wx_base(lat: float, lon: float) -> str:
+        return f"latitude={lat}&longitude={lon}"
 
     async def _fetch_daily(url: str, dates: list) -> dict:
         async with httpx.AsyncClient(timeout=20.0) as client:
@@ -3753,28 +3783,42 @@ async def backfill_weather(days: int = 30):
             }
         return result
 
-    try:
+    async def _wetter_fuer_ort(lat: float, lon: float, dates: list) -> tuple:
+        cutoff  = (today - timedelta(days=7)).isoformat()
+        recent  = [d for d in dates if d > cutoff]
+        archive = [d for d in dates if d <= cutoff]
+        daily: dict = {}
+        hourly: dict = {}
         if recent:
             base_r = (f"https://api.open-meteo.com/v1/forecast"
-                      f"?latitude={lat}&longitude={lon}"
+                      f"?{_wx_base(lat, lon)}"
                       f"&past_days=7&forecast_days=1&timezone=Europe%2FBerlin")
-            daily_wx.update(await _fetch_daily(
+            daily.update(await _fetch_daily(
                 base_r + "&daily=temperature_2m_max,temperature_2m_min,"
                          "precipitation_probability_max,weather_code", recent))
-            hourly_wx.update(await _fetch_hourly(
+            hourly.update(await _fetch_hourly(
                 base_r + "&hourly=temperature_2m,precipitation,weather_code", recent))
         if archive:
-            arc_s   = min(archive)
-            arc_e   = max(archive)
-            base_a  = (f"https://archive-api.open-meteo.com/v1/archive"
-                       f"?latitude={lat}&longitude={lon}"
-                       f"&start_date={arc_s}&end_date={arc_e}"
-                       f"&timezone=Europe%2FBerlin")
-            daily_wx.update(await _fetch_daily(
+            base_a = (f"https://archive-api.open-meteo.com/v1/archive"
+                      f"?{_wx_base(lat, lon)}"
+                      f"&start_date={min(archive)}&end_date={max(archive)}"
+                      f"&timezone=Europe%2FBerlin")
+            daily.update(await _fetch_daily(
                 base_a + "&daily=temperature_2m_max,temperature_2m_min,"
                          "precipitation_probability_max,weather_code", archive))
-            hourly_wx.update(await _fetch_hourly(
+            hourly.update(await _fetch_hourly(
                 base_a + "&hourly=temperature_2m,precipitation,weather_code", archive))
+        return daily, hourly
+
+    orte: dict = {}   # (lat, lon) -> Datumsmenge
+    for day_str, workouts in by_date.items():
+        for w in workouts:
+            if w["ort"]:
+                orte.setdefault(w["ort"], set()).add(day_str)
+    wx_je_ort: dict = {}
+    try:
+        for ort, dates in orte.items():
+            wx_je_ort[ort] = await _wetter_fuer_ort(ort[0], ort[1], sorted(dates))
     except Exception as e:
         raise HTTPException(500, f"Wetter-Fetch fehlgeschlagen: {e}")
 
@@ -3782,15 +3826,19 @@ async def backfill_weather(days: int = 30):
     updated = skipped = errors = 0
     results = []
     for day_str, workouts in sorted(by_date.items()):
-        d_wx = daily_wx.get(day_str)
-        if not d_wx:
-            skipped += len(workouts)
-            results.append({"date": day_str, "status": "no_weather", "workouts": len(workouts)})
-            continue
-
         for w in workouts:
             base = clean_title(w["title"])
             is_relevant = _wetter_sport(w["sport"], w["title"]) and not _is_indoor(w["title"])
+            d_wx = None
+            h_wx_daten = None
+            if is_relevant:
+                daily_w, hourly_w = wx_je_ort.get(w["ort"], ({}, {}))
+                d_wx = daily_w.get(day_str)
+                h_wx_daten = hourly_w
+                if not d_wx:
+                    skipped += 1
+                    results.append({"date": day_str, "workout": w["title"], "status": "no_weather"})
+                    continue
             has_symbol  = w["title"] != base  # title had ♨️ or ❄️ prefix
 
             # Manche Zwift-/Trainer-Fahrten (TP-Subtyp "Virtual Bike") tragen
@@ -3823,7 +3871,7 @@ async def backfill_weather(days: int = 30):
                 continue
 
             # Stündliches Wetter für das Einheits-Zeitfenster (bevorzugt)
-            h_wx = _hourly_window_weather(hourly_wx, day_str, w["start_time"], w["duration_s"])
+            h_wx = _hourly_window_weather(h_wx_daten, day_str, w["start_time"], w["duration_s"])
             if h_wx:
                 wx_note = (f"Wetter {h_wx['start_h']:02d}–{h_wx['end_h']:02d}h: "
                            f"{h_wx['description']}, "
@@ -3856,7 +3904,7 @@ async def backfill_weather(days: int = 30):
                 updated += 1
                 results.append({
                     "date": day_str, "sport": w["sport"], "workout": w["title"],
-                    "status": "ok", "note": wx_note,
+                    "status": "ok", "note": wx_note, "ort": w.get("ort_quelle"),
                     "title": update_args.get("title", "(unverändert)"),
                 })
             except Exception as e:
