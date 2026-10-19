@@ -88,11 +88,11 @@ check("Notiz-Titel ohne Kennzeichen bei Überschuss",
 
 b = bilanz("2026-10-13", 2455.0, 2700.0, 1069.0, 500, "Atemanalyse")
 text = notiz_text(b)
-check("gemessener Grundumsatz wird in der Notiz als Atemanalyse ausgewiesen",
-      "Grundumsatz (Atemanalyse): 2700 kcal" in text)
+check("Notiz zeigt keine Grundumsatz-Zeile mehr",
+      "Grundumsatz" not in text)
 check("gemessener Grundumsatz gibt einen Saldo mit dem Wert, nicht der TP-Schätzung",
       b["saldo"] == 2455 - (2700 + 1069))
 b = bilanz("2026-10-13", 2455.0, 1932.8, 1069.0, 500)
-check("TP-Grundumsatz bleibt ohne Herkunftsangabe in der Notiz", "(Atemanalyse)" not in notiz_text(b))
+check("Notiz enthält auch mit TP-Grundumsatz keine Grundumsatz-Zeile", "Grundumsatz" not in notiz_text(b))
 
 print(f"\n{ok} Prüfungen bestanden.")

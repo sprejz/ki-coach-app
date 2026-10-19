@@ -76,7 +76,6 @@ def notiz_text(b: dict) -> str:
 
     zeilen = [
         f"Aufnahme: {kcal(b['aufnahme'])}",
-        f"Grundumsatz{' (Atemanalyse)' if b.get('rmr_quelle') == 'Atemanalyse' else ''}: {kcal(b['grundumsatz'])}",
         f"Training: {kcal(b['training'])}",
         f"Verbrauch gesamt: {kcal(b['verbrauch'])}",
     ]
