@@ -70,7 +70,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "2.10.7"
+APP_VERSION = "2.10.8"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -2018,7 +2018,7 @@ async def debug_coach_beschreibung(request: Request):
 
 
 def clean_title(title: str) -> str:
-    for pfx in ("❌ ", "↩️ ", "🔥 ", "❄️ ", "☀️ ", "♨️ "):
+    for pfx in ("❌ ", "↩️ ", "🔥 ", "❄️ ", "☀️ ", "♨️ ", "☔ "):
         title = title.replace(pfx, "")
     return title.replace(" (KI)", "").replace(" (AI)", "").strip()
 
@@ -2068,6 +2068,30 @@ def _ort_gruppe(sport: str, title: str) -> Optional[str]:
     if any(x in s for x in ("swim", "schwimm")):
         return "Swim"
     return None
+
+
+# WMO-Codes: Regen/Niesel/Schauer/Gewitter bzw. Schnee
+_RAIN_CODES = {51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99}
+_SNOW_CODES = {71, 73, 75, 77, 85, 86}
+
+
+def _wetter_symbole(wx: dict) -> str:
+    """Titel-Präfix aus Wetterdaten: ♨️ Hitze, ❄️ Frost/Schnee, ☔ Regen.
+
+    Frost = Tiefstwert unter 0 °C, im Einheiten-Fenster wenn vorhanden.
+    Mehrere Symbole sind möglich, z. B. "❄️ ☔ "."""
+    if not wx:
+        return ""
+    teile = []
+    if wx.get("is_hot"):
+        teile.append("♨️")
+    code = wx.get("code")
+    tmin = wx.get("temp_min")
+    if (tmin is not None and tmin < 0) or code in _SNOW_CODES:
+        teile.append("❄️")
+    if code in _RAIN_CODES or (wx.get("precip_total") or 0) > 0:
+        teile.append("☔")
+    return "".join(f"{t} " for t in teile)
 
 
 def _is_indoor(title: str) -> bool:
@@ -2122,6 +2146,7 @@ def _hourly_window_weather(hourly_wx: dict, day: str, start_iso: str, duration_s
             "temp_min":     round(min(temps), 1),
             "temp_max":     round(max(temps), 1),
             "precip_total": round(sum(precips), 1),
+            "code":         dominant,
             "description":  WMO.get(dominant, f"Code {dominant}"),
         }
     except Exception:
@@ -2201,17 +2226,14 @@ async def tp_apply(request: Request):
             # Nur Lauf, Golf, Rad, Hike/Wandern, Freibad-/Open-Water-Schwimmen — und nur Outdoor
             if not _wetter_sport(op_sport, orig_title) or _is_indoor(orig_title) or not weather_for_apply:
                 continue
-            is_hot  = weather_for_apply.get("is_hot")
-            is_cold = weather_for_apply.get("is_cold")
             wx_line  = _wx_line(weather_for_apply)
             orig_desc = op.get("orig_description", "")
             # Wetter voranstellen, Originalbeschreibung erhalten
             new_desc = f"{wx_line}\n\n{orig_desc}".strip() if orig_desc else wx_line
             go_args: dict = {"workout_id": workout_id, "description": new_desc}
-            if is_hot:
-                go_args["title"] = f"♨️ {base_title}"
-            elif is_cold:
-                go_args["title"] = f"❄️ {base_title}"
+            sym = _wetter_symbole(weather_for_apply)
+            if sym:
+                go_args["title"] = f"{sym}{base_title}"
             try:
                 await call_tp_mcp("tp_update_workout", go_args)
                 actions.append({"workout_id": workout_id, "badge": "GO", "status": "ok",
@@ -2251,10 +2273,7 @@ async def tp_apply(request: Request):
             sport        = op.get("sport", "")
             _weather_icon = ""
             if _wetter_sport(sport, base_title) and not _is_indoor(base_title):
-                if weather_for_apply.get("is_hot"):
-                    _weather_icon = "♨️ "
-                elif weather_for_apply.get("is_cold"):
-                    _weather_icon = "❄️ "
+                _weather_icon = _wetter_symbole(weather_for_apply)
             new_title    = _weather_icon + T["tp_mod_new_title"].format(title=base_title)
             coach_rec    = op.get("description", "")
             reason       = op.get("reason", "")
@@ -3756,6 +3775,7 @@ async def backfill_weather(days: int = 30):
             code = int((d_data.get("weather_code") or [0])[i] or 0)
             result[d] = {
                 "temp_max": tmax, "temp_min": tmin, "rain_prob": rain,
+                "code": code,
                 "description": WMO.get(code, f"Code {code}"),
                 "is_hot": tmax > 28, "is_cold": tmax < 0,
             }
@@ -3839,7 +3859,7 @@ async def backfill_weather(days: int = 30):
                     skipped += 1
                     results.append({"date": day_str, "workout": w["title"], "status": "no_weather"})
                     continue
-            has_symbol  = w["title"] != base  # title had ♨️ or ❄️ prefix
+            has_symbol  = w["title"] != base  # title had ein Wetter-Präfix
 
             # Manche Zwift-/Trainer-Fahrten (TP-Subtyp "Virtual Bike") tragen
             # einen Titel ohne jeden Indoor-Hinweis -- nur die synchronisierte
@@ -3890,13 +3910,15 @@ async def backfill_weather(days: int = 30):
             base_desc = _re.sub(r'\n*Wetter[^\n]*', '', existing).strip()
             update_args["description"] = (base_desc + "\n\n" + wx_note) if base_desc else wx_note
 
-            # Titel-Symbol nur bei Extrem
-            if d_wx["is_hot"]:
-                update_args["title"] = f"♨️ {base}"
-            elif d_wx["is_cold"]:
-                update_args["title"] = f"❄️ {base}"
-            elif has_symbol:
-                update_args["title"] = base
+            # Titel-Symbole: Hitze, Frost/Schnee, Regen — im Einheiten-Fenster wenn bekannt
+            sym_wx = {"is_hot": d_wx["is_hot"], "code": d_wx.get("code"), "temp_min": d_wx["temp_min"]}
+            if h_wx:
+                sym_wx.update({"code": h_wx.get("code", sym_wx["code"]),
+                               "temp_min": h_wx["temp_min"],
+                               "precip_total": h_wx["precip_total"]})
+            neuer_titel = _wetter_symbole(sym_wx) + base
+            if neuer_titel != w["title"]:
+                update_args["title"] = neuer_titel
 
 
             try:
