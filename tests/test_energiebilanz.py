@@ -82,7 +82,7 @@ check("Notiz enthält kein Zeichen außerhalb der BMP (TP lehnt das ab)",
       all(ord(c) <= 0xFFFF for c in text))
 check("Notiz-Titel ohne Datum (kein Ziel erreicht)", notiz_titel(bilanz("2026-10-14", 3000.0, 1932.8, 1069.0, 500)) == "Energiebilanz")
 check("Notiz-Titel kennzeichnet, sobald das Defizit über 500 kcal liegt",
-      notiz_titel(bilanz("2026-10-13", 2455.0, 2700.0, 1069.0, 500, "Atemanalyse")) == "Energiebilanz ✔ Ziel erreicht")
+      notiz_titel(bilanz("2026-10-13", 2455.0, 2700.0, 1069.0, 500, "Atemanalyse")) == "Energiebilanz ⚡ Ziel erreicht")
 check("Notiz-Titel ohne Kennzeichen bei Überschuss",
       notiz_titel(bilanz("2026-10-14", 3328.13, 1445.7, 531.0, 500)) == "Energiebilanz")
 
