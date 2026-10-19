@@ -2029,13 +2029,26 @@ def _is_weather_sport(sport: str) -> bool:
     return any(x in s for x in ("lauf", "run", "golf", "bike", "rad", "cycl", "hike", "wander", "walk"))
 
 
+def _is_outdoor_swim(sport: str, title: str) -> bool:
+    """Schwimmen ist per Annahme Hallenbad (wetterunabhängig) -- nur Freibad
+    oder Open Water sind outdoor und brauchen Wetter."""
+    s = (sport or "").lower()
+    if not any(x in s for x in ("swim", "schwimm")):
+        return False
+    t = (title or "").lower()
+    return any(x in t for x in ("freibad", "open water", "openwater"))
+
+
 def _wetter_sport(sport: str, title: str) -> bool:
-    """Wie _is_weather_sport, aber Golf als TP-"Custom" erkennt der Titel.
+    """Wie _is_weather_sport, aber Golf als TP-"Custom" sowie Freibad-/
+    Open-Water-Schwimmen erkennt nur der Titel.
 
     TP liefert Golf-Einheiten als sport="Custom" mit "Golf" im Titel."""
     if _is_weather_sport(sport):
         return True
-    return (sport or "").lower() == "custom" and "golf" in (title or "").lower()
+    if (sport or "").lower() == "custom" and "golf" in (title or "").lower():
+        return True
+    return _is_outdoor_swim(sport, title)
 
 
 def _is_indoor(title: str) -> bool:
@@ -2120,7 +2133,6 @@ async def tp_apply(request: Request):
 
         base_title    = clean_title(orig_title)
         op_sport      = op.get("sport", "")
-        is_swim       = any(x in (op_sport or "").lower() for x in ("swim", "schwimm"))
         user_override = op.get("user_override", False)
 
         def _wx_line(wx: dict) -> str:
@@ -2131,7 +2143,7 @@ async def tp_apply(request: Request):
         if user_override:
             orig_desc = op.get("orig_description", "")
             note = "Athlete override – eigenes Gefühl"
-            if weather_for_apply and _is_weather_sport(op_sport) and not _is_indoor(orig_title):
+            if weather_for_apply and _wetter_sport(op_sport, orig_title) and not _is_indoor(orig_title):
                 note = f"{note}\n{_wx_line(weather_for_apply)}"
             # Wer eine MOD/SKIP-Einheit trotzdem fährt, braucht die Mengen
             # genauso — sie stehen seit v2.7.20 auch an gestrichenen Einheiten
@@ -2150,8 +2162,8 @@ async def tp_apply(request: Request):
             continue
 
         if badge == "GO":
-            # Nur Lauf, Golf, Rad — und nur Outdoor
-            if not _is_weather_sport(op_sport) or _is_indoor(orig_title) or not weather_for_apply:
+            # Nur Lauf, Golf, Rad, Hike/Wandern, Freibad-/Open-Water-Schwimmen — und nur Outdoor
+            if not _wetter_sport(op_sport, orig_title) or _is_indoor(orig_title) or not weather_for_apply:
                 continue
             is_hot  = weather_for_apply.get("is_hot")
             is_cold = weather_for_apply.get("is_cold")
@@ -2202,7 +2214,7 @@ async def tp_apply(request: Request):
             # Step 2: create new adjusted workout
             sport        = op.get("sport", "")
             _weather_icon = ""
-            if _is_weather_sport(sport) and not _is_indoor(base_title):
+            if _wetter_sport(sport, base_title) and not _is_indoor(base_title):
                 if weather_for_apply.get("is_hot"):
                     _weather_icon = "♨️ "
                 elif weather_for_apply.get("is_cold"):
@@ -3608,7 +3620,9 @@ async def debug_fit_parse(fit_file: UploadFile = File(...)):
 @app.post("/api/admin/backfill-weather")
 async def backfill_weather(days: int = 30):
     """Schreibt Wetterbeschreibung + ggf. Extrem-Symbol in vergangene TP-Workouts.
-    Nur Lauf, Golf, Rad. Beschreibung immer (mit Stunden-Fenster wenn möglich).
+    Lauf, Golf, Rad, Hike/Wandern, sowie Schwimmen nur mit "Freibad"/"Open Water"
+    im Titel (sonst Hallenbad, wetterunabhängig). Beschreibung immer (mit
+    Stunden-Fenster wenn möglich).
     Titel-Symbol nur bei >28°C (♨️) oder <0°C (❄️).
     Aufruf: curl -X POST 'https://<railway-url>/api/admin/backfill-weather?days=30'
     """
