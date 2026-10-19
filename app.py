@@ -71,7 +71,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "3.0.7"
+APP_VERSION = "3.0.8"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -861,6 +861,30 @@ async def _fetch_open_meteo(athlete: dict, day: int) -> dict:
     return _wetter_dict(datum, code, temp_min, temp_max, rain_prob, hourly, "open-meteo")
 
 
+_KOMPASS = ["N", "NO", "O", "SO", "S", "SW", "W", "NW"]
+
+
+def _tagesliste(daily: dict, key: str, i: int):
+    """Wert an Position i aus einer Open-Meteo-Tagesliste, None wenn es ihn nicht gibt."""
+    werte = daily.get(key) or []
+    return werte[i] if i < len(werte) else None
+
+
+def _kompass(grad) -> Optional[str]:
+    """Windrichtung in Grad (woher der Wind kommt) → 8-Punkt-Kompass auf Deutsch."""
+    if grad is None:
+        return None
+    return _KOMPASS[int((float(grad) + 22.5) // 45) % 8]
+
+
+def _wind_text(kmh, grad) -> str:
+    """„Wind 12 km/h aus SW" — leer, wenn keine Windwerte vorliegen."""
+    if kmh is None:
+        return ""
+    richtung = _kompass(grad)
+    return f"Wind {round(kmh)} km/h" + (f" aus {richtung}" if richtung else "")
+
+
 def _wetter_dict(datum, code, temp_min, temp_max, rain_prob, hourly, quelle) -> dict:
     return {
         "datum": datum,
@@ -916,7 +940,8 @@ async def fetch_weather_for_date(athlete: dict, target_date: str) -> dict:
     url = (
         f"https://api.open-meteo.com/v1/forecast"
         f"?latitude={lat}&longitude={lon}"
-        f"&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code"
+        f"&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code,"
+        f"wind_speed_10m_max,wind_direction_10m_dominant"
         f"&past_days=7&forecast_days=1&timezone=Europe%2FBerlin"
     )
     async with httpx.AsyncClient(timeout=15.0) as client:
@@ -944,6 +969,8 @@ async def fetch_weather_for_date(athlete: dict, target_date: str) -> dict:
         "is_rain":       wcode in [51, 53, 55, 61, 63, 65, 80, 81, 82] or rain_prob > 60,
         "is_hot":        temp_max_v > 28,
         "is_cold":       temp_max_v < 0,
+        "wind_kmh":      _tagesliste(daily, "wind_speed_10m_max", i),
+        "wind_grad":     _tagesliste(daily, "wind_direction_10m_dominant", i),
         "hourly":        [],
     }
 
@@ -2144,7 +2171,9 @@ def _hourly_window_weather(hourly_wx: dict, day: str, start_iso: str, duration_s
         codes   = [r["code"]   for r in relevant]
         from collections import Counter as _Ctr
         dominant = _Ctr(codes).most_common(1)[0][0]
+        winde = [r["wind"] for r in relevant if r.get("wind") is not None]
         return {
+            "wind_kmh":     round(sum(winde) / len(winde)) if winde else None,
             "start_h":      start_h,
             "end_h":        start_h + dur_h,
             "temp_min":     round(min(temps), 1),
@@ -2201,9 +2230,11 @@ async def tp_apply(request: Request):
         user_override = op.get("user_override", False)
 
         def _wx_line(wx: dict) -> str:
-            return (f"Wetter: {wx.get('description','?')}, "
-                    f"{wx.get('temp_min','?')}–{wx.get('temp_max','?')}°C, "
-                    f"Regen {wx.get('rain_prob', 0)}%")
+            zeile = (f"Wetter: {wx.get('description','?')}, "
+                     f"{wx.get('temp_min','?')}–{wx.get('temp_max','?')}°C, "
+                     f"Regen {wx.get('rain_prob', 0)}%")
+            wind = _wind_text(wx.get("wind_kmh"), wx.get("wind_grad"))
+            return f"{zeile}, {wind}" if wind else zeile
 
         if user_override:
             orig_desc = op.get("orig_description", "")
@@ -3869,6 +3900,8 @@ async def backfill_weather(days: int = 30):
                 "code": code,
                 "description": WMO.get(code, f"Code {code}"),
                 "is_hot": tmax > 28, "is_cold": tmax < 0,
+                "wind_kmh": _tagesliste(d_data, "wind_speed_10m_max", i),
+                "wind_grad": _tagesliste(d_data, "wind_direction_10m_dominant", i),
             }
         return result
 
@@ -3881,6 +3914,7 @@ async def backfill_weather(days: int = 30):
         temps   = h_data.get("temperature_2m", [])
         precips = h_data.get("precipitation", [])
         codes   = h_data.get("weather_code", [])
+        winde   = h_data.get("wind_speed_10m", [])
         result: dict = {}
         for i, ts in enumerate(times):
             d = ts[:10]
@@ -3891,6 +3925,7 @@ async def backfill_weather(days: int = 30):
                 "temp":   float(temps[i]   or 0) if i < len(temps)   else 0,
                 "precip": float(precips[i] or 0) if i < len(precips) else 0,
                 "code":   int(codes[i]     or 0) if i < len(codes)   else 0,
+                "wind":   float(winde[i] or 0) if i < len(winde)     else None,
             }
         return result
 
@@ -3906,9 +3941,10 @@ async def backfill_weather(days: int = 30):
                       f"&past_days=7&forecast_days=1&timezone=Europe%2FBerlin")
             daily.update(await _fetch_daily(
                 base_r + "&daily=temperature_2m_max,temperature_2m_min,"
-                         "precipitation_probability_max,weather_code", recent))
+                         "precipitation_probability_max,weather_code,"
+                         "wind_speed_10m_max,wind_direction_10m_dominant", recent))
             hourly.update(await _fetch_hourly(
-                base_r + "&hourly=temperature_2m,precipitation,weather_code", recent))
+                base_r + "&hourly=temperature_2m,precipitation,weather_code,wind_speed_10m", recent))
         if archive:
             base_a = (f"https://archive-api.open-meteo.com/v1/archive"
                       f"?{_wx_base(lat, lon)}"
@@ -3916,9 +3952,10 @@ async def backfill_weather(days: int = 30):
                       f"&timezone=Europe%2FBerlin")
             daily.update(await _fetch_daily(
                 base_a + "&daily=temperature_2m_max,temperature_2m_min,"
-                         "precipitation_probability_max,weather_code", archive))
+                         "precipitation_probability_max,weather_code,"
+                         "wind_speed_10m_max,wind_direction_10m_dominant", archive))
             hourly.update(await _fetch_hourly(
-                base_a + "&hourly=temperature_2m,precipitation,weather_code", archive))
+                base_a + "&hourly=temperature_2m,precipitation,weather_code,wind_speed_10m", archive))
         return daily, hourly
 
     orte: dict = {}   # (lat, lon) -> Datumsmenge
@@ -3988,10 +4025,14 @@ async def backfill_weather(days: int = 30):
                            f"{h_wx['description']}, "
                            f"{h_wx['temp_min']}–{h_wx['temp_max']}°C, "
                            f"{h_wx['precip_total']}mm Regen")
+                wind = _wind_text(h_wx.get("wind_kmh"), d_wx.get("wind_grad"))
             else:
                 wx_note = (f"Wetter: {d_wx['description']}, "
                            f"{d_wx['temp_min']}–{d_wx['temp_max']}°C"
                            + (f", Regen {d_wx['rain_prob']}%" if d_wx['rain_prob'] is not None else ""))
+                wind = _wind_text(d_wx.get("wind_kmh"), d_wx.get("wind_grad"))
+            if wind:
+                wx_note += f", {wind}"
 
             update_args: dict = {"workout_id": w["id"]}
 
