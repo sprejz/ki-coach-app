@@ -2056,6 +2056,23 @@ def _is_indoor(title: str) -> bool:
     return any(x in (title or "").lower() for x in ("zwift", "indoor", "laufband", "trainer"))
 
 
+# Gruppenfahrten/Workouts mit TPs "Virtual Bike"-Subtyp tragen oft einen
+# Titel ohne jeden Indoor-Hinweis (z.B. "Gruppenfahrt mit Gummiband" für ein
+# Zwift-Gruppen-Workout) -- der MCP liefert die Subtyp-ID nicht brauchbar
+# (workout_type ist bei jedem Bike-Workout gleich 2, egal ob Straße oder
+# Zwift), aber die synchronisierte Gerätedatei verrät es.
+_INDOOR_DEVICE_HINTS = ("zwift-activity", "trainerroad", "wahoo-systm", "wahoosystm",
+                        "rouvy", "fulgaz", "virtual_ride", "rgt-")
+
+
+def _is_indoor_device(device_files: list) -> bool:
+    for f in (device_files or []):
+        name = (f.get("file_name") or "").lower()
+        if any(h in name for h in _INDOOR_DEVICE_HINTS):
+            return True
+    return False
+
+
 def _hourly_window_weather(hourly_wx: dict, day: str, start_iso: str, duration_s: int):
     """Stündliches Wetter für ein Workout-Zeitfenster aus vorab geladenen Batch-Daten."""
     if not start_iso or not hourly_wx.get(day):
@@ -3775,6 +3792,19 @@ async def backfill_weather(days: int = 30):
             base = clean_title(w["title"])
             is_relevant = _wetter_sport(w["sport"], w["title"]) and not _is_indoor(w["title"])
             has_symbol  = w["title"] != base  # title had ♨️ or ❄️ prefix
+
+            # Manche Zwift-/Trainer-Fahrten (TP-Subtyp "Virtual Bike") tragen
+            # einen Titel ohne jeden Indoor-Hinweis -- nur die synchronisierte
+            # Gerätedatei verrät es. Nur für sonst als relevant eingestufte
+            # Rad-Einheiten prüfen, um nicht pro Workout einen weiteren
+            # MCP-Call zu verbrauchen.
+            if is_relevant and any(x in (w["sport"] or "").lower() for x in ("bike", "rad", "cycl")):
+                try:
+                    detail = await call_tp_mcp("tp_get_workout", {"workout_id": w["id"]})
+                    if _is_indoor_device(detail.get("device_files")):
+                        is_relevant = False
+                except Exception:
+                    pass  # Detail-Fetch optional -- im Zweifel beim Titel-Urteil bleiben
 
             if not is_relevant:
                 # Indoor oder falsche Sportart: Symbol ggf. entfernen (Aufräumen)
