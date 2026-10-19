@@ -348,6 +348,12 @@ async def _aktivitaet_kcal(token: str, activity_id) -> Optional[float]:
     return float(kcal) if kcal is not None else None
 
 
+# Vollständig ermittelte Tage für kurze Zeit merken: Strava begrenzt die Anzahl
+# der Abrufe, und ein Tab-Wechsel soll nicht pro Tag neue Detailabrufe auslösen.
+_KCAL_CACHE: dict = {}
+_KCAL_CACHE_SEK = 1800
+
+
 async def training_kcal_pro_tag(tage: list) -> dict:
     """{datum: kcal} für die Trainingseinheiten je Tag.
 
@@ -361,7 +367,12 @@ async def training_kcal_pro_tag(tage: list) -> dict:
     if not token:
         return {}
     out: dict = {}
+    jetzt = time.time()
     for tag in tage:
+        gemerkt = _KCAL_CACHE.get(tag)
+        if gemerkt and jetzt - gemerkt[0] < _KCAL_CACHE_SEK:
+            out[tag] = gemerkt[1]
+            continue
         try:
             aktivitaeten = await _get_activities(token, tag)
         except Exception:
@@ -383,4 +394,5 @@ async def training_kcal_pro_tag(tage: list) -> dict:
             summe += float(kcal)
         if not unvollstaendig:
             out[tag] = summe
+            _KCAL_CACHE[tag] = (jetzt, summe)
     return out

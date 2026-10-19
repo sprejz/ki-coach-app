@@ -1703,6 +1703,7 @@ function initTabs() {
       if (tab === 'ernaehrung') loadErnaehrung();
       if (tab === 'energie') loadEnergie();
       if (tab === 'recherche' && !researchLoaded) loadKnowledge();
+      if (tab === 'recherche') loadWissenQuellen();
     });
   });
   document.getElementById('form-section').classList.add('dashboard-mode');
@@ -3999,17 +4000,6 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-// Quellen beim Laden der Recherche-Tab
-const originalInitTabs = window.initTabs;
-window.initTabs = function() {
-  originalInitTabs.apply(this, arguments);
-  const observer = new MutationObserver(() => {
-    if (document.getElementById('recherche').offsetParent !== null) { // visible
-      loadWissenQuellen();
-    }
-  });
-  observer.observe(document.body, {attributes: true, subtree: true});
-};
 </script>
 </body>
 </html>
