@@ -70,7 +70,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "2.10.5"
+APP_VERSION = "2.10.6"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -2026,7 +2026,16 @@ def clean_title(title: str) -> str:
 def _is_weather_sport(sport: str) -> bool:
     """Lauf, Golf, Rad und Hike/Wandern bekommen Wetter-Symbol."""
     s = (sport or "").lower()
-    return any(x in s for x in ("lauf", "run", "golf", "bike", "rad", "cycl", "hike", "wander"))
+    return any(x in s for x in ("lauf", "run", "golf", "bike", "rad", "cycl", "hike", "wander", "walk"))
+
+
+def _wetter_sport(sport: str, title: str) -> bool:
+    """Wie _is_weather_sport, aber Golf als TP-"Custom" erkennt der Titel.
+
+    TP liefert Golf-Einheiten als sport="Custom" mit "Golf" im Titel."""
+    if _is_weather_sport(sport):
+        return True
+    return (sport or "").lower() == "custom" and "golf" in (title or "").lower()
 
 
 def _is_indoor(title: str) -> bool:
@@ -3736,7 +3745,7 @@ async def backfill_weather(days: int = 30):
 
         for w in workouts:
             base = clean_title(w["title"])
-            is_relevant = _is_weather_sport(w["sport"]) and not _is_indoor(w["title"])
+            is_relevant = _wetter_sport(w["sport"], w["title"]) and not _is_indoor(w["title"])
             has_symbol  = w["title"] != base  # title had ♨️ or ❄️ prefix
 
             if not is_relevant:
