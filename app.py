@@ -3635,15 +3635,29 @@ async def backfill_weather(days: int = 30):
     start = (today - timedelta(days=days - 1)).isoformat()
     end   = today.isoformat()
 
-    # 1. TP-Workouts holen (completed)
+    # 1. TP-Workouts holen (completed). Der MCP lehnt Zeitfenster über 90 Tage
+    # ab (VALIDATION_ERROR), deshalb in Fenstern abfragen statt in einem Rutsch
+    # -- ein zu großes Fenster kam vorher als isError-Payload zurück, die
+    # items = raw.get("workouts", ...) als leere Liste missverstand (fälschlich
+    # "keine Workouts" statt "TP-Fehler").
+    _TP_MAX_RANGE_DAYS = 89
+    items: list = []
+    chunk_start = date.fromisoformat(start)
+    end_d = date.fromisoformat(end)
     try:
-        raw = await call_tp_mcp("tp_get_workouts", {
-            "start_date": start, "end_date": end, "type": "completed"
-        })
+        while chunk_start <= end_d:
+            chunk_end = min(chunk_start + timedelta(days=_TP_MAX_RANGE_DAYS - 1), end_d)
+            raw = await call_tp_mcp("tp_get_workouts", {
+                "start_date": chunk_start.isoformat(), "end_date": chunk_end.isoformat(),
+                "type": "completed"
+            })
+            if isinstance(raw, dict) and raw.get("isError"):
+                raise ValueError(raw.get("message", "TP MCP meldet einen Fehler"))
+            chunk_items = raw if isinstance(raw, list) else raw.get("workouts", raw.get("items", []))
+            items.extend(chunk_items or [])
+            chunk_start = chunk_end + timedelta(days=1)
     except Exception as e:
         raise HTTPException(500, f"TP-Fetch fehlgeschlagen: {e}")
-
-    items = raw if isinstance(raw, list) else raw.get("workouts", raw.get("items", []))
     by_date: dict = {}
     for w in (items or []):
         wid        = str(w.get("id") or "")
