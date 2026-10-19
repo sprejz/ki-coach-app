@@ -13,6 +13,7 @@
   "threshold_hr_run": 150,
   "swim_outdoor_min_celsius": 15,
   "energie_defizit_ziel_kcal": 500,
+  "rmr_gemessen_kcal": 2700,
   "load_sports": ["Rad", "Laufen", "Schwimmen"],
   "races": [
     {

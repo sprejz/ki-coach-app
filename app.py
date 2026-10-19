@@ -71,7 +71,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "3.0.0"
+APP_VERSION = "3.0.1"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -3684,11 +3684,17 @@ async def _energiebilanz_tage(tage: list) -> list:
     metrics = await call_tp_mcp("tp_get_metrics",
                                 {"start_date": tage[0], "end_date": tage[-1]})
     aufnahme = energiebilanz.aufnahme_pro_tag(nutrition)
-    rmr      = energiebilanz.rmr_pro_tag(metrics)
     training = await strava.training_kcal_pro_tag(tage)
+    athlete  = load_athlete()
     # Default 500: athlete.json im Railway-Volume wird nur einmal aus dem Repo geseedet
-    ziel     = load_athlete().get("energie_defizit_ziel_kcal", 500)
-    return [energiebilanz.bilanz(t, aufnahme.get(t), rmr.get(t), training.get(t), ziel)
+    ziel     = athlete.get("energie_defizit_ziel_kcal", 500)
+    # Gemessener Grundumsatz (Atemanalyse) ersetzt die TP-Schätzung für alle Tage
+    gemessen = athlete.get("rmr_gemessen_kcal")
+    if gemessen:
+        rmr, quelle = {t: float(gemessen) for t in tage}, "Atemanalyse"
+    else:
+        rmr, quelle = energiebilanz.rmr_pro_tag(metrics), "TP"
+    return [energiebilanz.bilanz(t, aufnahme.get(t), rmr.get(t), training.get(t), ziel, quelle)
             for t in tage]
 
 

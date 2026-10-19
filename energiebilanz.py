@@ -33,7 +33,8 @@ def rmr_pro_tag(metrics: dict) -> dict:
 
 
 def bilanz(tag: str, aufnahme: Optional[float], rmr: Optional[float],
-           training: Optional[float], ziel_defizit: Optional[float]) -> dict:
+           training: Optional[float], ziel_defizit: Optional[float],
+           rmr_quelle: str = "TP") -> dict:
     """Ein Tag. `training` = None heißt: nicht ermittelbar (Strava nicht verbunden)
     — dann gibt es keinen Saldo, statt einen zu raten. 0 heißt: kein Training."""
     hinweise = []
@@ -60,6 +61,7 @@ def bilanz(tag: str, aufnahme: Optional[float], rmr: Optional[float],
         "verbrauch": round(verbrauch) if verbrauch is not None else None,
         "saldo": round(saldo) if saldo is not None else None,
         "ziel_defizit": ziel_defizit,
+        "rmr_quelle": rmr_quelle,
         "hinweise": hinweise,
     }
     if saldo is not None and ziel_defizit:
@@ -74,7 +76,7 @@ def notiz_text(b: dict) -> str:
 
     zeilen = [
         f"Aufnahme: {kcal(b['aufnahme'])}",
-        f"Grundumsatz: {kcal(b['grundumsatz'])}",
+        f"Grundumsatz{' (Atemanalyse)' if b.get('rmr_quelle') == 'Atemanalyse' else ''}: {kcal(b['grundumsatz'])}",
         f"Training: {kcal(b['training'])}",
         f"Verbrauch gesamt: {kcal(b['verbrauch'])}",
     ]
