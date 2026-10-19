@@ -70,7 +70,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "2.10.8"
+APP_VERSION = "2.10.9"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -2017,9 +2017,12 @@ async def debug_coach_beschreibung(request: Request):
     }
 
 
+_TITEL_ICON_RE = re.compile(r"^(?:(?:❌|↩️|🔥|❄️|☀️|♨️|☔)\s*)+")
+
+
 def clean_title(title: str) -> str:
-    for pfx in ("❌ ", "↩️ ", "🔥 ", "❄️ ", "☀️ ", "♨️ ", "☔ "):
-        title = title.replace(pfx, "")
+    """Entfernt Status- und Wetter-Präfixe, auch wenn nach dem Icon nichts mehr folgt."""
+    title = _TITEL_ICON_RE.sub("", (title or "").strip())
     return title.replace(" (KI)", "").replace(" (AI)", "").strip()
 
 
@@ -3916,7 +3919,7 @@ async def backfill_weather(days: int = 30):
                 sym_wx.update({"code": h_wx.get("code", sym_wx["code"]),
                                "temp_min": h_wx["temp_min"],
                                "precip_total": h_wx["precip_total"]})
-            neuer_titel = _wetter_symbole(sym_wx) + base
+            neuer_titel = (_wetter_symbole(sym_wx) + base).strip()
             if neuer_titel != w["title"]:
                 update_args["title"] = neuer_titel
 
