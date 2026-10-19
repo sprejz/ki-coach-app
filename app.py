@@ -71,7 +71,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "3.0.5"
+APP_VERSION = "3.0.6"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -3750,12 +3750,12 @@ async def energiebilanz_notiz(day: str):
         raise HTTPException(400, "day als YYYY-MM-DD")
     if not os.environ.get("TP_MCP_URL"):
         raise HTTPException(400, T["err_tp_url_missing"])
-    titel = energiebilanz.notiz_titel(day)
     try:
         bestehend = await call_tp_mcp("tp_list_notes", {"start_date": day, "end_date": day})
-        if titel in json.dumps(bestehend, ensure_ascii=False):
-            return {"status": "exists", "titel": titel}
+        if "Energiebilanz" in json.dumps(bestehend, ensure_ascii=False):
+            return {"status": "exists"}
         zeile = (await _energiebilanz_tage([day]))[0]
+        titel = energiebilanz.notiz_titel(zeile)
         text = energiebilanz.notiz_text(zeile)
         await call_tp_mcp("tp_create_note", {"date": day, "title": titel, "description": text})
     except Exception as e:

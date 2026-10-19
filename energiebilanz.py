@@ -91,7 +91,9 @@ def notiz_text(b: dict) -> str:
     return "\n".join(zeilen)
 
 
-def notiz_titel(tag: str) -> str:
-    """Titel mit Datum im Format TT.MM. — tag ist YYYY-MM-DD."""
-    _, m, d = tag.split("-")
-    return f"Energiebilanz {d}.{m}."
+def notiz_titel(b: dict) -> str:
+    """Titel ohne Datum — das Notiz-Datum in TP reicht. Mit Kennzeichen, sobald
+    das Defizit das Ziel erreicht (ziel_erreicht)."""
+    if b.get("ziel_erreicht"):
+        return "Energiebilanz ✔ Ziel erreicht"
+    return "Energiebilanz"
