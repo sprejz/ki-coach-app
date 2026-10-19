@@ -71,7 +71,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "3.0.4"
+APP_VERSION = "3.0.5"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -3676,15 +3676,42 @@ async def debug_fit_parse(fit_file: UploadFile = File(...)):
         return JSONResponse({"error": str(e)}, status_code=500, headers=_NO_CACHE)
 
 
+async def _training_kcal_tp(tage: list) -> dict:
+    """{datum: kcal} aus den abgeschlossenen TP-Einheiten (metrics.calories).
+
+    Tag ohne Einheit: 0. Hat eine Einheit keinen Kalorienwert, fehlt der Tag —
+    dann ist der Verbrauch unbekannt, statt zu niedrig zu sein."""
+    raw = await call_tp_mcp("tp_get_workouts", {"start_date": tage[0], "end_date": tage[-1],
+                                                "type": "completed"})
+    items = raw if isinstance(raw, list) else raw.get("workouts", raw.get("items", []))
+    flat = []
+    for w in items or []:
+        tag = (w.get("date") or "")[:10]
+        wid = str(w.get("id") or "")
+        if wid and tag in tage:
+            flat.append((tag, wid))
+    details = await asyncio.gather(
+        *[call_tp_mcp("tp_get_workout", {"workout_id": wid}) for _, wid in flat],
+        return_exceptions=True)
+    out = {t: 0.0 for t in tage}
+    for (tag, _), det in zip(flat, details):
+        kcal = None if isinstance(det, Exception) else (det.get("metrics") or {}).get("calories")
+        if kcal is None:
+            out.pop(tag, None)
+        elif tag in out:
+            out[tag] += float(kcal)
+    return out
+
+
 async def _energiebilanz_tage(tage: list) -> list:
-    """Bilanz je Tag: Aufnahme und Grundumsatz aus TP, Training aus Strava."""
+    """Bilanz je Tag: Aufnahme und Grundumsatz aus TP, Training aus TP-Einheiten."""
     tage = sorted(tage)
     nutrition = await call_tp_mcp("tp_get_nutrition",
                                   {"start_date": tage[0], "end_date": tage[-1]})
     metrics = await call_tp_mcp("tp_get_metrics",
                                 {"start_date": tage[0], "end_date": tage[-1]})
     aufnahme = energiebilanz.aufnahme_pro_tag(nutrition)
-    training = await strava.training_kcal_pro_tag(tage)
+    training = await _training_kcal_tp(tage)
     athlete  = load_athlete()
     # Default 500: athlete.json im Railway-Volume wird nur einmal aus dem Repo geseedet
     ziel     = athlete.get("energie_defizit_ziel_kcal", 500)
