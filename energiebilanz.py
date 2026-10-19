@@ -92,7 +92,9 @@ def notiz_text(b: dict) -> str:
 
 def notiz_titel(b: dict) -> str:
     """Titel ohne Datum — das Notiz-Datum in TP reicht. Mit Kennzeichen, sobald
-    das Defizit das Ziel erreicht (ziel_erreicht)."""
+    das Defizit das Ziel erreicht, mit ⚠ wenn nicht (ziel_erreicht)."""
     if b.get("ziel_erreicht"):
         return "Energiebilanz ⚡ Ziel erreicht"
+    if b.get("ziel_erreicht") is False:
+        return "Energiebilanz ⚠ Ziel nicht erreicht"
     return "Energiebilanz"
