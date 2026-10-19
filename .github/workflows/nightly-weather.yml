@@ -1,0 +1,40 @@
+name: Nightly weather backfill
+
+# Täglich 23:00 Europe/Berlin. GitHub-Cron kennt nur UTC, und die
+# Sommerzeit verschiebt das um eine Stunde — deshalb zwei Trigger
+# (21:00 und 22:00 UTC), und der Schritt "Zeitfenster prüfen" lässt
+# nur den Lauf durch, der gerade in Berlin 23 Uhr ist.
+on:
+  schedule:
+    - cron: "0 21 * * *"
+    - cron: "0 22 * * *"
+  workflow_dispatch:
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Zeitfenster prüfen (23:00 Berlin)
+        id: zeit
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          stunde=$(TZ=Europe/Berlin date +%H)
+          if [ "$stunde" = "23" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Berlin ist $stunde Uhr, kein Lauf nötig."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Wetter der letzten 3 Tage nachtragen
+        if: steps.zeit.outputs.run == 'true'
+        run: |
+          curl -sS -f -X POST --max-time 280 \
+            "https://ki-coach-app-production.up.railway.app/api/admin/backfill-weather?days=3" \
+            -o result.json -w "HTTP %{http_code}\n"
+          cat result.json; echo
