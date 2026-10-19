@@ -70,7 +70,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "2.10.4"
+APP_VERSION = "2.10.5"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -3665,9 +3665,10 @@ async def backfill_weather(days: int = 30):
                 continue
             tmax = float((d_data.get("temperature_2m_max") or [0])[i] or 0)
             tmin = float((d_data.get("temperature_2m_min") or [0])[i] or 0)
-            # Archive-API liefert keine precipitation_probability_max -> None statt falscher 0 %
-            _probs = d_data.get("precipitation_probability_max")
-            rain = int(_probs[i] or 0) if _probs else None
+            # Archive-API liefert precipitation_probability_max nur als null-Liste -> None statt falscher 0 %
+            _probs = d_data.get("precipitation_probability_max") or []
+            _p = _probs[i] if i < len(_probs) else None
+            rain = int(_p) if _p is not None else None
             code = int((d_data.get("weather_code") or [0])[i] or 0)
             result[d] = {
                 "temp_max": tmax, "temp_min": tmin, "rain_prob": rain,
