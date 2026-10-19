@@ -1,4 +1,4 @@
-# KI Coach App — v2.9.3
+# KI Coach App — v3.0.0
 
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
