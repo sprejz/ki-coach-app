@@ -1,0 +1,19 @@
+name: Nachtlauf (Backup)
+
+# Backup zum Railway-Cron (siehe nachtlauf.py). Läuft um 21:00 UTC
+# (Sommer: 23:00 Berlin, Winter: 22:00 Berlin, das Skript wartet dann bis 23 Uhr).
+# Doppelläufe sind unschädlich: der Backfill ersetzt die Wetter-Zeile, die
+# Energiebilanz-Notiz wird nur einmal je Tag angelegt.
+on:
+  schedule:
+    - cron: "0 21 * * *"
+  workflow_dispatch:
+
+jobs:
+  nachtlauf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Nachtlauf ausführen
+        run: python3 nachtlauf.py
