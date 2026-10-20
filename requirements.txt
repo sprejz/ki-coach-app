@@ -8,3 +8,4 @@ fitdecode==0.10.0
 youtube-transcript-api==1.2.4
 chromadb>=0.4.24
 fastembed>=0.2.0
+tzdata
