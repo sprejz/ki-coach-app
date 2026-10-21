@@ -113,4 +113,12 @@ check("Notiz mit gesetzter Kennzeichen-Titel wird als eigene erkannt",
       notiz_aktion([{"id": 7, "title": "Energiebilanz ⚠ Ziel nicht erreicht", "description": "alt"}],
                    "Energiebilanz", "neu") == ("update", "7"))
 
+print("\n=== Wetter-Notizen nutzen denselben Abgleich mit eigenem Präfix ===")
+check("Wetter-Notiz wird über Präfix 'Wetter' gefunden, Energiebilanz-Notiz nicht",
+      notiz_aktion([{"id": 9, "title": "Energiebilanz", "description": "x"}],
+                   "Wetter 6–15 °C", "y", praefix="Wetter") == ("create", None))
+check("bestehende Wetter-Notiz mit anderem Inhalt → aktualisieren",
+      notiz_aktion([{"id": 11, "title": "Wetter 5–12 °C", "description": "alt"}],
+                   "Wetter 6–15 °C", "neu", praefix="Wetter") == ("update", "11"))
+
 print(f"\n{ok} Prüfungen bestanden.")

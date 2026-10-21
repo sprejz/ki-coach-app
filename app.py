@@ -71,7 +71,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "3.0.14"
+APP_VERSION = "3.0.15"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -3798,6 +3798,96 @@ async def energiebilanz_notiz(day: str):
         raise HTTPException(500, f"Energiebilanz-Notiz fehlgeschlagen: {e}")
     status = {"create": "created", "update": "updated", "unchanged": "unchanged"}[aktion]
     return {"status": status, "titel": titel, "text": text}
+
+
+# Wetter-Notizen im TP-Kalender: heute + 13 Tage, Ort immer Ludwigsfelde (unabhängig
+# vom Athletenprofil, damit die Notizen auch dann stimmen, wenn dort etwas anderes steht).
+WETTER_NOTIZ_ORT = {"name": "Ludwigsfelde", "lat": 52.3, "lon": 13.25}
+WETTER_NOTIZ_TAGE = 14
+
+
+def _wetter_notiz_titel(w: dict) -> str:
+    return f"Wetter {round(w['temp_min'])}–{round(w['temp_max'])} °C"
+
+
+def _wetter_notiz_text(w: dict) -> str:
+    """Ein Tag als TP-Notiz. Bewusst ohne Emoji: TP lehnt Zeichen außerhalb der BMP ab."""
+    zeilen = [WETTER_NOTIZ_ORT["name"], w["description"],
+              f"Temperatur {round(w['temp_min'])}–{round(w['temp_max'])} °C",
+              f"Regen {w['rain_prob']} %"]
+    wind = _wind_text(w.get("wind_kmh"), w.get("wind_grad"))
+    if wind:
+        zeilen.append(wind)
+    zeilen.append("Quelle: Open-Meteo, Prognose")
+    return "\n".join(zeilen)
+
+
+async def _fetch_wetter_notiz_tage() -> list:
+    """Tagesprognose für Ludwigsfelde, Open-Meteo, heute + WETTER_NOTIZ_TAGE - 1 Tage."""
+    url = (
+        f"https://api.open-meteo.com/v1/forecast?latitude={WETTER_NOTIZ_ORT['lat']}"
+        f"&longitude={WETTER_NOTIZ_ORT['lon']}"
+        f"&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,"
+        f"wind_speed_10m_max,wind_direction_10m_dominant"
+        f"&forecast_days={WETTER_NOTIZ_TAGE}&timezone=Europe%2FBerlin"
+    )
+    async with httpx.AsyncClient(timeout=httpx.Timeout(20.0)) as client:
+        r = await client.get(url)
+    r.raise_for_status()
+    daily = r.json().get("daily", {})
+    tage = []
+    for i, datum in enumerate(daily.get("time", [])[:WETTER_NOTIZ_TAGE]):
+        temp_max = float((daily.get("temperature_2m_max") or [0])[i] or 0)
+        temp_min = float((daily.get("temperature_2m_min") or [0])[i] or 0)
+        rain_prob = int((daily.get("precipitation_probability_max") or [0])[i] or 0)
+        code = int((daily.get("weather_code") or [0])[i] or 0)
+        w = _wetter_dict(datum, code, temp_min, temp_max, rain_prob, [], "open-meteo")
+        w["wind_kmh"] = _tagesliste(daily, "wind_speed_10m_max", i)
+        w["wind_grad"] = _tagesliste(daily, "wind_direction_10m_dominant", i)
+        tage.append(w)
+    return tage
+
+
+@app.post("/api/wetter/notizen")
+async def wetter_notizen():
+    """Schreibt je Tag (heute + 13 Tage) eine Wetter-Notiz in den TP-Kalender.
+    Gedacht für den Nachtlauf: jede Nacht wird die Prognose aktualisiert, eine
+    bestehende Notiz nur überschrieben, wenn sich der Inhalt geändert hat. Ein Tag
+    mit unplausiblen Daten bekommt keine Notiz, sondern landet in `fehler`."""
+    if not os.environ.get("TP_MCP_URL"):
+        raise HTTPException(400, T["err_tp_url_missing"])
+    try:
+        tage = await _fetch_wetter_notiz_tage()
+    except Exception as e:
+        raise HTTPException(502, f"Wetterabruf fehlgeschlagen: {e}")
+    heute = date.today()
+    try:
+        bestehend = await call_tp_mcp("tp_list_notes", {
+            "start_date": heute.isoformat(),
+            "end_date": (heute + timedelta(days=WETTER_NOTIZ_TAGE - 1)).isoformat()})
+    except Exception as e:
+        raise HTTPException(500, f"Wetter-Notizen: TP-Abfrage fehlgeschlagen: {e}")
+    notizen = bestehend.get("notes", []) if isinstance(bestehend, dict) else (bestehend or [])
+    ergebnis, fehler = [], []
+    for w in tage:
+        datum = w["datum"]
+        grund = _wetter_plausibel(w, WETTER_NOTIZ_ORT["lat"])
+        if grund:
+            fehler.append(f"{datum}: {grund}")
+            continue
+        titel, text = _wetter_notiz_titel(w), _wetter_notiz_text(w)
+        tages_notizen = [n for n in notizen if str(n.get("date") or "")[:10] == datum]
+        aktion, note_id = energiebilanz.notiz_aktion(tages_notizen, titel, text, praefix="Wetter")
+        try:
+            if aktion == "create":
+                await call_tp_mcp("tp_create_note", {"date": datum, "title": titel, "description": text})
+            elif aktion == "update":
+                await call_tp_mcp("tp_update_note", {"note_id": note_id, "title": titel, "description": text})
+        except Exception as e:
+            fehler.append(f"{datum}: {e}")
+            continue
+        ergebnis.append({"datum": datum, "aktion": aktion, "titel": titel})
+    return {"tage": ergebnis, "fehler": fehler}
 
 
 @app.post("/api/admin/backfill-weather")

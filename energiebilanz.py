@@ -90,14 +90,14 @@ def notiz_text(b: dict) -> str:
     return "\n".join(zeilen)
 
 
-def notiz_aktion(notizen: list, titel: str, text: str) -> tuple:
-    """Was mit der Energiebilanz-Notiz eines Tages passiert: ("create", None),
+def notiz_aktion(notizen: list, titel: str, text: str, praefix: str = "Energiebilanz") -> tuple:
+    """Was mit einer App-Notiz eines Tages passiert: ("create", None),
     ("update", note_id) oder ("unchanged", note_id). Als unsere Notiz gilt nur, wer
-    mit „Energiebilanz" im Titel beginnt — eine fremde Notiz, die das Wort nur im
-    Text trägt, bleibt unangetastet. Der Nachtlauf läuft einmal je Tag; eine früh am
-    Tag angelegte Notiz mit unvollständigen Zahlen wird so beim Nachtlauf aktualisiert."""
+    mit `praefix` im Titel beginnt — eine fremde Notiz, die das Wort nur im Text
+    trägt, bleibt unangetastet. Der Nachtlauf läuft einmal je Tag; eine früh am Tag
+    angelegte Notiz wird so beim Nachtlauf aktualisiert."""
     eigene = [n for n in notizen or []
-              if str(n.get("title") or "").startswith("Energiebilanz")]
+              if str(n.get("title") or "").startswith(praefix)]
     if not eigene:
         return ("create", None)
     n = eigene[0]

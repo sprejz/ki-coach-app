@@ -1,4 +1,4 @@
-"""Nächtlicher Lauf um 23:00 Berlin: Wetter-Backfill + Energiebilanz-Notiz.
+"""Nächtlicher Lauf um 23:00 Berlin: Wetter-Backfill, Energiebilanz- und Wetter-Notizen.
 
 Läuft als Railway-Cron-Service (gleiches Image, Start: `python nachtlauf.py`,
 Cron `0 21 * * *` in UTC). Der Cron ist bewusst nur EIN Trigger:
@@ -62,6 +62,11 @@ def main() -> int:
         print("Energiebilanz:", post(f"/api/energiebilanz/notiz?day={tag}", timeout=120))
     except Exception as e:
         fehler.append(f"Energiebilanz: {e}")
+
+    try:
+        print("Wetter-Notizen:", post("/api/wetter/notizen", timeout=200))
+    except Exception as e:
+        fehler.append(f"Wetter-Notizen: {e}")
 
     for f in fehler:
         print("FEHLER", f, file=sys.stderr)
