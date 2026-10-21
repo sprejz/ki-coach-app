@@ -1820,16 +1820,17 @@ function renderEnergie(data) {
     </div>
   </div>`;
 
-  // Saldo je Tag als Balken, eine gemeinsame Achse, Ziellinie gestrichelt.
-  const werte = neuesteZuerst.map(t => t.saldo).filter(v => v != null);
+  // Saldo je Tag als Balken, älteste links, heute ganz rechts. Eine gemeinsame Achse, Ziellinie gestrichelt.
+  const chronologisch = [...neuesteZuerst].reverse();
+  const werte = chronologisch.map(t => t.saldo).filter(v => v != null);
   const untere = Math.min(0, ...werte, ziel ? -ziel : 0) * 1.1;
   const obere = Math.max(0, ...werte) * 1.1;
   const spanne = (obere - untere) || 1;
-  const W = Math.max(neuesteZuerst.length, 1) * 30, H = 170, PLOT = 130, TOP = 8;
+  const W = Math.max(chronologisch.length, 1) * 30, H = 170, PLOT = 130, TOP = 8;
   const y = v => TOP + (obere - v) / spanne * PLOT;
-  const slot = W / neuesteZuerst.length, bw = Math.min(18, slot - 6);
+  const slot = W / chronologisch.length, bw = Math.min(18, slot - 6);
   const nullY = y(0);
-  const balken = neuesteZuerst.map((t, i) => {
+  const balken = chronologisch.map((t, i) => {
     const x = i * slot + (slot - bw) / 2, cx = x + bw / 2;
     const istHeute = t.datum === heute;
     const tag = new Date(t.datum + 'T12:00:00');
