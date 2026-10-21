@@ -90,6 +90,23 @@ def notiz_text(b: dict) -> str:
     return "\n".join(zeilen)
 
 
+def notiz_aktion(notizen: list, titel: str, text: str) -> tuple:
+    """Was mit der Energiebilanz-Notiz eines Tages passiert: ("create", None),
+    ("update", note_id) oder ("unchanged", note_id). Als unsere Notiz gilt nur, wer
+    mit „Energiebilanz" im Titel beginnt — eine fremde Notiz, die das Wort nur im
+    Text trägt, bleibt unangetastet. Der Nachtlauf läuft einmal je Tag; eine früh am
+    Tag angelegte Notiz mit unvollständigen Zahlen wird so beim Nachtlauf aktualisiert."""
+    eigene = [n for n in notizen or []
+              if str(n.get("title") or "").startswith("Energiebilanz")]
+    if not eigene:
+        return ("create", None)
+    n = eigene[0]
+    note_id = str(n.get("id"))
+    if n.get("title") == titel and n.get("description") == text:
+        return ("unchanged", note_id)
+    return ("update", note_id)
+
+
 def notiz_titel(b: dict) -> str:
     """Titel ohne Datum — das Notiz-Datum in TP reicht. Mit Kennzeichen, sobald
     das Defizit das Ziel erreicht, mit ⚠ wenn nicht (ziel_erreicht)."""

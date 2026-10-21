@@ -71,7 +71,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "3.0.10"
+APP_VERSION = "3.0.11"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -3773,8 +3773,10 @@ async def energiebilanz_get(days: int = 7):
 
 @app.post("/api/energiebilanz/notiz")
 async def energiebilanz_notiz(day: str):
-    """Legt die Energiebilanz des Tages als TP-Notiz an. Einmal je Tag: existiert
-    die Notiz schon, passiert nichts. Gedacht für den Nachtlauf um 23 Uhr."""
+    """Legt die Energiebilanz des Tages als TP-Notiz an oder aktualisiert die
+    bestehende. Gedacht für den Nachtlauf um 23 Uhr: eine früh am Tag angelegte
+    Notiz (z. B. ohne Aufnahme oder Training) wird dabei auf den Stand von
+    23 Uhr gebracht. Unverändert bleibt sie nur, wenn sich nichts geändert hat."""
     try:
         date.fromisoformat(day)
     except ValueError:
@@ -3783,15 +3785,19 @@ async def energiebilanz_notiz(day: str):
         raise HTTPException(400, T["err_tp_url_missing"])
     try:
         bestehend = await call_tp_mcp("tp_list_notes", {"start_date": day, "end_date": day})
-        if "Energiebilanz" in json.dumps(bestehend, ensure_ascii=False):
-            return {"status": "exists"}
+        notizen = bestehend.get("notes", []) if isinstance(bestehend, dict) else (bestehend or [])
         zeile = (await _energiebilanz_tage([day]))[0]
         titel = energiebilanz.notiz_titel(zeile)
         text = energiebilanz.notiz_text(zeile)
-        await call_tp_mcp("tp_create_note", {"date": day, "title": titel, "description": text})
+        aktion, note_id = energiebilanz.notiz_aktion(notizen, titel, text)
+        if aktion == "create":
+            await call_tp_mcp("tp_create_note", {"date": day, "title": titel, "description": text})
+        elif aktion == "update":
+            await call_tp_mcp("tp_update_note", {"note_id": note_id, "title": titel, "description": text})
     except Exception as e:
         raise HTTPException(500, f"Energiebilanz-Notiz fehlgeschlagen: {e}")
-    return {"status": "created", "titel": titel, "text": text}
+    status = {"create": "created", "update": "updated", "unchanged": "unchanged"}[aktion]
+    return {"status": status, "titel": titel, "text": text}
 
 
 @app.post("/api/admin/backfill-weather")

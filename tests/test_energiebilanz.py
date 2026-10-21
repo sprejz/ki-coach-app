@@ -6,7 +6,7 @@ Die Zahlen stammen aus den echten TP-Antworten vom 13.–18.10.2026.
 import sys
 
 from energiebilanz import (aufnahme_pro_tag, rmr_pro_tag, bilanz,
-                           notiz_text, notiz_titel)
+                           notiz_text, notiz_titel, notiz_aktion)
 
 NUTRITION = {"nutrition": [
     {"nutritionDate": "2026-10-13T00:00:00", "calories": 2455.0},
@@ -96,5 +96,21 @@ check("gemessener Grundumsatz gibt einen Saldo mit dem Wert, nicht der TP-Schät
       b["saldo"] == 2455 - (2700 + 1069))
 b = bilanz("2026-10-13", 2455.0, 1932.8, 1069.0, 500)
 check("Notiz enthält auch mit TP-Grundumsatz keine Grundumsatz-Zeile", "Grundumsatz" not in notiz_text(b))
+
+print("\n=== Bestehende Notiz wird aktualisiert, nicht stehen gelassen ===")
+frueh = {"id": 98939749, "title": "Energiebilanz",
+         "description": "Aufnahme: unbekannt\\nTraining: 0 kcal"}
+check("keine Notiz → anlegen", notiz_aktion([], "Energiebilanz", "x") == ("create", None))
+check("fremde Notiz mit dem Wort nur im Text bleibt außen vor",
+      notiz_aktion([{"id": 1, "title": "Sonstiges", "description": "Energiebilanz kommt später"}],
+                   "Energiebilanz", "x") == ("create", None))
+check("frühe Notiz mit anderem Inhalt → aktualisieren",
+      notiz_aktion([frueh], "Energiebilanz ⚡ Ziel erreicht", "Aufnahme: 2789 kcal") == ("update", "98939749"))
+check("identische Notiz → unverändert, kein Schreibzugriff",
+      notiz_aktion([{"id": 5, "title": "Energiebilanz", "description": "gleich"}],
+                   "Energiebilanz", "gleich") == ("unchanged", "5"))
+check("Notiz mit gesetzter Kennzeichen-Titel wird als eigene erkannt",
+      notiz_aktion([{"id": 7, "title": "Energiebilanz ⚠ Ziel nicht erreicht", "description": "alt"}],
+                   "Energiebilanz", "neu") == ("update", "7"))
 
 print(f"\n{ok} Prüfungen bestanden.")
