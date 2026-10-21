@@ -618,6 +618,37 @@ try:
 except youtube.YoutubeNotConfigured:
     pruefe(True, "fehlende Webshare-Zugangsdaten liefern YoutubeNotConfigured statt eines Absturzes")
 
+# v2.10.4: Upload-Pfad parste Snippets mit .get() — die Bibliothek liefert
+# Dataclasses (.text/.start). Der Test nutzt echte Dataclasses, keine Dicts.
+from youtube_transcript_api._transcripts import FetchedTranscriptSnippet  # noqa: E402
+
+_snips = [FetchedTranscriptSnippet(text=" Hallo ", start=3.7, duration=1.0),
+          FetchedTranscriptSnippet(text="   ", start=5.0, duration=1.0)]
+pruefe(youtube._segmente(_snips) == [(3, "Hallo")],
+       "Segmente werden aus Dataclass-Snippets gelesen, leere Zeilen fallen weg")
+
+from youtube_transcript_api._errors import IpBlocked  # noqa: E402
+
+pruefe("blockt" in youtube._erklaere(IpBlocked("abc")),
+       "IpBlocked wird als lesbarer Klartext gemeldet, nicht als Bibliotheks-Absatz")
+
+class _Blockiert:
+    def fetch(self, vid, languages):
+        raise IpBlocked(vid)
+    def list(self, vid):
+        raise IpBlocked(vid)
+
+try:
+    youtube._hole_transcript(_Blockiert(), "abc")
+    pruefe(False, "geblockte Anfrage muss YoutubeError werfen")
+except youtube.YoutubeError as _e:
+    pruefe("blockt" in str(_e) and len(str(_e)) < 300,
+           "YoutubeError trägt den kurzen Grund, nicht den Bibliotheks-Volltext")
+
+_bericht = youtube.diagnose("https://example.com/kein-video")
+pruefe(_bericht["ok"] is False and _bericht["schritte"][0]["schritt"] == "video_id",
+       "Debugfunktion bricht bei fehlender video_id mit klarem Schritt ab, ohne Netzwerk")
+
 print("\n=== Performance-Analyst ===")
 FIT = {"dauer_min": 62, "distanz_km": 11.4, "avg_hr": 158, "max_hr": 172,
        "avg_pace_min_km": "5:26", "tss": 78,
@@ -1023,6 +1054,26 @@ pruefe(len(sources_nach) == 0, "Nach Löschen ist die Quelle weg")
 # Fehlerfall: nicht existierende Quelle löschen
 deleted_nicht_existent = store.delete_source("nicht_existent")
 pruefe(deleted_nicht_existent is False, "delete_source gibt False für nicht existierende Quelle")
+
+# v2.10.4: chunk_segments lief bei JEDEM Text endlos (pos rutschte am Textende
+# zurück). Mit Zeitlimit prüfen, damit ein Rückfall den Testlauf nicht hängen lässt.
+import signal as _signal  # noqa: E402
+
+
+def _zeitlimit(_sig, _frame):
+    raise TimeoutError("chunk_segments terminiert nicht")
+
+
+_signal.signal(_signal.SIGALRM, _zeitlimit)
+for _n in (1, 100, 1500, 60_000):
+    _signal.alarm(5)
+    try:
+        _chunks = store.chunk_segments("Ein Satz. " * (_n // 10 + 1))
+        pruefe(len(_chunks) >= 1, f"chunk_segments terminiert bei {_n} Zeichen")
+    except TimeoutError as _e:
+        pruefe(False, str(_e))
+    finally:
+        _signal.alarm(0)
 
 print(f"\n{'=' * 40}")
 if fehler:

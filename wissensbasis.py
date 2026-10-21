@@ -109,6 +109,11 @@ class WissensbasisStore:
 
                 chunks.append((chunk_start_s, chunk_end_s, chunk_text))
 
+            # Letzter Chunk erreicht das Textende → fertig. Ohne diesen Abbruch
+            # setzt `pos = len - overlap` den Fortschritt zurück: die Schleife
+            # drehte sich bei JEDEM Text endlos, der Upload-Job blieb auf "pending".
+            if chunk_end >= len(text):
+                break
             pos = chunk_end - overlap_chars
 
         return chunks
@@ -250,7 +255,11 @@ class WissensbasisStore:
         """Quelle und alle ihre Chunks löschen. Return True wenn gelöscht, False wenn nicht found."""
         collection = self._get_collection()
 
-        # Chroma löscht via where-Filter
+        # Chroma wirft beim Löschen ohne Treffer NICHT — ohne diese Vorprüfung
+        # meldete der Endpoint jede Löschung als Erfolg, auch für unbekannte IDs.
+        vorhanden = collection.get(where={"source_id": source_id}, include=["metadatas"])
+        if not vorhanden.get("metadatas"):
+            return False
         try:
             collection.delete(where={"source_id": source_id})
             return True

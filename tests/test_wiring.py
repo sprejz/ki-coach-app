@@ -353,8 +353,8 @@ async def main():
     # die Beschriftung deshalb nicht mehr. Zähler bewusst nicht mehr auf einen
     # exakten Wert gepinnt (das würde beim nächsten Tab wieder brechen),
     # sondern nur noch geprüft, dass die Leiste tatsächlich scrollt.
-    pruefe(_idx.count('class="tab-btn') == 8,
-           "acht Tabs (Recherche als eigener Tab seit v2.9.3)")
+    pruefe(_idx.count('class="tab-btn') == 9,
+           "neun Tabs (Recherche seit v2.9.3, Energie seit den Energiebilanz-Commits)")
     pruefe("overflow-x: auto" in _idx and ".tabs::-webkit-scrollbar" in _idx,
            "die Tab-Leiste scrollt horizontal statt Labels zu quetschen")
     # Reihenfolge: der Tab gehört neben die Checks, nicht ans Ende (v2.7.22).
@@ -777,12 +777,12 @@ async def main():
                and "allOf" not in t["input_schema"],
                f"{t['name']}: kein oneOf/allOf/anyOf auf oberster Ebene (von Anthropic abgelehnt, v2.8.2)")
 
-    print("\n=== Consult-Tools: fünf Namen, lesend, Root-Schema sauber (v2.9.1) ===")
-    pruefe(len(chat_agent.CONSULT_TOOLS) == 5,
-           "fünf Consult-Tools: medic, allgemeinmedic, weather, periodizer, fueling")
+    print("\n=== Consult-Tools: sechs Namen, lesend, Root-Schema sauber (v2.9.1, consult_wissen v2.10.0) ===")
+    pruefe(len(chat_agent.CONSULT_TOOLS) == 6,
+           "sechs Consult-Tools: medic, allgemeinmedic, weather, periodizer, fueling, wissen")
     pruefe(chat_agent.CONSULT_TOOL_NAMES == {
         "consult_medic", "consult_allgemeinmedic", "consult_weather",
-        "consult_periodizer", "consult_fueling",
+        "consult_periodizer", "consult_fueling", "consult_wissen",
     }, "die Consult-Tool-Namen sind die erwarteten")
 
     # _tp_cache direkt befüllen — dieselbe Form wie _map_tp_workout sie liefert.
@@ -1518,7 +1518,8 @@ async def main():
            "consult_wissen in CONSULT_TOOL_NAMES registriert")
 
     # MCP: wissen_suche Tool
-    _MCP_SOURCE = inspect.getsource(__import__("coach_mcp"))
+    # Quelle lesen statt importieren — wie oben (v2.7.5): das mcp-Paket liegt nur im eigenen venv.
+    _MCP_SOURCE = (_WURZEL / "coach_mcp.py").read_text(encoding="utf-8")
     pruefe("@mcp.tool()" in _MCP_SOURCE and "wissen_suche" in _MCP_SOURCE,
            "wissen_suche Tool in coach_mcp.py definiert")
 

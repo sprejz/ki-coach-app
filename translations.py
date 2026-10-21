@@ -94,6 +94,7 @@ TRANSLATIONS = {
         "research_video_label":       "oder: YouTube-Link (Podcast/Vlog)",
         "research_video_placeholder": "z.B. https://youtube.com/watch?v=…",
         "research_video_start":       "Video analysieren",
+        "research_video_debug":       "🔍 Debug: YouTube-Kette prüfen",
         # Rotierende Statustexte während des Recherche-Laufs (v2.9.3) — der Lauf
         # dauert 1-4 Minuten, ein einzelner statischer Satz wirkt dann wie hängen
         # geblieben. Bewusst generisch formuliert, gilt für Thema- und Video-Lauf.
@@ -517,6 +518,7 @@ TRANSLATIONS = {
         "research_video_label":       "or: YouTube link (podcast/vlog)",
         "research_video_placeholder": "e.g. https://youtube.com/watch?v=…",
         "research_video_start":       "Analyze video",
+        "research_video_debug":       "🔍 Debug: check YouTube chain",
         "research_phasen": [
             "Searching scientific sources …",
             "Checking the evidence …",

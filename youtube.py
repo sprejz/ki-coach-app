@@ -102,21 +102,55 @@ def fetch_title(video_id: str) -> Optional[str]:
     return None
 
 
-def fetch_transcript(video_id: str, languages: tuple = ("de", "en")) -> str:
-    api = _client()
+_KLARTEXT = {
+    "IpBlocked": "YouTube blockt die Proxy-IP (Webshare-Kontingent erschöpft oder gesperrt)",
+    "RequestBlocked": "YouTube blockt die Anfrage (Proxy-IP)",
+    "TooManyRequests": "YouTube meldet zu viele Anfragen (429) — Proxy-IP gedrosselt",
+    "TranscriptsDisabled": "Für dieses Video sind keine Untertitel aktiviert",
+    "NoTranscriptFound": "Kein Transkript in den verfügbaren Sprachen",
+    "VideoUnavailable": "Video nicht verfügbar (privat, gelöscht oder regional gesperrt)",
+}
+
+
+def _erklaere(e: Exception) -> str:
+    """Kurze, lesbare Fehlerzeile. Die Bibliotheksmeldungen sind mehrere Absätze
+    lang, der eigentliche Grund steht mittendrin — deshalb Klartext für die
+    bekannten Typen, sonst Typ + erste Zeile. Volltext: Debugfunktion."""
+    typ = type(e).__name__
+    return _KLARTEXT.get(typ) or f"{typ}: {str(e).strip().splitlines()[0][:200]}"
+
+
+def _hole_transcript(api, video_id: str, languages: tuple = ("de", "en")):
+    """Bevorzugte Sprachen, sonst irgendein Transkript — lieber irgendeins als gar keins.
+
+    Schlägt beides fehl, zählt der Grund des ersten Versuchs (der ist die
+    eigentliche Ursache; der zweite Versuch scheitert meist am selben Grund).
+    """
     try:
-        transcript = api.fetch(video_id, languages=list(languages))
-    except Exception:
-        # Bevorzugte Sprachen nicht vorhanden — lieber irgendein Transkript
-        # als gar keins.
+        return api.fetch(video_id, languages=list(languages))
+    except Exception as e_erst:
         try:
-            verfuegbar = api.list(video_id)
-            erstes = next(iter(verfuegbar))
-            transcript = erstes.fetch()
-        except Exception as e:
-            raise YoutubeError(
-                f"Kein Transkript verfügbar ({type(e).__name__}: {e})"
-            ) from e
+            erstes = next(iter(api.list(video_id)))
+            return erstes.fetch()
+        except Exception as e_zweit:
+            grund = _erklaere(e_erst)
+            if type(e_zweit) is not type(e_erst):
+                grund += f" (Ausweichversuch: {_erklaere(e_zweit)})"
+            raise YoutubeError(f"Kein Transkript verfügbar — {grund}") from e_erst
+
+
+def _segmente(transcript) -> list[tuple[int, str]]:
+    """FetchedTranscriptSnippet (Dataclass: .text, .start) → [(start_s, text)]."""
+    segments = []
+    for schnipsel in transcript:
+        text = (schnipsel.text or "").strip()
+        if text:
+            segments.append((int(schnipsel.start), text))
+    return segments
+
+
+def fetch_transcript(video_id: str, languages: tuple = ("de", "en")) -> str:
+    transcript = _hole_transcript(_client(), video_id, languages)
     text = " ".join(schnipsel.text for schnipsel in transcript).strip()
     if not text:
         raise YoutubeError("Transkript ist leer")
@@ -132,35 +166,121 @@ def fetch_transcript_segments(video_id: str, languages: tuple = ("de", "en")) ->
     **NICHT gekürzt** — die volle Länge wird zurückgegeben.
     Chunking und Längenkontrolle macht wissensbasis.py.
     """
-    api = _client()
-    try:
-        transcript = api.fetch(video_id, languages=list(languages))
-    except Exception:
-        try:
-            verfuegbar = api.list(video_id)
-            erstes = next(iter(verfuegbar))
-            transcript = erstes.fetch()
-        except Exception as e:
-            raise YoutubeError(
-                f"Kein Transkript verfügbar ({type(e).__name__}: {e})"
-            ) from e
-
+    transcript = _hole_transcript(_client(), video_id, languages)
     if not transcript:
         raise YoutubeError("Transkript ist leer")
 
-    # Segmente: start (in Sekunden), Text
-    segments = []
-    for schnipsel in transcript:
-        start_s = int(schnipsel.get("start", 0))
-        text = schnipsel.get("text", "").strip()
-        if text:
-            segments.append((start_s, text))
-
+    segments = _segmente(transcript)
     if not segments:
         raise YoutubeError("Transkript hat keine verwertbaren Segmente")
 
     titel = fetch_title(video_id) or ""
     return segments, titel
+
+
+def diagnose(url: str) -> dict:
+    """Schrittweise Prüfung der gesamten YouTube-Kette (v2.10.4, Debugfunktion).
+
+    Jeder Schritt meldet Ergebnis oder die vollständige Fehlermeldung inkl.
+    Exception-Typ — genau das, was die Endpoints sonst still verschlucken. Der
+    Proxy-Benutzername/das Passwort werden nie ausgegeben, nur ob sie gesetzt sind.
+    Ein Schritt, der fehlschlägt, bricht die übrigen nicht ab.
+    """
+    import importlib.metadata
+
+    schritte: list[dict] = []
+
+    def schritt(name: str, fn):
+        try:
+            ergebnis = fn()
+            schritte.append({"schritt": name, "ok": True, "ergebnis": ergebnis})
+            return ergebnis
+        except Exception as e:
+            schritte.append({
+                "schritt": name, "ok": False,
+                "fehler_typ": type(e).__name__, "fehler": str(e),
+            })
+            return None
+
+    def _video_id() -> str:
+        vid = extract_video_id(url)
+        if not vid:
+            raise ValueError("keine video_id in der URL erkannt")
+        return vid
+
+    video_id = schritt("video_id", _video_id)
+    schritt("bibliothek", lambda: importlib.metadata.version("youtube-transcript-api"))
+    schritt("proxy_env", lambda: {
+        "WEBSHARE_PROXY_USERNAME_gesetzt": bool(os.environ.get("WEBSHARE_PROXY_USERNAME", "").strip()),
+        "WEBSHARE_PROXY_PASSWORD_gesetzt": bool(os.environ.get("WEBSHARE_PROXY_PASSWORD", "").strip()),
+    })
+    client = {}
+
+    def _client_check() -> str:
+        client["api"] = _client()  # wirft YoutubeNotConfigured ohne ENV
+        return "ok"
+
+    schritt("client", _client_check)
+    api = client.get("api")
+    if not video_id or api is None:
+        return _diagnose_bericht(url, video_id, schritte)
+
+    schritt("titel_oembed", lambda: fetch_title(video_id))
+    schritt("liste_verfuegbar", lambda: [
+        {"sprache": t.language_code, "generiert": t.is_generated, "name": t.language}
+        for t in api.list(video_id)
+    ])
+
+    geladen = {}  # erstes erfolgreich geladenes Transkript für den Segment-Test
+
+    def _fetch_bevorzugt() -> dict:
+        geladen.setdefault("t", api.fetch(video_id, languages=["de", "en"]))
+        return _snippet_info(geladen["t"])
+
+    def _fetch_irgendein() -> dict:
+        t = next(iter(api.list(video_id))).fetch()
+        geladen.setdefault("t", t)
+        return _snippet_info(t)
+
+    schritt("fetch_de_en", _fetch_bevorzugt)
+    schritt("fetch_irgendein", _fetch_irgendein)
+
+    def _segmente_test() -> dict:
+        if "t" not in geladen:
+            raise ValueError("kein Transkript geladen, Schritt übersprungen")
+        segs = _segmente(geladen["t"])
+        return {"anzahl": len(segs), "erstes": segs[0] if segs else None}
+
+    schritt("segmente_parsen", _segmente_test)
+    return _diagnose_bericht(url, video_id, schritte)
+
+
+def _snippet_info(transcript) -> dict:
+    snippets = list(transcript)
+    return {
+        "sprache": transcript.language_code,
+        "generiert": transcript.is_generated,
+        "snippets": len(snippets),
+        "zeichen": sum(len(s.text) for s in snippets),
+        "erste_zeile": snippets[0].text[:120] if snippets else None,
+    }
+
+
+_BLOCK_FEHLER = {"IpBlocked", "RequestBlocked", "TooManyRequests"}
+
+
+def _diagnose_bericht(url: str, video_id, schritte: list) -> dict:
+    # Häufigster Fall laut Projektgeschichte: YouTube blockt die Proxy-IPs.
+    # Der Hinweis ersetzt nicht die Rohdaten, er sagt nur, wo man zuerst schaut.
+    blockiert = any(s.get("fehler_typ") in _BLOCK_FEHLER for s in schritte)
+    return {
+        "url": url,
+        "video_id": video_id,
+        "ok": all(s["ok"] for s in schritte),
+        "hinweis": ("YouTube blockt die Proxy-IPs (Webshare-Kontingent erschöpft oder gesperrt). "
+                    "Abwarten oder bezahlten Residential-Plan prüfen.") if blockiert else None,
+        "schritte": schritte,
+    }
 
 
 def fetch_transcript_and_title(video_id: str) -> tuple[str, Optional[str], bool]:

@@ -71,7 +71,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "3.0.17"
+APP_VERSION = "3.0.18"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -2778,6 +2778,20 @@ async def research_video(request: Request):
     job_id = _research_job_start()
     _video_task_spawn(job_id, url=url, titel=titel or url, transcript=transcript, gekuerzt=gekuerzt)
     return JSONResponse({"job_id": job_id, "titel": titel, "gekuerzt": gekuerzt}, headers=_NO_CACHE)
+
+
+# v2.10.4: Debugfunktion für die YouTube-Kette (Recherche + Wissensbasis-Upload
+# nutzen dieselben Funktionen). Liefert JEDEN Schritt mit vollständiger
+# Fehlermeldung statt der verkürzten Texte, die sonst im Frontend landen.
+# Kein Claude-Call, nur Proxy-/YouTube-Requests.
+@app.post("/api/debug/video")
+async def debug_video(request: Request):
+    body = await request.json()
+    url = str(body.get("url", "")).strip()
+    if not url:
+        raise HTTPException(400, T["err_video_url_missing"])
+    bericht = await asyncio.to_thread(youtube.diagnose, url)
+    return JSONResponse(bericht, headers=_NO_CACHE)
 
 
 @app.get("/api/research/{job_id}")

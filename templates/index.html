@@ -1446,6 +1446,8 @@ input[type=range]::-webkit-slider-thumb:active { background: #25c490; }
         <input type="text" id="research-video-url" class="text-input" placeholder="{{ T.research_video_placeholder }}">
       </div>
       <button type="button" class="btn-submit" id="research-video-btn" onclick="startVideoResearch()">{{ T.research_video_start }}</button>
+      <button type="button" class="btn-submit" id="video-debug-btn" onclick="debugVideo()" style="margin-top:8px;background:transparent;border:1px solid var(--border);color:var(--muted)">{{ T.research_video_debug }}</button>
+      <pre id="video-debug-output" style="display:none;margin:10px 0 0;padding:10px;background:rgba(255,255,255,.04);border-radius:8px;font-size:11px;line-height:1.4;white-space:pre-wrap;word-break:break-word;max-height:360px;overflow:auto"></pre>
 
       <div class="form-section" style="margin-top:16px;padding-top:16px;border-top:1px dashed var(--border)">
         <p class="section-title" style="margin:0 0 12px">📚 Wissensquellen</p>
@@ -3765,6 +3767,39 @@ async function startResearch() {
 
 // v2.9.2: Video-/Podcast-Transkript statt eines Themas — derselbe Job, dasselbe
 // Polling (pollResearch), nur ein anderer Trigger-Endpoint.
+// Fehlertext aus einer FastAPI-Antwort: {"detail": "..."} → "...", sonst Rohtext.
+async function fehlerAusAntwort(r) {
+  const text = await r.text();
+  try {
+    const d = JSON.parse(text).detail;
+    return typeof d === 'string' ? d : text;
+  } catch {
+    return text;
+  }
+}
+
+// v2.10.4: Debugfunktion — zeigt jeden Schritt der YouTube-Kette mit vollständiger Fehlermeldung.
+async function debugVideo() {
+  const url = (document.getElementById('research-video-url')?.value || '').trim();
+  const out = document.getElementById('video-debug-output');
+  out.style.display = 'block';
+  if (!url) {
+    out.textContent = T.err_video_url_missing;
+    return;
+  }
+  out.textContent = '…';
+  try {
+    const r = await fetchMitFrist('/api/debug/video', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ url }),
+    }, 120 * 1000);
+    out.textContent = r.ok
+      ? JSON.stringify(await r.json(), null, 2)
+      : 'HTTP ' + r.status + ': ' + await fehlerAusAntwort(r);
+  } catch (e) {
+    out.textContent = 'Fehler: ' + (e.message || String(e));
+  }
+}
+
 async function startVideoResearch() {
   const input = document.getElementById('research-video-url');
   const url = (input?.value || '').trim();
@@ -3774,7 +3809,7 @@ async function startVideoResearch() {
     const r = await fetchMitFrist('/api/research/video', {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ url }),
     }, CHECK_POST_MS);
-    if (!r.ok) throw new Error(await r.text());
+    if (!r.ok) throw new Error(await fehlerAusAntwort(r));
     const { job_id } = await r.json();
     if (!job_id) throw new Error('Keine job_id vom Server');
     await pollResearch(job_id);
