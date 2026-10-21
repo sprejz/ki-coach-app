@@ -1791,7 +1791,8 @@ function renderEnergie(data) {
   if (!tage.length) return `<div class="form-card"><p class="ern-zeile">${esc(T.energie_keine_daten)}</p></div>`;
   const heute = new Date().toLocaleDateString('sv-SE');  // YYYY-MM-DD, lokal
   const ziel = tage.find(t => t.ziel_defizit)?.ziel_defizit || null;
-  const chronologisch = [...tage].reverse();
+  // Server liefert neueste Tage zuerst; so bleibt heute links bzw. oben.
+  const neuesteZuerst = tage;
   const voll = tage.filter(t => t.saldo != null && t.datum !== heute);
   const mittel = werte => werte.length ? Math.round(werte.reduce((s, v) => s + v, 0) / werte.length) : null;
   const schnitt = mittel(voll.map(t => t.saldo));
@@ -1820,15 +1821,15 @@ function renderEnergie(data) {
   </div>`;
 
   // Saldo je Tag als Balken, eine gemeinsame Achse, Ziellinie gestrichelt.
-  const werte = chronologisch.map(t => t.saldo).filter(v => v != null);
+  const werte = neuesteZuerst.map(t => t.saldo).filter(v => v != null);
   const untere = Math.min(0, ...werte, ziel ? -ziel : 0) * 1.1;
   const obere = Math.max(0, ...werte) * 1.1;
   const spanne = (obere - untere) || 1;
-  const W = Math.max(chronologisch.length, 1) * 30, H = 170, PLOT = 130, TOP = 8;
+  const W = Math.max(neuesteZuerst.length, 1) * 30, H = 170, PLOT = 130, TOP = 8;
   const y = v => TOP + (obere - v) / spanne * PLOT;
-  const slot = W / chronologisch.length, bw = Math.min(18, slot - 6);
+  const slot = W / neuesteZuerst.length, bw = Math.min(18, slot - 6);
   const nullY = y(0);
-  const balken = chronologisch.map((t, i) => {
+  const balken = neuesteZuerst.map((t, i) => {
     const x = i * slot + (slot - bw) / 2, cx = x + bw / 2;
     const istHeute = t.datum === heute;
     const tag = new Date(t.datum + 'T12:00:00');
@@ -1889,8 +1890,8 @@ async function loadEnergie() {
   if (!el) return;
   el.innerHTML = `<div class="form-card"><p class="ern-zeile" style="color:var(--muted)">${esc(T.loading_data)}</p></div>`;
   try {
-    // Ein Tag braucht pro Strava-Aktivität einen Detailabruf, daher großzügige Frist
-    const r = await fetchMitFrist('/api/energiebilanz?days=14', { cache: 'no-store' }, 90000);
+    // Ein Tag braucht pro Strava-Aktivität einen Detailabruf, daher großzügige Frist (5 Tage)
+    const r = await fetchMitFrist('/api/energiebilanz?days=5', { cache: 'no-store' }, 90000);
     if (!r.ok) throw new Error(await r.text());
     el.innerHTML = renderEnergie(await r.json());
   } catch (err) {

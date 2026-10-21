@@ -71,7 +71,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "3.0.12"
+APP_VERSION = "3.0.13"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
