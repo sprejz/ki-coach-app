@@ -1791,8 +1791,8 @@ function renderEnergie(data) {
   if (!tage.length) return `<div class="form-card"><p class="ern-zeile">${esc(T.energie_keine_daten)}</p></div>`;
   const heute = new Date().toLocaleDateString('sv-SE');  // YYYY-MM-DD, lokal
   const ziel = tage.find(t => t.ziel_defizit)?.ziel_defizit || null;
-  // Server liefert neueste Tage zuerst; so bleibt heute links bzw. oben.
-  const neuesteZuerst = tage;
+  // Neueste Tage zuerst, unabhängig von der Reihenfolge der Antwort.
+  const neuesteZuerst = [...tage].sort((a, b) => b.datum.localeCompare(a.datum));
   const voll = tage.filter(t => t.saldo != null && t.datum !== heute);
   const mittel = werte => werte.length ? Math.round(werte.reduce((s, v) => s + v, 0) / werte.length) : null;
   const schnitt = mittel(voll.map(t => t.saldo));
@@ -1882,7 +1882,7 @@ function renderEnergie(data) {
       ${hinweise}
     </div>`;
   };
-  return kopf + diagramm + `<h3 style="margin:16px 0 8px;font-size:14px">${esc(T.energie_tagesdetail)}</h3>` + tage.map(zeile).join('');
+  return kopf + diagramm + `<h3 style="margin:16px 0 8px;font-size:14px">${esc(T.energie_tagesdetail)}</h3>` + neuesteZuerst.map(zeile).join('');
 }
 
 async function loadEnergie() {
