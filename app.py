@@ -71,7 +71,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "3.0.15"
+APP_VERSION = "3.0.16"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -3806,8 +3806,23 @@ WETTER_NOTIZ_ORT = {"name": "Ludwigsfelde", "lat": 52.3, "lon": 13.25}
 WETTER_NOTIZ_TAGE = 14
 
 
+def _wetter_notiz_symbole(w: dict) -> str:
+    """♨️ Hitze, ❄️ Frost/Schnee, ☔ Regen, ⚡ Gewitter — dieselben Zeichen wie in den
+    Trainingstiteln, plus ⚡ für Gewitter. Nur BMP-Zeichen, sonst lehnt TP sie ab."""
+    teile = _wetter_symbole({"is_hot": w["is_hot"], "code": w["code"], "temp_min": w["temp_min"]}).split()
+    if w["is_rain"] and "☔" not in teile:
+        teile.append("☔")
+    if w["is_thunderstorm"]:
+        teile.append("⚡")
+    return " ".join(teile)
+
+
 def _wetter_notiz_titel(w: dict) -> str:
-    return f"Wetter {round(w['temp_min'])}–{round(w['temp_max'])} °C"
+    """Symbole ans Ende: der Titel beginnt weiter mit „Wetter", damit der Abgleich
+    bestehende Notizen findet und nur aktualisiert statt doppelt anzulegen."""
+    titel = f"Wetter {round(w['temp_min'])}–{round(w['temp_max'])} °C"
+    symbole = _wetter_notiz_symbole(w)
+    return f"{titel} {symbole}" if symbole else titel
 
 
 def _wetter_notiz_text(w: dict) -> str:
