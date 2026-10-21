@@ -1785,43 +1785,103 @@ async function loadErnaehrung() {
 
 // ── Energiebilanz ─────────────────────────────────────────────────────────────
 // Aufnahme (TP-Ernährung) gegen Verbrauch (Grundumsatz + Training). Der Server
-// rechnet, hier nur Darstellung. Negativer Saldo = Defizit.
+// rechnet, hier nur Darstellung. Negativer Saldo = Defizit, nach unten gezeichnet.
 function renderEnergie(data) {
   const tage = data.tage || [];
   if (!tage.length) return `<div class="form-card"><p class="ern-zeile">${esc(T.energie_keine_daten)}</p></div>`;
   const heute = new Date().toLocaleDateString('sv-SE');  // YYYY-MM-DD, lokal
-  const ziel = tage[0].ziel_defizit;
+  const ziel = tage.find(t => t.ziel_defizit)?.ziel_defizit || null;
+  const chronologisch = [...tage].reverse();
   const voll = tage.filter(t => t.saldo != null && t.datum !== heute);
-  const schnitt = voll.length ? Math.round(voll.reduce((s, t) => s + t.saldo, 0) / voll.length) : null;
+  const mittel = werte => werte.length ? Math.round(werte.reduce((s, v) => s + v, 0) / werte.length) : null;
+  const schnitt = mittel(voll.map(t => t.saldo));
+  const erreicht = voll.filter(t => t.ziel_erreicht).length;
   const fmt = v => v == null ? '—' : Math.round(v).toString();
   const vz = v => (v > 0 ? '+' : '−') + Math.abs(Math.round(v));
+  const farbeSaldo = (s, istHeute = false) => {
+    if (s == null) return 'var(--muted2)';
+    if (istHeute) return 'var(--muted)';
+    if (ziel && s <= -ziel) return 'var(--green)';
+    return s < 0 ? 'var(--orange)' : 'var(--red)';
+  };
 
+  const kachel = (label, wert, sub, farbe) => `<div style="flex:1;min-width:0;background:var(--card2);border-radius:10px;padding:10px 6px;text-align:center">
+    <div style="font-size:11px;color:var(--muted)">${esc(label)}</div>
+    <div style="font-size:19px;font-weight:700;color:${farbe};margin-top:2px;white-space:nowrap">${wert}</div>
+    <div style="font-size:11px;color:var(--muted)">${esc(sub)}</div></div>`;
   const kopf = `<div class="form-card">
     <h3 style="margin:0 0 6px">${esc(T.energie_titel)}</h3>
     <p class="ern-zeile" style="color:var(--muted)">${esc(T.energie_intro)}</p>
-    ${schnitt != null ? `<p class="ern-zeile"><strong>${esc(T.energie_schnitt)}: ${vz(schnitt)} kcal</strong>${ziel ? ` · ${esc(T.energie_ziel)}: −${ziel} kcal` : ''}</p>` : ''}
+    <div style="display:flex;gap:8px;margin-top:10px">
+      ${kachel(T.energie_kpi_saldo, schnitt != null ? `${vz(schnitt)} kcal` : '—', T.energie_kpi_saldo_sub, farbeSaldo(schnitt))}
+      ${kachel(T.energie_kpi_ziel, `${erreicht}/${voll.length}`, T.energie_kpi_ziel_sub, erreicht ? 'var(--green)' : 'var(--orange)')}
+      ${kachel(T.energie_kpi_av, `${fmt(mittel(voll.map(t => t.aufnahme)))} / ${fmt(mittel(voll.map(t => t.verbrauch)))}`, T.energie_kpi_av_sub, 'var(--text)')}
+    </div>
   </div>`;
 
+  // Saldo je Tag als Balken, eine gemeinsame Achse, Ziellinie gestrichelt.
+  const werte = chronologisch.map(t => t.saldo).filter(v => v != null);
+  const untere = Math.min(0, ...werte, ziel ? -ziel : 0) * 1.1;
+  const obere = Math.max(0, ...werte) * 1.1;
+  const spanne = (obere - untere) || 1;
+  const W = Math.max(chronologisch.length, 1) * 30, H = 170, PLOT = 130, TOP = 8;
+  const y = v => TOP + (obere - v) / spanne * PLOT;
+  const slot = W / chronologisch.length, bw = Math.min(18, slot - 6);
+  const nullY = y(0);
+  const balken = chronologisch.map((t, i) => {
+    const x = i * slot + (slot - bw) / 2, cx = x + bw / 2;
+    const istHeute = t.datum === heute;
+    const tag = new Date(t.datum + 'T12:00:00');
+    const wt = tag.toLocaleDateString('de-DE', {weekday: 'short'}).slice(0, 2);
+    const tg = tag.getDate();
+    let form = `<text x="${cx}" y="${nullY - 4}" text-anchor="middle" font-size="10" fill="var(--muted2)">–</text>`;
+    if (t.saldo != null) {
+      const oben = Math.min(nullY, y(t.saldo));
+      const hoehe = Math.max(1, Math.abs(y(t.saldo) - nullY));
+      form = `<rect x="${x}" y="${oben}" width="${bw}" height="${hoehe}" rx="3" fill="${farbeSaldo(t.saldo, istHeute)}">
+        <title>${esc(tag.toLocaleDateString('de-DE', {weekday: 'short', day: '2-digit', month: '2-digit'}))}: ${vz(t.saldo)} kcal</title></rect>`;
+    }
+    return form + `<text x="${cx}" y="${H - 16}" text-anchor="middle" font-size="10" fill="var(--muted)">${esc(wt)}</text>
+      <text x="${cx}" y="${H - 3}" text-anchor="middle" font-size="10" fill="${istHeute ? 'var(--text)' : 'var(--muted)'}">${tg}</text>`;
+  }).join('');
+  const zielLinie = ziel ? `<line x1="0" x2="${W}" y1="${y(-ziel)}" y2="${y(-ziel)}" stroke="var(--green)" stroke-width="1" stroke-dasharray="4 3"/>` : '';
+  const legende = (farbe, text) => `<span style="display:inline-flex;align-items:center;gap:4px"><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${farbe}"></i>${esc(text)}</span>`;
+  const diagramm = `<div class="form-card" style="margin-top:10px">
+    <div style="font-size:13px;font-weight:600;margin-bottom:6px">${esc(T.energie_diagramm)}</div>
+    <svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${esc(T.energie_diagramm)}" style="display:block;overflow:visible">
+      <line x1="0" x2="${W}" y1="${nullY}" y2="${nullY}" stroke="var(--border)" stroke-width="1"/>
+      ${zielLinie}${balken}
+    </svg>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--muted);margin-top:8px">
+      ${legende('var(--green)', T.energie_leg_ziel)}
+      ${legende('var(--orange)', T.energie_leg_defizit)}
+      ${legende('var(--red)', T.energie_leg_plus)}
+      ${ziel ? `<span>- - ${esc(T.energie_ziel)} −${ziel} kcal</span>` : ''}
+    </div>
+  </div>`;
+
+  const balkenZeile = (label, wert, max, farbe) => `<div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+    <span style="width:82px;font-size:12px;color:var(--muted)">${esc(label)}</span>
+    <div style="flex:1;height:8px;background:var(--card2);border-radius:4px;overflow:hidden">
+      <div style="width:${wert == null ? 0 : Math.round(wert / max * 100)}%;height:100%;background:${farbe}"></div></div>
+    <span style="width:56px;text-align:right;font-size:12px">${fmt(wert)}</span></div>`;
   const zeile = t => {
     const istHeute = t.datum === heute;
     const datum = new Date(t.datum + 'T12:00:00').toLocaleDateString('de-DE', {weekday: 'short', day: '2-digit', month: '2-digit'});
-    let saldo = '—', farbe = 'var(--muted)';
-    if (t.saldo != null) {
-      saldo = vz(t.saldo);
-      farbe = istHeute ? 'var(--muted)' : (ziel && t.saldo <= -ziel) ? 'var(--green)' : (t.saldo < 0 ? 'var(--orange)' : 'var(--red)');
-    }
-    const hinweise = (t.hinweise || []).length ? `<div class="ern-zeile" style="color:var(--muted)">${esc(t.hinweise.join(', '))}</div>` : '';
+    const max = Math.max(t.aufnahme || 0, t.verbrauch || 0, 1);
+    const hinweise = (t.hinweise || []).length ? `<div class="ern-zeile" style="color:var(--muted);font-size:12px;margin-top:6px">${esc(t.hinweise.join(', '))}</div>` : '';
     return `<div class="form-card" style="margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
         <strong>${esc(datum)}${istHeute ? ` <span style="font-size:12px;color:var(--muted)">${esc(T.energie_heute)}</span>` : ''}</strong>
-        <span style="font-size:22px;font-weight:700;color:${farbe}">${saldo}</span>
+        <span style="font-size:22px;font-weight:700;color:${farbeSaldo(t.saldo, istHeute)}">${t.saldo != null ? vz(t.saldo) : '—'}</span>
       </div>
-      <div class="ern-zeile">${esc(T.energie_aufnahme)}: ${fmt(t.aufnahme)} · ${esc(T.energie_verbrauch)}: ${fmt(t.verbrauch)} kcal</div>
-      <div class="ern-zeile" style="color:var(--muted)">${esc(T.energie_grundumsatz)} ${fmt(t.grundumsatz)} + ${esc(T.energie_training)} ${fmt(t.training)}</div>
+      ${balkenZeile(T.energie_aufnahme, t.aufnahme, max, '#6fa8dc')}
+      ${balkenZeile(T.energie_verbrauch, t.verbrauch, max, 'var(--muted)')}
+      <div style="font-size:12px;color:var(--muted);margin-top:6px">${esc(T.energie_grundumsatz)} ${fmt(t.grundumsatz)} + ${esc(T.energie_training)} ${fmt(t.training)} kcal</div>
       ${hinweise}
     </div>`;
   };
-  return kopf + [...tage].reverse().map(zeile).join('');
+  return kopf + diagramm + `<h3 style="margin:16px 0 8px;font-size:14px">${esc(T.energie_tagesdetail)}</h3>` + tage.map(zeile).join('');
 }
 
 async function loadEnergie() {
