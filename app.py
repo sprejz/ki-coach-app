@@ -71,7 +71,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "3.0.16"
+APP_VERSION = "3.0.17"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -3807,9 +3807,14 @@ WETTER_NOTIZ_TAGE = 14
 
 
 def _wetter_notiz_symbole(w: dict) -> str:
-    """♨️ Hitze, ❄️ Frost/Schnee, ☔ Regen, ⚡ Gewitter — dieselben Zeichen wie in den
-    Trainingstiteln, plus ⚡ für Gewitter. Nur BMP-Zeichen, sonst lehnt TP sie ab."""
+    """♨️ Hitze, ❄️ Frost/Schnee oder Höchstwert unter 14 °C, ☔ Regen, ⚡ Gewitter.
+    Die ersten drei stammen aus den Trainingstiteln, ⚡ kommt dazu. Nur BMP-Zeichen,
+    sonst lehnt TP sie ab."""
     teile = _wetter_symbole({"is_hot": w["is_hot"], "code": w["code"], "temp_min": w["temp_min"]}).split()
+    # Kühler Tag (Höchstwert unter 14 °C) bekommt ❄️, auch ohne Frost. Taucht es schon
+    # als Frost-Symbol auf, wird nichts doppelt angehängt.
+    if w["temp_max"] < 14 and not any(t.startswith("❄") for t in teile):
+        teile.append("❄️")
     if w["is_rain"] and "☔" not in teile:
         teile.append("☔")
     if w["is_thunderstorm"]:
