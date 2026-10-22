@@ -17,9 +17,11 @@ import httpx
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
+from starlette.datastructures import MutableHeaders
 import anthropic
 
 import knowledge
+from agents.base import anthropic_client
 from nutrition import (
     bottle_split, braucht_verpflegung, mix_totals, normalize_sport,
     nutrition_for_duration,
@@ -71,7 +73,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "3.0.20"
+APP_VERSION = "3.0.21"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -117,12 +119,6 @@ async def _prefetch_tp():
     athlete = load_athlete()
     asyncio.create_task(_tp_refresh_range(athlete, days=7))
 BASE_DIR = Path(__file__).parent
-
-# ── shared HTTP clients (connection pooling) ──────────────────────────────────
-_tp_http = httpx.Client(
-    timeout=httpx.Timeout(15.0),
-    limits=httpx.Limits(max_connections=5, max_keepalive_connections=3),
-)
 
 # In-memory Job-Store für Workout-Analysen
 _analysis_jobs: dict = {}  # job_id -> {"status":"pending"|"done"|"error", "result":{}, "error":"..."}
@@ -585,14 +581,32 @@ KNOWLEDGE_FILE = DATA_DIR / "knowledge.json"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
-@app.middleware("http")
-async def no_cache_api(request: Request, call_next):
-    response = await call_next(request)
-    if request.url.path.startswith("/api/"):
-        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-        response.headers["Pragma"] = "no-cache"
-        response.headers["Expires"] = "0"
-    return response
+class NoCacheApiMiddleware:
+    """Cache-Header für /api/-Antworten. Reines ASGI statt @app.middleware("http"):
+    BaseHTTPMiddleware schleust jede Antwort durch eine zusätzliche Schicht und
+    kostet pro Request Overhead (Starlette-Doku: Pure ASGI für Header-Ergänzung)."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or not scope["path"].startswith("/api/"):
+            await self.app(scope, receive, send)
+            return
+
+        async def send_no_cache(message):
+            if message["type"] == "http.response.start":
+                # Zuweisung ersetzt vorhandene Header, statt sie zu doppeln.
+                headers = MutableHeaders(scope=message)
+                headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+                headers["Pragma"] = "no-cache"
+                headers["Expires"] = "0"
+            await send(message)
+
+        await self.app(scope, receive, send_no_cache)
+
+
+app.add_middleware(NoCacheApiMiddleware)
 
 
 # ── data helpers ──────────────────────────────────────────────────────────────
@@ -1166,7 +1180,7 @@ def call_claude(system: str, user_msg: str) -> dict:
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         raise HTTPException(500, T["err_api_key_missing"])
-    c = anthropic.Anthropic(api_key=key)
+    c = anthropic_client(key)
     msg = c.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=3000,
@@ -1845,7 +1859,7 @@ async def coach_chat(request: Request):
             messages.append({"role": h["role"], "content": str(h["content"])})
     messages.append({"role": "user", "content": message})
 
-    c = anthropic.Anthropic(api_key=key)
+    c = anthropic_client(key)
     msg = c.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=1200,
@@ -3413,7 +3427,7 @@ def _run_analysis_job_fast(job_id: str, key: str, prompt: str, quelle: Optional[
     """Schneller Pfad wenn FIT-Daten vorhanden — kein MCP nötig."""
     import re as _re
     try:
-        c = anthropic.Anthropic(api_key=key)
+        c = anthropic_client(key)
         msg = c.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=1500,

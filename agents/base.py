@@ -82,11 +82,24 @@ def load_prompt(name: str, lang: Optional[str] = None, path: Optional[Path] = No
     return text
 
 
+_anthropic: Optional[anthropic.Anthropic] = None
+
+
+def anthropic_client(api_key: str) -> anthropic.Anthropic:
+    """Ein Client pro Prozess statt einer pro Aufruf: der SDK-Client hält den
+    HTTP-Connection-Pool, ein neu gebauter verwirft ihn jedes Mal. Die Aufrufe
+    laufen über asyncio.to_thread, daher der sync Client."""
+    global _anthropic
+    if _anthropic is None or _anthropic.api_key != api_key:
+        _anthropic = anthropic.Anthropic(api_key=api_key)
+    return _anthropic
+
+
 def _client() -> anthropic.Anthropic:
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         raise AgentError("ANTHROPIC_API_KEY ist nicht gesetzt")
-    return anthropic.Anthropic(api_key=key)
+    return anthropic_client(key)
 
 
 def call_agent(

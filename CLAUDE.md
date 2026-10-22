@@ -3,6 +3,9 @@
 ## Ziel
 iPhone-optimierte Progressive Web App (PWA) für den täglichen Triathlon-Coaching-Workflow von Hendrik Sprejz (Castle Triathlon Malbork, 6.9.2026, Zielzeit 10:50h).
 
+## Arbeitsweise (Programmierung)
+- Bei **jeder** Programmieraufgabe zuerst aktuelle Library-/Framework-Doku über den **context7**-MCP-Server holen (`resolve-library-id` → `query-docs`), bevor Code geschrieben oder geändert wird. Gilt für alle Libraries, SDKs und APIs (z.B. `anthropic`, FastAPI, fitdecode, chromadb, fastembed). Nicht nötig bei reinem Refactoring, Debugging von Geschäftslogik oder Code-Review.
+
 ## Architektur
 - **Backend:** Python FastAPI (`app.py`, ein File)
 - **Frontend:** Single HTML-Datei mit Jinja2-Templating (`templates/index.html`), mobile-first (320–390px) mit Desktop-Breakpoint ab 1024px (v2.8.0)
