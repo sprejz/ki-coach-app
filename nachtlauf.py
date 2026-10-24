@@ -12,19 +12,28 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import date, datetime, time as uhrzeit, timedelta
 from zoneinfo import ZoneInfo
 
 BERLIN = ZoneInfo("Europe/Berlin")
 ZIEL_STUNDE = 23
 # Mehr als so viel Vorlauf vor 23 Uhr gilt als Fehlstart (z. B. Cron zu früh) → nichts tun.
 MAX_WARTEN = timedelta(hours=2)
+# Mehr als so viel Verspätung nach 23 Uhr gilt als schon erledigt bzw. tagsüber gestartet
+# (GitHub-Cron kommt oft erst gegen 01:00–02:00 Berlin an, das ist noch im Fenster).
+MAX_VERSPAETET = timedelta(hours=6)
 BASIS_URL = "https://ki-coach-app-production.up.railway.app"
 
 
+def nachtlauf_tag(jetzt: datetime) -> date:
+    """Der Tag, dessen Nacht gerade läuft. Ab Mittag zählt der Tag selbst, davor der
+    Vortag: 01:45 am 24.10. gehört noch zur Nacht vom 23.10."""
+    return (jetzt - timedelta(hours=12)).date()
+
+
 def wartezeit(jetzt: datetime) -> float:
-    """Sekunden bis 23:00 Berlin (0 wenn schon nach 23:00). Negativ = zu früh für heute."""
-    ziel = jetzt.replace(hour=ZIEL_STUNDE, minute=0, second=0, microsecond=0)
+    """Sekunden bis 23:00 Berlin des Nachtlauf-Tags. Null oder negativ = schon fällig."""
+    ziel = datetime.combine(nachtlauf_tag(jetzt), uhrzeit(ZIEL_STUNDE), tzinfo=BERLIN)
     return (ziel - jetzt).total_seconds()
 
 
@@ -45,11 +54,14 @@ def main() -> int:
     if warte > MAX_WARTEN.total_seconds():
         print(f"Berlin ist {jetzt:%H:%M}, zu früh für den Nachtlauf. Nichts zu tun.")
         return 0
+    if warte < -MAX_VERSPAETET.total_seconds():
+        print(f"Berlin ist {jetzt:%d.%m. %H:%M}, Nachtlauf für {nachtlauf_tag(jetzt)} ist zu lange her. Nichts zu tun.")
+        return 0
     if warte > 0:
         print(f"Berlin ist {jetzt:%H:%M}, warte {int(warte)} s bis 23:00.")
         time.sleep(warte)
 
-    tag = datetime.now(BERLIN).date().isoformat()
+    tag = nachtlauf_tag(datetime.now(BERLIN)).isoformat()
     print(f"Nachtlauf für {tag} startet.")
     fehler = []
 
@@ -64,7 +76,7 @@ def main() -> int:
         fehler.append(f"Energiebilanz: {e}")
 
     try:
-        print("Wetter-Notizen:", post("/api/wetter/notizen", timeout=200))
+        print("Wetter-Notizen:", post(f"/api/wetter/notizen?day={tag}", timeout=200))
     except Exception as e:
         fehler.append(f"Wetter-Notizen: {e}")
 

@@ -73,7 +73,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "3.0.21"
+APP_VERSION = "3.0.22"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -3833,7 +3833,7 @@ async def energiebilanz_notiz(day: str):
 WETTER_NOTIZ_ORT = {"name": "Ludwigsfelde", "lat": 52.3, "lon": 13.25}
 WETTER_NOTIZ_TAGE = 14
 # Wie weit zurück der Nachtlauf vergangene Wetter-Notizen sucht. Notizen entstehen nur
-# für heute + 13 Tage, also reicht ein Fenster von rund drei Monaten für alles, was
+# für morgen + 13 Tage, also reicht ein Fenster von rund drei Monaten für alles, was
 # seit Einführung der Funktion angelegt wurde. Bewusst unter TP-Limits für Zeiträume.
 WETTER_NOTIZ_AUFRAEUMEN_TAGE = 89
 
@@ -3901,20 +3901,24 @@ async def _fetch_wetter_notiz_tage() -> list:
 
 
 @app.post("/api/wetter/notizen")
-async def wetter_notizen():
-    """Schreibt je Tag (heute + 13 Tage) eine Wetter-Notiz in den TP-Kalender.
+async def wetter_notizen(day: Optional[str] = None):
+    """Schreibt je Tag (morgen + 13 Tage) eine Wetter-Notiz in den TP-Kalender.
     Gedacht für den Nachtlauf: jede Nacht wird die Prognose aktualisiert, eine
     bestehende Notiz nur überschrieben, wenn sich der Inhalt geändert hat. Ein Tag
     mit unplausiblen Daten bekommt keine Notiz, sondern landet in `fehler`.
-    Wetter-Notizen vergangener Tage (vor heute) werden entfernt: eine Prognose für
-    einen Tag, der schon vorbei ist, hat im Kalender nichts mehr verloren."""
+    `day` ist der Tag, dessen Nacht läuft (Default: heute). Dieser Tag ist mit dem
+    Nachtlauf vorbei: seine Wetter-Notiz und die aller früheren Tage werden entfernt,
+    geschrieben wird erst ab dem Folgetag."""
     if not os.environ.get("TP_MCP_URL"):
         raise HTTPException(400, T["err_tp_url_missing"])
+    try:
+        heute = date.fromisoformat(day) if day else date.today()
+    except ValueError:
+        raise HTTPException(400, "day als YYYY-MM-DD")
     try:
         tage = await _fetch_wetter_notiz_tage()
     except Exception as e:
         raise HTTPException(502, f"Wetterabruf fehlgeschlagen: {e}")
-    heute = date.today()
     try:
         bestehend = await call_tp_mcp("tp_list_notes", {
             "start_date": heute.isoformat(),
@@ -3926,7 +3930,7 @@ async def wetter_notizen():
     try:
         vergangen = await call_tp_mcp("tp_list_notes", {
             "start_date": (heute - timedelta(days=WETTER_NOTIZ_AUFRAEUMEN_TAGE)).isoformat(),
-            "end_date": (heute - timedelta(days=1)).isoformat()})
+            "end_date": heute.isoformat()})
     except Exception as e:
         vergangen = None
         fehler.append(f"Aufräumen: TP-Abfrage fehlgeschlagen: {e}")
@@ -3937,7 +3941,7 @@ async def wetter_notizen():
         text = str(n.get("description") or "")
         # Nur eigene Prognose-Notizen: Titel beginnt mit „Wetter" UND der Text stammt
         # von der Prognose (Quellenzeile). Alles andere im Kalender bleibt unberührt.
-        if not titel.startswith("Wetter") or "Prognose" not in text or not datum or datum >= heute.isoformat():
+        if not titel.startswith("Wetter") or "Prognose" not in text or not datum or datum > heute.isoformat():
             continue
         try:
             await call_tp_mcp("tp_delete_note", {"note_id": str(n.get("id"))})
@@ -3947,6 +3951,8 @@ async def wetter_notizen():
         geloescht.append({"datum": datum, "titel": titel})
     for w in tage:
         datum = w["datum"]
+        if datum <= heute.isoformat():
+            continue
         grund = _wetter_plausibel(w, WETTER_NOTIZ_ORT["lat"])
         if grund:
             fehler.append(f"{datum}: {grund}")

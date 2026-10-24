@@ -3,5 +3,5 @@
 # und mcp+httpx dort mitzuschleppen würde das Image ohne Nutzen vergrößern.
 # httpx ist bewusst nicht gepinnt: mcp braucht eine neuere Version als das
 # httpx==0.27.0 aus requirements.txt und bringt sie selbst mit.
-mcp>=1.28.0
+mcp>=1.28.0,<2
 httpx
