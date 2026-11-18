@@ -1,0 +1,28 @@
+name: Feiertage eintragen (jährlich)
+
+# Trägt am 1. Januar die Brandenburger Feiertage des laufenden Jahres als
+# TP-Kalendernotizen ein (Endpoint: POST /api/feiertage/notizen, siehe feiertage.py).
+# Cron 06:00 UTC = 07:00 Berlin. GitHub verzögert Cron-Läufe mitunter; der Endpoint
+# ist idempotent, deshalb ist ein manueller Start über workflow_dispatch jederzeit gefahrlos.
+on:
+  schedule:
+    - cron: "0 6 1 1 *"
+  workflow_dispatch:
+    inputs:
+      jahr:
+        description: "Jahr (leer = laufendes Jahr)"
+        required: false
+        default: ""
+
+jobs:
+  feiertage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Feiertage in TP eintragen
+        env:
+          JAHR: ${{ github.event.inputs.jahr }}
+        run: |
+          URL="https://ki-coach-app-production.up.railway.app/api/feiertage/notizen"
+          if [ -n "$JAHR" ]; then URL="$URL?year=$JAHR"; fi
+          curl -sS --fail-with-body -X POST "$URL"

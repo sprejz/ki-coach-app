@@ -26,6 +26,7 @@ from training_load import (  # noqa: E402
     wochenstruktur,
 )
 from translations import TRANSLATIONS  # noqa: E402
+import feiertage  # noqa: E402
 import strava  # noqa: E402
 import wissensbasis  # noqa: E402
 
@@ -1074,6 +1075,16 @@ for _n in (1, 100, 1500, 60_000):
         pruefe(False, str(_e))
     finally:
         _signal.alarm(0)
+
+# ── Feiertage (feiertage.py) ──────────────────────────────────────────────────
+for _jahr, _ostern in [(2024, date(2024, 3, 31)), (2025, date(2025, 4, 20)), (2026, date(2026, 4, 5)),
+                       (2027, date(2027, 3, 28)), (2030, date(2030, 4, 21))]:
+    pruefe(feiertage.ostersonntag(_jahr) == _ostern, f"ostersonntag({_jahr}) == {_ostern}")
+_ft26 = feiertage.feiertage_brandenburg(2026)
+pruefe(len(_ft26) == 12, "Brandenburg 2026: zwölf Feiertage")
+pruefe(all(f.datum.year == 2026 for f in _ft26), "Brandenburg 2026: alle Daten im Jahr")
+pruefe(any(f.datum == date(2026, 5, 14) and "Himmelfahrt" in f.titel for f in _ft26), "Himmelfahrt 2026 am 14.05.")
+pruefe(not any("Fronleichnam" in f.titel for f in _ft26), "Fronleichnam nicht in Brandenburg")
 
 print(f"\n{'=' * 40}")
 if fehler:

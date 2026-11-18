@@ -32,6 +32,7 @@ from training_load import (
 from translations import TRANSLATIONS
 import strava
 import energiebilanz
+import feiertage
 import youtube
 import wissensbasis
 
@@ -73,7 +74,7 @@ if _AGENTS_IMPORTABLE:
         "Schwimmen": analyst_swim.run,
     }
 
-APP_VERSION = "3.0.22"
+APP_VERSION = "3.0.23"
 APP_LANG = os.environ.get("APP_LANG", "de")
 T = TRANSLATIONS.get(APP_LANG, TRANSLATIONS["de"])
 logger = logging.getLogger(__name__)
@@ -3970,6 +3971,38 @@ async def wetter_notizen(day: Optional[str] = None):
             continue
         ergebnis.append({"datum": datum, "aktion": aktion, "titel": titel})
     return {"tage": ergebnis, "geloescht": geloescht, "fehler": fehler}
+
+
+@app.post("/api/feiertage/notizen")
+async def feiertage_notizen(year: Optional[int] = None):
+    """Trägt die Brandenburger Feiertage eines Jahres als TP-Kalendernotizen ein.
+    Gedacht für den Jahresjob am 1. Januar (GitHub Actions). Eine Notiz mit gleichem
+    Datum und Titel existiert schon → sie bleibt unberührt, der Lauf ist also
+    beliebig oft wiederholbar. `year` ist optional (Default: laufendes Jahr)."""
+    if not os.environ.get("TP_MCP_URL"):
+        raise HTTPException(400, T["err_tp_url_missing"])
+    jahr = year or date.today().year
+    if not 2000 <= jahr <= 2100:
+        raise HTTPException(400, "year zwischen 2000 und 2100")
+    angelegt, vorhanden, fehler = [], [], []
+    for f in feiertage.feiertage_brandenburg(jahr):
+        datum = f.datum.isoformat()
+        try:
+            bestehend = await call_tp_mcp("tp_list_notes", {"start_date": datum, "end_date": datum})
+        except Exception as e:
+            fehler.append(f"{datum} (Abfrage): {e}")
+            continue
+        notizen = bestehend.get("notes", []) if isinstance(bestehend, dict) else (bestehend or [])
+        if any(str(n.get("title") or "") == f.titel for n in notizen):
+            vorhanden.append(datum)
+            continue
+        try:
+            await call_tp_mcp("tp_create_note", {"date": datum, "title": f.titel, "description": f.beschreibung})
+        except Exception as e:
+            fehler.append(f"{datum}: {e}")
+            continue
+        angelegt.append({"datum": datum, "titel": f.titel})
+    return {"jahr": jahr, "angelegt": angelegt, "vorhanden": vorhanden, "fehler": fehler}
 
 
 @app.post("/api/admin/backfill-weather")
